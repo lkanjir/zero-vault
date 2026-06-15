@@ -1,0 +1,79 @@
+services:
+
+  app-db:
+    image: postgres:18
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${METADATA_DB_NAME:-zerovault}
+      POSTGRES_USER: ${METADATA_DB_USER:-api}
+      POSTGRES_PASSWORD: ${METADATA_DB_PASSWORD}
+
+    ports:
+      - "127.0.0.1:5432:5432"
+
+    volumes:
+      - app_db_data:/var/lib/postgresql
+
+  keycloak-db:
+    image: postgres:18
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${KEYCLOAK_DB_SCHEMA_NAME:-keycloak}
+      POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+
+    volumes:
+      - "keycloak_db_data:/var/lib/postgresql"
+
+    ports:
+      - "127.0.0.1:5433:5433"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6.3 
+    restart: unless-stopped
+
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5433/${KEYCLOAK_DB_SCHEMA_NAME}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_HEALTH_ENABLED: true
+      KC_METRICS_ENABLED: true
+
+    ports:
+      - "127.0.0.1:8080:8080"
+    
+    depends_on:
+      - keycloak-db
+
+  garage:
+    image: dxflrs/garage:v2.3.0
+    restart: unless-stopped
+
+    environment:
+      GARAGE_DEFAULT_ACCESS_KEY: ${GARAGE_ACCESS_KEY}
+      GARAGE_DEFAULT_SECRET_KEY: ${GARAGE_SECRET_KEY}
+      GARAGE_DEFAULT_BUCKET: ${GARAGE_DEFAULT_BUCKET:-zero-vault}
+
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
+
+    ports:
+      - "127.0.0.1:3900:3900"
+      - "127.0.0.1:3901:3901"
+      - "127.0.0.1:3902:3902"
+      - "127.0.0.1:3903:3903"
+
+    volumes:
+      - "./garage.toml:/etc/garage.toml:ro"
+      - "garage-meta:/var/lib/garage/meta"
+      - "garage-data:/var/lib/garage/data"
+      
+volumes:
+  app_db_data:
+  keycloak_db_data:
+  garage-meta:
+  garage-data:
