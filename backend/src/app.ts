@@ -1,7 +1,7 @@
 import express from 'express';
+import { storageRouter } from './storage/storage.routes.js';
 
 export const app = express();
 
-app.get('/health', (_request, response) => {
-  response.status(200).json({ status: 'ok' });
-});
+app.use(express.json());
+app.use('/uploads',storageRouter);
