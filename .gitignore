@@ -1,8 +1,57 @@
+# Env / secrets
 .env
+.env.*
+!.env.example
+!**/.env.example
+
+# S3 config
 garage.toml
+!garage.toml.template
+
+# Docs
 *.pdf
 
+# Deps
 node_modules/
+
+# Build
 dist/
 coverage/
+tmp/
+out-tsc/
+bazel-out/
 *.tsbuildinfo
+
+# Logs
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+libpeerconnection.log
+testem.log
+
+# IDEs and editors
+.idea/
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+**/.vscode/*
+!**/.vscode/settings.json
+!**/.vscode/tasks.json
+!**/.vscode/launch.json
+!**/.vscode/extensions.json
+!**/.vscode/mcp.json
+.history/
+
+# Miscellaneous
+**/.angular/
+.sass-cache/
+connect.lock
+typings/
+__screenshots__/
+
+# System files
+.DS_Store
+Thumbs.db
