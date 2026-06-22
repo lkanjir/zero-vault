@@ -74,6 +74,24 @@ services:
       - "garage-meta:/var/lib/garage/meta"
       - "garage-data:/var/lib/garage/data"
       
+  s3manager:
+    image: cloudlena/s3manager:latest
+    restart: unless-stopped
+
+    environment:
+      ACCESS_KEY_ID: ${GARAGE_ACCESS_KEY}
+      SECRET_ACCESS_KEY: ${GARAGE_SECRET_KEY}
+      ENDPOINT: garage:3900
+      REGION: garage
+      BUCKET_NAME: ${GARAGE_DEFAULT_BUCKET:-zero-vault}
+      USE_SSL: "false"
+      
+    ports:
+      - "127.0.0.1:9090:8080"
+
+    depends_on:
+      - garage
+
 volumes:
   app_db_data:
   keycloak_db_data:
