@@ -12,6 +12,7 @@ export class S3ObjectStorage {
             accessKeyId: config.s3.accessKey,
             secretAccessKey: config.s3.secretKey
         },
+        requestChecksumCalculation: 'WHEN_REQUIRED',
     })
 
     async createPresignedUrl(params: SignedUrlParams) : Promise<string> {
