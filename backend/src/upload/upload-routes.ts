@@ -1,18 +1,15 @@
 import express from 'express';
 import { S3ObjectStorage } from '../s3-object-storage.js';
 import { StorageService } from './upload-service.js';
-import * as z from 'zod';
 import { validateBody } from '../shared/validation/validate-body.js';
+import { uploadRequestSchema } from './upload-schema.js';
+import { UploadIntentRepository } from './upload-intent-repository.js';
 
 export const storageRouter = express.Router();
 
 const s3 = new S3ObjectStorage();
-const service = new StorageService(s3);
-
-const uploadRequestSchema = z.object({
-  fileName: z.string().min(1).max(2000),
-  contentType: z.string().min(1).max(255),
-});
+const intentRepository = new UploadIntentRepository();
+const service = new StorageService(s3, intentRepository);
 
 storageRouter.post(
   '/presign',
