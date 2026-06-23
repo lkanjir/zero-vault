@@ -8,6 +8,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { config } from '../config.js';
 import type { ObjectMetadata, ObjectStorage, SignedUrlParams } from './object-storage.js';
 import { headSchema } from './head-schema.js';
+import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
 
 export class S3ObjectStorage implements ObjectStorage {
   private readonly client = new S3Client({
@@ -22,10 +23,11 @@ export class S3ObjectStorage implements ObjectStorage {
   });
 
   async createPresignedUrl(params: SignedUrlParams): Promise<string> {
+    const contentType = normalizedContentType(params.contentType);
     const command = new PutObjectCommand({
       Bucket: config.s3.bucket,
       Key: params.objectKey,
-      ContentType: params.contentType,
+      ContentType: contentType,
     });
 
     return getSignedUrl(this.client, command, { expiresIn: params.expiresInSeconds });
@@ -47,10 +49,12 @@ export class S3ObjectStorage implements ObjectStorage {
       throw new Error('Invalid object metadata response', { cause: result.error });
     }
 
+    const contentType = normalizedContentType(result.data.ContentType);
+
     return {
       objectKey: key,
       size: result.data.ContentLength,
-      contentType: result.data.ContentType,
+      contentType: contentType,
       etag: result.data.ETag,
     };
   }
