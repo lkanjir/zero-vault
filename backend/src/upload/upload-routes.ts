@@ -2,8 +2,9 @@ import express from 'express';
 import { S3ObjectStorage } from '../storage/s3-object-storage.js';
 import { StorageService } from './upload-service.js';
 import { validateBody } from '../shared/validation/validate-body.js';
-import { uploadRequestSchema } from './upload-schema.js';
+import { completeUploadSchema, uploadRequestSchema } from './validation-schemas.js';
 import { UploadIntentRepository } from './upload-intent-repository.js';
+import { validateParams } from '../shared/validation/validate-params.js';
 
 export const storageRouter = express.Router();
 
@@ -16,5 +17,13 @@ storageRouter.post(
   validateBody(uploadRequestSchema, async (_req, res, body) => {
     const result = await service.createUpload(body);
     res.status(201).json(result);
+  }),
+);
+
+storageRouter.post(
+  '/:uploadId/complete',
+  validateParams(completeUploadSchema, async (_req, res, params) => {
+    const result = await service.completeUpload(params.uploadId);
+    res.status(200).json(result);
   }),
 );

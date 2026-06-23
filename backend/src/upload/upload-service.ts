@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { UploadCompleteResponse, UploadResponse } from './dto.js';
-import type { UploadRequestBody } from './upload-schema.js';
+import type { UploadRequestBody } from './validation-schemas.js';
 import type { UploadIntentRepository } from './upload-intent-repository.js';
 import type { UploadIntent } from './upload-intent.js';
 import type { ObjectStorage } from '../storage/object-storage.js';
@@ -17,7 +17,7 @@ export class StorageService {
 
   async createUpload(request: UploadRequestBody): Promise<UploadResponse> {
     const uploadId = randomUUID();
-    const objectKey = `uploads/${randomUUID()}-${request.fileName}`;
+    const objectKey = `uploads/pending/${uploadId}/${randomUUID()}`;
 
     const intent: UploadIntent = {
       id: uploadId,
@@ -48,7 +48,7 @@ export class StorageService {
     return response;
   }
 
-  completeUpload(uploadId: string): UploadCompleteResponse {
+  async completeUpload(uploadId: string): Promise<UploadCompleteResponse> {
     const pendingIntent = this.repo.findById(uploadId);
 
     if (!pendingIntent) {
@@ -66,15 +66,29 @@ export class StorageService {
       throw new ConflictError('Upload intent expired');
     }
 
+    const savedObject = await this.storage.headObject(pendingIntent.objectKey);
+
+    if (savedObject.objectKey !== pendingIntent.objectKey) {
+      throw new ConflictError('Uploaded object key does not match intent');
+    }
+
+    if (savedObject.size !== pendingIntent.size) {
+      throw new ConflictError('Uploaded object size does not match intent');
+    }
+
+    if (savedObject.contentType !== pendingIntent.contentType) {
+      throw new ConflictError('Uploaded object content type does not match intent');
+    }
+
     pendingIntent.status = 'completed';
     this.repo.update(pendingIntent);
 
     const result: UploadCompleteResponse = {
       uploadId: pendingIntent.id,
-      objectKey: pendingIntent.objectKey,
+      objectKey: savedObject.objectKey,
       fileName: pendingIntent.fileName,
-      contentType: pendingIntent.fileName,
-      size: pendingIntent.size,
+      contentType: savedObject.contentType,
+      size: savedObject.size,
       status: pendingIntent.status,
     };
 

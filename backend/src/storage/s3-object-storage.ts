@@ -42,17 +42,16 @@ export class S3ObjectStorage implements ObjectStorage {
   }
 
   private mapToMetadata(key: string, response: HeadObjectCommandOutput): ObjectMetadata {
-    const result = headSchema.safeParse({ key, ...response });
+    const result = headSchema.safeParse(response);
     if (!result.success) {
-      console.error(result.error);
-      throw new Error('Metadata mapping error');
+      throw new Error('Invalid object metadata response', { cause: result.error });
     }
 
     return {
-      objectKey: result.data.objectKey,
-      size: result.data.size,
-      contentType: result.data.contentType,
-      etag: result.data.etag,
+      objectKey: key,
+      size: result.data.ContentLength,
+      contentType: result.data.ContentType,
+      etag: result.data.ETag,
     };
   }
 }

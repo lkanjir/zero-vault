@@ -1,3 +1,5 @@
+import type { UploadIntentStatus } from './upload-intent.js';
+
 export type UploadResponse = {
   uploadId: string;
   objectKey: string;
@@ -11,5 +13,5 @@ export type UploadCompleteResponse = {
   fileName: string;
   contentType: string;
   size: number;
-  status: string;
+  status: UploadIntentStatus;
 };
