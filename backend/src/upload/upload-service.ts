@@ -52,7 +52,7 @@ export class UploadService {
   }
 
   async completeUpload(uploadId: string): Promise<UploadCompleteResponse> {
-    const pendingIntent = await this.repo.findById(uploadId);
+    const pendingIntent = await this.repo.findByUploadId(uploadId);
 
     if (!pendingIntent) {
       throw new NotFoundError("Upload intent doesn't exist");

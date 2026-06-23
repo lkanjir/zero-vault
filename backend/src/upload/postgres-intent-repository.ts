@@ -2,10 +2,10 @@ import type { UploadIntentRepository } from './upload-intent-repository.js';
 import type { UploadIntent } from './upload-intent.js';
 import { db } from '../db/db-client.js';
 import { uploadIntents } from '../db/generated/schema.js';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 export class PostgresIntentRepository implements UploadIntentRepository {
-  async findById(uploadId: string): Promise<UploadIntent | null> {
+  async findByUploadId(uploadId: string): Promise<UploadIntent | null> {
     const rows = await db
       .select()
       .from(uploadIntents)
@@ -22,16 +22,19 @@ export class PostgresIntentRepository implements UploadIntentRepository {
   }
 
   async update(intent: UploadIntent): Promise<void> {
-    await db.update(uploadIntents).set(this.toUpdate(intent))
+    await db
+      .update(uploadIntents)
+      .set(this.toUpdate(intent))
+      .where(and(eq(uploadIntents.uploadId, intent.uploadId), eq(uploadIntents.status, 'pending')));
   }
 
-  async deleteById(uploadId: string): Promise<boolean> {
-    const rows = await db.delete(uploadIntents).where(eq(uploadIntents.uploadId, uploadId )).returning();
-    if(rows){
-      return true;
-    }
+  async deleteByUploadId(uploadId: string): Promise<boolean> {
+    const rows = await db
+      .delete(uploadIntents)
+      .where(eq(uploadIntents.uploadId, uploadId))
+      .returning();
 
-    else return false;
+    return rows.length > 0;
   }
 
   private toDomain(row: typeof uploadIntents.$inferSelect): UploadIntent {
@@ -60,10 +63,10 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     };
   }
 
-  private toUpdate(intent: UploadIntent): Partial<typeof uploadIntents.$inferInsert>{
+  private toUpdate(intent: UploadIntent): Partial<typeof uploadIntents.$inferInsert> {
     return {
       status: intent.status,
-      completedAt: intent.completedAt?.toISOString()
-    }
+      completedAt: intent.completedAt?.toISOString(),
+    };
   }
 }
