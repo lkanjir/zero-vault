@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { UploadUrlResponse, UploadUrlRequest } from './ObjectStorage.js';
-import type { S3ObjectStorage } from '../S3ObjectStorage.js';
+import type { UploadUrlResponse, UploadUrlRequest } from './object-storage.js';
+import type { S3ObjectStorage } from '../s3-object-storage.js';
 
 export class StorageService {
   constructor(private readonly storage: S3ObjectStorage) {}
