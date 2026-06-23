@@ -48,7 +48,7 @@ export class StorageService {
     return response;
   }
 
-  completeUplaod(uploadId: string): UploadCompleteResponse {
+  completeUpload(uploadId: string): UploadCompleteResponse {
     const pendingIntent = this.repo.findById(uploadId);
 
     if (!pendingIntent) {
