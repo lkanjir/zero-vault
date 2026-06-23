@@ -10,6 +10,7 @@ garage.toml
 
 # Docs
 *.pdf
+known-issues.md
 
 # Deps
 node_modules/

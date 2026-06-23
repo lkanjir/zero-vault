@@ -2,6 +2,7 @@ import {
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
+  S3ServiceException,
   type HeadObjectCommandOutput,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -9,6 +10,7 @@ import { config } from '../config.js';
 import type { ObjectMetadata, ObjectStorage, SignedUrlParams } from './object-storage.js';
 import { headSchema } from './head-schema.js';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
+import { NotFoundError } from '../shared/errors/not-found-error.js';
 
 export class S3ObjectStorage implements ObjectStorage {
   private readonly client = new S3Client({
@@ -39,8 +41,19 @@ export class S3ObjectStorage implements ObjectStorage {
       Key: objectKey,
     });
 
-    const response = await this.client.send(command);
-    return this.mapToMetadata(objectKey, response);
+    try {
+      const response = await this.client.send(command);
+      return this.mapToMetadata(objectKey, response);
+    } catch (error) {
+      if (
+        error instanceof S3ServiceException &&
+        (error.name === 'NotFound' || error.$metadata.httpStatusCode === 404)
+      ) {
+        throw new NotFoundError('Upload object not found');
+      }
+
+      throw error;
+    }
   }
 
   private mapToMetadata(key: string, response: HeadObjectCommandOutput): ObjectMetadata {
