@@ -3,13 +3,13 @@ import { S3ObjectStorage } from '../storage/s3-object-storage.js';
 import { UploadService } from './upload-service.js';
 import { validateBody } from '../shared/validation/validate-body.js';
 import { completeUploadSchema, uploadRequestSchema } from './validation-schemas.js';
-import { UploadIntentRepository } from './upload-intent-repository.js';
+import { PostgresIntentRepository } from './postgres-intent-repository.js';
 import { validateParams } from '../shared/validation/validate-params.js';
 
 export const storageRouter = express.Router();
 
 const s3 = new S3ObjectStorage();
-const intentRepository = new UploadIntentRepository();
+const intentRepository = new PostgresIntentRepository();
 const service = new UploadService(s3, intentRepository);
 
 storageRouter.post(

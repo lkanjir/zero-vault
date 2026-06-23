@@ -13,6 +13,7 @@ export default defineConfig({
   dbCredentials: {
     url: dbUrl,
   },
+  schemaFilter: ['public'],
   introspect: {
     casing: 'camel',
   },

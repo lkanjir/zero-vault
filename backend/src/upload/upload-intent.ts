@@ -1,5 +1,5 @@
 export type UploadIntent = {
-  id: string;
+  uploadId: string;
   objectKey: string;
   fileName: string;
   contentType: string;
@@ -7,6 +7,7 @@ export type UploadIntent = {
   status: UploadIntentStatus;
   createdAt: Date;
   expiredAt: Date;
+  completedAt?: Date | null;
 };
 
 export type UploadIntentStatus = 'pending' | 'completed' | 'expired';

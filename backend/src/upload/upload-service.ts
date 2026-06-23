@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { UploadCompleteResponse, UploadResponse } from './dto.js';
 import type { UploadRequestBody } from './validation-schemas.js';
-import type { UploadIntentRepository } from './upload-intent-repository.js';
 import type { UploadIntent } from './upload-intent.js';
 import type { ObjectStorage } from '../storage/object-storage.js';
 import { ConflictError } from '../shared/errors/conflict-error.js';
 import { NotFoundError } from '../shared/errors/not-found-error.js';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
+import type { UploadIntentRepository } from './upload-intent-repository.js';
 
 export class UploadService {
   private readonly EXPIRES_IN_SECONDS = 60;
@@ -23,7 +23,7 @@ export class UploadService {
     const contentType = normalizedContentType(request.contentType);
 
     const intent: UploadIntent = {
-      id: uploadId,
+      uploadId: uploadId,
       objectKey: objectKey,
       fileName: request.fileName,
       contentType: contentType,
@@ -39,7 +39,7 @@ export class UploadService {
       expiresInSeconds: this.EXPIRES_IN_SECONDS,
     });
 
-    this.repo.save(intent);
+    await this.repo.save(intent);
 
     const response: UploadResponse = {
       uploadId,
@@ -52,7 +52,7 @@ export class UploadService {
   }
 
   async completeUpload(uploadId: string): Promise<UploadCompleteResponse> {
-    const pendingIntent = this.repo.findById(uploadId);
+    const pendingIntent = await this.repo.findById(uploadId);
 
     if (!pendingIntent) {
       throw new NotFoundError("Upload intent doesn't exist");
@@ -64,7 +64,7 @@ export class UploadService {
 
     if (pendingIntent.expiredAt.getTime() < Date.now()) {
       pendingIntent.status = 'expired';
-      this.repo.update(pendingIntent);
+      await this.repo.update(pendingIntent);
 
       throw new ConflictError('Upload intent expired');
     }
@@ -84,10 +84,11 @@ export class UploadService {
     }
 
     pendingIntent.status = 'completed';
-    this.repo.update(pendingIntent);
+    pendingIntent.completedAt = new Date();
+    await this.repo.update(pendingIntent);
 
     const result: UploadCompleteResponse = {
-      uploadId: pendingIntent.id,
+      uploadId: pendingIntent.uploadId,
       objectKey: savedObject.objectKey,
       fileName: pendingIntent.fileName,
       contentType: savedObject.contentType,
