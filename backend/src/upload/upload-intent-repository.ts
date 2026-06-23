@@ -1,4 +1,4 @@
-import type { UploadIntent } from './object-storage.js';
+import type { UploadIntent } from './upload-intent.js';
 
 export class UploadIntentRepository {
   private readonly intents = new Map<string, UploadIntent>();

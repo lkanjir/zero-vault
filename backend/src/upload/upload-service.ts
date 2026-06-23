@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import type { S3ObjectStorage } from '../s3-object-storage.js';
-import type { UploadResponse } from './dto.js';
+import type { UploadCompleteResponse, UploadResponse } from './dto.js';
 import type { UploadRequestBody } from './upload-schema.js';
 import type { UploadIntentRepository } from './upload-intent-repository.js';
-import type { UploadIntent } from './object-storage.js';
+import type { UploadIntent } from './upload-intent.js';
+import type { ObjectStorage } from '../storage/object-storage.js';
+import { ConflictError } from '../shared/errors/conflict-error.js';
+import { NotFoundError } from '../shared/errors/not-found-error.js';
 
 export class StorageService {
   private readonly EXPIRES_IN_SECONDS = 60;
 
   constructor(
-    private readonly storage: S3ObjectStorage,
+    private readonly storage: ObjectStorage,
     private readonly repo: UploadIntentRepository,
   ) {}
 
@@ -44,5 +46,38 @@ export class StorageService {
     };
 
     return response;
+  }
+
+  completeUplaod(uploadId: string): UploadCompleteResponse {
+    const pendingIntent = this.repo.findById(uploadId);
+
+    if (!pendingIntent) {
+      throw new NotFoundError("Upload intent doesn't exist");
+    }
+
+    if (pendingIntent.status !== 'pending') {
+      throw new ConflictError('Upload intent is not pending');
+    }
+
+    if (pendingIntent.expiredAt.getTime() < Date.now()) {
+      pendingIntent.status = 'expired';
+      this.repo.update(pendingIntent);
+
+      throw new ConflictError('Upload intent expired');
+    }
+
+    pendingIntent.status = 'completed';
+    this.repo.update(pendingIntent);
+
+    const result: UploadCompleteResponse = {
+      uploadId: pendingIntent.id,
+      objectKey: pendingIntent.objectKey,
+      fileName: pendingIntent.fileName,
+      contentType: pendingIntent.fileName,
+      size: pendingIntent.size,
+      status: pendingIntent.status,
+    };
+
+    return result;
   }
 }

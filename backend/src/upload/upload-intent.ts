@@ -1,9 +1,3 @@
-export type SignedUrlParams = {
-  objectKey: string;
-  contentType: string;
-  expiresInSeconds: number;
-};
-
 export type UploadIntent = {
   id: string;
   objectKey: string;

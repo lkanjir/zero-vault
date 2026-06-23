@@ -1,5 +1,5 @@
 import express from 'express';
-import { S3ObjectStorage } from '../s3-object-storage.js';
+import { S3ObjectStorage } from '../storage/s3-object-storage.js';
 import { StorageService } from './upload-service.js';
 import { validateBody } from '../shared/validation/validate-body.js';
 import { uploadRequestSchema } from './upload-schema.js';
