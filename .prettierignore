@@ -9,3 +9,4 @@
 
 garage.toml
 *.pdf
+**/src/db/generated

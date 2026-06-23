@@ -10,6 +10,7 @@ const envSchema = z.object({
   S3_BUCKET: z.string().min(1),
   S3_ACCESS_KEY: z.string().min(1),
   S3_SECRET_KEY: z.string().min(1),
+  DATABASE_URL: z.string().min(1),
 });
 
 const result = envSchema.safeParse(process.env);
@@ -29,5 +30,8 @@ export const config = {
     bucket: env.S3_BUCKET,
     accessKey: env.S3_ACCESS_KEY,
     secretKey: env.S3_SECRET_KEY,
+  },
+  db: {
+    connectionString: env.DATABASE_URL,
   },
 } as const;
