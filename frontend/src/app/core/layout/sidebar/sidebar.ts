@@ -9,15 +9,18 @@ import { Icon } from '../../icon/icon';
   styleUrl: './sidebar.css',
 })
 export class Sidebar {
-uploadFolder() {
-throw new Error('Method not implemented.');
-}
-uploadFile() {
-throw new Error('Method not implemented.');
-}
-createFolder() {
-throw new Error('Method not implemented.');
-}
+  onFileSelected($event: Event) {
+    const input = $event.target as HTMLInputElement;
+    const files = input.files;
+
+    console.log(files)
+  }
+  uploadFolder() {
+    throw new Error('Method not implemented.');
+  }
+  createFolder() {
+    throw new Error('Method not implemented.');
+  }
   isMenuOpen = signal<boolean>(false);
 
   toggleNewMenu() {

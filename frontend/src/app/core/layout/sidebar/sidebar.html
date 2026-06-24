@@ -16,7 +16,9 @@
       <span>New</span>
 
       @if (isMenuOpen()) {
-        <div class="absolute left-0 top-full right-0 z-10 mt-2 bg-background p-2 rounded-panel flex flex-col items-center">
+        <div
+          class="absolute left-0 top-full right-0 z-10 mt-2 bg-background p-2 rounded-panel flex flex-col items-center"
+        >
           <button
             type="button"
             (click)="createFolder()"
@@ -24,12 +26,11 @@
           >
             <app-icon [name]="'create-folder'" />
             <span>Create folder</span>
-          
           </button>
 
           <button
             type="button"
-            (click)="uploadFile()"
+            (click)="fileInput.click()"
             class="cursor-pointer grid grid-cols-[24px_1fr] items-center gap-2"
           >
             <app-icon [name]="'file-upload'" />
@@ -46,6 +47,8 @@
           </button>
         </div>
       }
+
+      <input #fileInput type="file" class="hidden" multiple (change)="onFileSelected($event)"/>
     </div>
 
     <a routerLink="/files" class="grid grid-cols-[24px_1fr] items-center gap-2">
