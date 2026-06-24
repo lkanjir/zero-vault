@@ -9,12 +9,9 @@ if (!dbUrl) {
 
 export default defineConfig({
   dialect: 'postgresql',
-  out: './src/db/generated',
+  schema: './src/db/schema.ts',
+  out: './drizzle',
   dbCredentials: {
     url: dbUrl,
-  },
-  schemaFilter: ['public'],
-  introspect: {
-    casing: 'camel',
   },
 });

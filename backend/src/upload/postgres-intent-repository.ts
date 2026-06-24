@@ -1,7 +1,7 @@
 import type { UploadIntentRepository } from './upload-intent-repository.js';
 import type { UploadIntent } from './upload-intent.js';
 import { db } from '../db/db-client.js';
-import { uploadIntents } from '../db/generated/schema.js';
+import { uploadIntents } from '../db/schema.js';
 import { and, eq } from 'drizzle-orm';
 
 export class PostgresIntentRepository implements UploadIntentRepository {
@@ -59,14 +59,14 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       contentType: intent.contentType,
       sizeBytes: intent.size,
       status: intent.status,
-      expiresAt: intent.expiredAt.toISOString(),
+      expiresAt: intent.expiredAt,
     };
   }
 
   private toUpdate(intent: UploadIntent): Partial<typeof uploadIntents.$inferInsert> {
     return {
       status: intent.status,
-      completedAt: intent.completedAt?.toISOString(),
+      completedAt: intent.completedAt,
     };
   }
 }

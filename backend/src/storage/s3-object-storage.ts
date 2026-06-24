@@ -18,8 +18,8 @@ export class S3ObjectStorage implements ObjectStorage {
     endpoint: config.s3.endpoint,
     forcePathStyle: true,
     credentials: {
-      accessKeyId: config.s3.accessKey,
-      secretAccessKey: config.s3.secretKey,
+      accessKeyId: config.s3.accessKeyId,
+      secretAccessKey: config.s3.secretAccessKey,
     },
     requestChecksumCalculation: 'WHEN_REQUIRED',
   });
@@ -27,7 +27,7 @@ export class S3ObjectStorage implements ObjectStorage {
   async createPresignedUrl(params: SignedUrlParams): Promise<string> {
     const contentType = normalizedContentType(params.contentType);
     const command = new PutObjectCommand({
-      Bucket: config.s3.bucket,
+      Bucket: config.s3.buckets.quarantine,
       Key: params.objectKey,
       ContentType: contentType,
     });
@@ -37,7 +37,7 @@ export class S3ObjectStorage implements ObjectStorage {
 
   async headObject(objectKey: string): Promise<ObjectMetadata> {
     const command = new HeadObjectCommand({
-      Bucket: config.s3.bucket,
+      Bucket: config.s3.buckets.quarantine,
       Key: objectKey,
     });
 
