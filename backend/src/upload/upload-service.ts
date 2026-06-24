@@ -29,6 +29,7 @@ export class UploadService {
       contentType: contentType,
       size: request.size,
       status: 'pending',
+      sha256: request.sha256,
       createdAt: new Date(),
       expiredAt: new Date(Date.now() + this.EXPIRES_IN_SECONDS * 1000),
     };
@@ -37,6 +38,7 @@ export class UploadService {
       objectKey: objectKey,
       contentType: contentType,
       expiresInSeconds: this.EXPIRES_IN_SECONDS,
+      sha256: request.sha256
     });
 
     await this.repo.save(intent);

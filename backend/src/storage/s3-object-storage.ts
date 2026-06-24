@@ -30,6 +30,7 @@ export class S3ObjectStorage implements ObjectStorage {
       Bucket: config.s3.buckets.quarantine,
       Key: params.objectKey,
       ContentType: contentType,
+      ChecksumSHA256: params.sha256
     });
 
     return getSignedUrl(this.client, command, { expiresIn: params.expiresInSeconds });

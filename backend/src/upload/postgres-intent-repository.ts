@@ -58,6 +58,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       fileName: intent.fileName,
       contentType: intent.contentType,
       sizeBytes: intent.size,
+      expectedSha256: intent.sha256,
       status: intent.status,
       expiresAt: intent.expiredAt,
     };

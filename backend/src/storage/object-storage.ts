@@ -2,6 +2,7 @@ export type SignedUrlParams = {
   objectKey: string;
   contentType: string;
   expiresInSeconds: number;
+  sha256: string;
 };
 
 export type ObjectMetadata = {
