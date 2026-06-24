@@ -2,8 +2,8 @@ import type { UploadIntentStatus } from './upload-intent.js';
 
 export type UploadResponse = {
   uploadId: string;
-  objectKey: string;
   uploadUrl: string;
+  sha256Base64: string;
   expiresInSeconds: number;
 };
 

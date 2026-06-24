@@ -2,14 +2,14 @@ export type SignedUrlParams = {
   objectKey: string;
   contentType: string;
   expiresInSeconds: number;
-  sha256: string;
+  sha256Hex: string;
 };
 
 export type ObjectMetadata = {
   objectKey: string;
   size: number;
   contentType: string;
-  etag?: string | undefined;
+  sha256Hex: string | null;
 };
 
 export interface ObjectStorage {

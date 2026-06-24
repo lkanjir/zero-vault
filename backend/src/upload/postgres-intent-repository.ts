@@ -21,11 +21,14 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     await db.insert(uploadIntents).values(this.toInsert(intent));
   }
 
-  async update(intent: UploadIntent): Promise<void> {
-    await db
+  async update(intent: UploadIntent): Promise<boolean> {
+    const rows = await db
       .update(uploadIntents)
       .set(this.toUpdate(intent))
-      .where(and(eq(uploadIntents.uploadId, intent.uploadId), eq(uploadIntents.status, 'pending')));
+      .where(and(eq(uploadIntents.uploadId, intent.uploadId), eq(uploadIntents.status, 'pending')))
+      .returning({ uploadId: uploadIntents.uploadId });
+
+    return rows.length > 0;
   }
 
   async deleteByUploadId(uploadId: string): Promise<boolean> {
@@ -45,6 +48,9 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       contentType: row.contentType,
       size: row.sizeBytes,
       status: row.status,
+      expectedSha256: row.expectedSha256,
+      actualSha256: row.actualSha256,
+      checksumVerifiedAt: row.checksumVerifiedAt ? new Date(row.checksumVerifiedAt) : null,
       createdAt: new Date(row.createdAt),
       expiredAt: new Date(row.expiresAt),
       completedAt: row.completedAt ? new Date(row.completedAt) : null,
@@ -58,7 +64,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       fileName: intent.fileName,
       contentType: intent.contentType,
       sizeBytes: intent.size,
-      expectedSha256: intent.sha256,
+      expectedSha256: intent.expectedSha256,
       status: intent.status,
       expiresAt: intent.expiredAt,
     };
@@ -67,7 +73,9 @@ export class PostgresIntentRepository implements UploadIntentRepository {
   private toUpdate(intent: UploadIntent): Partial<typeof uploadIntents.$inferInsert> {
     return {
       status: intent.status,
-      completedAt: intent.completedAt,
+      actualSha256: intent.actualSha256 ?? null,
+      checksumVerifiedAt: intent.checksumVerifiedAt ?? null,
+      completedAt: intent.completedAt ?? null,
     };
   }
 }

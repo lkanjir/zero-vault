@@ -7,6 +7,7 @@ import { ConflictError } from '../shared/errors/conflict-error.js';
 import { NotFoundError } from '../shared/errors/not-found-error.js';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
 import type { UploadIntentRepository } from './upload-intent-repository.js';
+import { sha256HexToBase64 } from '../shared/utils/sha256-convert.js';
 
 export class UploadService {
   private readonly EXPIRES_IN_SECONDS = 60;
@@ -29,7 +30,9 @@ export class UploadService {
       contentType: contentType,
       size: request.size,
       status: 'pending',
-      sha256: request.sha256,
+      expectedSha256: request.sha256,
+      actualSha256: null,
+      checksumVerifiedAt: null,
       createdAt: new Date(),
       expiredAt: new Date(Date.now() + this.EXPIRES_IN_SECONDS * 1000),
     };
@@ -38,15 +41,15 @@ export class UploadService {
       objectKey: objectKey,
       contentType: contentType,
       expiresInSeconds: this.EXPIRES_IN_SECONDS,
-      sha256: request.sha256
+      sha256Hex: request.sha256,
     });
 
     await this.repo.save(intent);
 
     const response: UploadResponse = {
       uploadId,
-      objectKey,
       uploadUrl,
+      sha256Base64: sha256HexToBase64(request.sha256),
       expiresInSeconds: this.EXPIRES_IN_SECONDS,
     };
 
@@ -66,7 +69,11 @@ export class UploadService {
 
     if (pendingIntent.expiredAt.getTime() < Date.now()) {
       pendingIntent.status = 'expired';
-      await this.repo.update(pendingIntent);
+      const expired = await this.repo.update(pendingIntent);
+
+      if (!expired) {
+        throw new ConflictError('Upload intent is not pending');
+      }
 
       throw new ConflictError('Upload intent expired');
     }
@@ -77,6 +84,14 @@ export class UploadService {
       throw new ConflictError('Uploaded object key does not match intent');
     }
 
+    if (!savedObject.sha256Hex) {
+      throw new ConflictError('Uploaded object has no SHA-256 checksum');
+    }
+
+    if (savedObject.sha256Hex !== pendingIntent.expectedSha256) {
+      throw new ConflictError('Uploaded object checksum does not match intent');
+    }
+
     if (savedObject.size !== pendingIntent.size) {
       throw new ConflictError('Uploaded object size does not match intent');
     }
@@ -85,9 +100,17 @@ export class UploadService {
       throw new ConflictError('Uploaded object content type does not match intent');
     }
 
+    const completedAt = new Date();
     pendingIntent.status = 'completed';
-    pendingIntent.completedAt = new Date();
-    await this.repo.update(pendingIntent);
+    pendingIntent.completedAt = completedAt;
+    pendingIntent.actualSha256 = savedObject.sha256Hex;
+    pendingIntent.checksumVerifiedAt = completedAt;
+
+    const completed = await this.repo.update(pendingIntent);
+
+    if (!completed) {
+      throw new ConflictError('Upload intent is not pending');
+    }
 
     const result: UploadCompleteResponse = {
       uploadId: pendingIntent.uploadId,

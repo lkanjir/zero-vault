@@ -11,6 +11,7 @@ import type { ObjectMetadata, ObjectStorage, SignedUrlParams } from './object-st
 import { headSchema } from './head-schema.js';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
 import { NotFoundError } from '../shared/errors/not-found-error.js';
+import { sha256Base64ToHex, sha256HexToBase64 } from '../shared/utils/sha256-convert.js';
 
 export class S3ObjectStorage implements ObjectStorage {
   private readonly client = new S3Client({
@@ -26,11 +27,13 @@ export class S3ObjectStorage implements ObjectStorage {
 
   async createPresignedUrl(params: SignedUrlParams): Promise<string> {
     const contentType = normalizedContentType(params.contentType);
+    const hashBase64 = sha256HexToBase64(params.sha256Hex);
     const command = new PutObjectCommand({
       Bucket: config.s3.buckets.quarantine,
       Key: params.objectKey,
       ContentType: contentType,
-      ChecksumSHA256: params.sha256
+      ChecksumSHA256: hashBase64,
+      ChecksumAlgorithm: 'SHA256',
     });
 
     return getSignedUrl(this.client, command, { expiresIn: params.expiresInSeconds });
@@ -40,6 +43,7 @@ export class S3ObjectStorage implements ObjectStorage {
     const command = new HeadObjectCommand({
       Bucket: config.s3.buckets.quarantine,
       Key: objectKey,
+      ChecksumMode: 'ENABLED',
     });
 
     try {
@@ -64,12 +68,15 @@ export class S3ObjectStorage implements ObjectStorage {
     }
 
     const contentType = normalizedContentType(result.data.ContentType);
+    const sha256Hex = result.data.ChecksumSHA256
+      ? sha256Base64ToHex(result.data.ChecksumSHA256)
+      : null;
 
     return {
       objectKey: key,
       size: result.data.ContentLength,
       contentType: contentType,
-      etag: result.data.ETag,
+      sha256Hex,
     };
   }
 }

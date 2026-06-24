@@ -5,7 +5,9 @@ export type UploadIntent = {
   contentType: string;
   size: number;
   status: UploadIntentStatus;
-  sha256: string;
+  expectedSha256: string;
+  actualSha256?: string | null;
+  checksumVerifiedAt?: Date | null;
   createdAt: Date;
   expiredAt: Date;
   completedAt?: Date | null;
