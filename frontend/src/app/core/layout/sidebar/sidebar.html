@@ -1,0 +1,35 @@
+<div class="sidebar h-screen w-60 pl-4 pt-2">
+  <div class="logo flex h-12 items-center justify-between px-3 mb-4">
+    <span class="text-2xl font-bold">ZeroVault</span>
+    <button
+      type="button"
+      class="inline-flex size-9 items-center justify-center rounded-control"
+    ></button>
+  </div>
+
+  <div class="links flex flex-col gap-y-2 px-3">
+    <a
+      routerLink="/files"
+      class="grid grid-cols-[24px_1fr] items-center gap-2 "
+    >
+      <app-icon [name]="'files'" />
+      <span>My Files</span>
+    </a>
+
+    <a
+      routerLink="/shared"
+      class="grid grid-cols-[24px_1fr] items-center gap-2"
+    >
+      <app-icon [name]="'shared'" />
+      <span>Shared with me</span>
+    </a>
+
+    <a
+      routerLink="/account"
+      class="grid grid-cols-[24px_1fr] items-center gap-2"
+    >
+      <app-icon [name]="'account'" />
+      <span>Account</span>
+    </a>
+  </div>
+</div>
