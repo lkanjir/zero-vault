@@ -5,8 +5,7 @@
 !**/.env.example
 
 # S3 config
-garage.toml
-!garage.toml.template
+
 
 # Docs
 *.pdf

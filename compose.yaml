@@ -52,48 +52,28 @@ services:
     depends_on:
       - keycloak-db
 
-  garage:
-    image: dxflrs/garage:v2.3.0
+  localstack:
+    image: localstack/localstack-pro
     restart: unless-stopped
 
     environment:
-      GARAGE_DEFAULT_ACCESS_KEY: ${GARAGE_ACCESS_KEY}
-      GARAGE_DEFAULT_SECRET_KEY: ${GARAGE_SECRET_KEY}
-      GARAGE_DEFAULT_BUCKET: ${GARAGE_DEFAULT_BUCKET:-zero-vault}
-
-    command: ["/garage", "server", "--single-node", "--default-bucket"]
+      - LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN} # required for Pro
+      - SERVICES=s3
+      - DEBUG=${LOCALSTACK_DEBUG:-0}
+      - PERSISTENCE=${LOCALSTACK_PERSISTENCE:-1}
+      - AWS_DEFAULT_REGION=eu-central-1
 
     ports:
-      - "127.0.0.1:3900:3900"
-      - "127.0.0.1:3901:3901"
-      - "127.0.0.1:3902:3902"
-      - "127.0.0.1:3903:3903"
+      - '127.0.0.1:4566:4566' # LocalStack Gateway
+      - '127.0.0.1:4510-4559:4510-4559' # external services port range
+      #- '127.0.0.1:443:443' # LocalStack HTTPS Gateway (Pro)
 
     volumes:
-      - "./garage.toml:/etc/garage.toml:ro"
-      - "garage-meta:/var/lib/garage/meta"
-      - "garage-data:/var/lib/garage/data"
-      
-  s3manager:
-    image: cloudlena/s3manager:latest
-    restart: unless-stopped
-
-    environment:
-      ACCESS_KEY_ID: ${GARAGE_ACCESS_KEY}
-      SECRET_ACCESS_KEY: ${GARAGE_SECRET_KEY}
-      ENDPOINT: garage:3900
-      REGION: garage
-      BUCKET_NAME: ${GARAGE_DEFAULT_BUCKET:-zero-vault}
-      USE_SSL: "false"
-      
-    ports:
-      - "127.0.0.1:9090:8080"
-
-    depends_on:
-      - garage
+      - 'localstack-data:/var/lib/localstack'
+      - '/var/run/docker.sock:/var/run/docker.sock'
+      - './localstack-init:/etc/localstack/init/ready.d:ro'
 
 volumes:
   app_db_data:
   keycloak_db_data:
-  garage-meta:
-  garage-data:
+  localstack-data:
