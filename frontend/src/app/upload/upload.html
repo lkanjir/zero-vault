@@ -1,8 +1,0 @@
-<form [formRoot]="uploadForm">
-    <input type="file" [formField]="uploadForm.fileName" (change)="selectFile($event)">
-    <button type="submit">Submit</button>
-</form>
-
-<span>
-    URL: {{presignedUrl()}}
-</span>

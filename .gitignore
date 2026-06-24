@@ -4,9 +4,6 @@
 !.env.example
 !**/.env.example
 
-# S3 config
-
-
 # Docs
 *.pdf
 known-issues.md
@@ -55,3 +52,10 @@ __screenshots__/
 # System files
 .DS_Store
 Thumbs.db
+
+# Agents
+.agents
+skills-lock.json
+
+# Drizzle
+drizzle/

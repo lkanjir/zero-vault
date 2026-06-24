@@ -18,7 +18,7 @@ export class UploadService {
 
   async createUpload(request: UploadRequestBody): Promise<UploadResponse> {
     const uploadId = randomUUID();
-    const objectKey = `uploads/pending/${uploadId}/${randomUUID()}`;
+    const objectKey = `quarantine/${uploadId}/${randomUUID()}`;
 
     const contentType = normalizedContentType(request.contentType);
 
