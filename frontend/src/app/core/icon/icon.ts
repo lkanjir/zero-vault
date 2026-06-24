@@ -1,6 +1,16 @@
 import { Component, input } from '@angular/core';
 
-export type IconTypes = "files" | 'shared' | 'account' | 'panel-open' | 'panel-close' | 'search'
+export type IconTypes =
+  | 'files'
+  | 'shared'
+  | 'account'
+  | 'panel-open'
+  | 'panel-close'
+  | 'search'
+  | 'plus'
+  | 'create-folder'
+  | 'folder-upload'
+  | 'file-upload';
 
 @Component({
   selector: 'app-icon',
