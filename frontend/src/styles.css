@@ -1,3 +1,43 @@
 /* You can add global styles to this file, and also import other style files */
 
 @import 'tailwindcss';
+
+:root {
+  --palette-blue-500: #2d6bb8;
+  --palette-blue-600: #1e56a0;
+  --palette-orange-500: #f6931d;
+  --palette-red-500: #e03e3e;
+
+  --palette-neutral-50: #f5f7fa;
+  --palette-neutral-300: #b5bdca;
+  --palette-neutral-700: #343a46;
+  --palette-neutral-800: #252a33;
+  --palette-neutral-900: #1c2027;
+  --palette-neutral-950: #12151b;
+
+  --app-background: var(--palette-neutral-950);
+  --app-surface: var(--palette-neutral-900);
+  --app-surface-hover: var(--palette-neutral-900);
+  --app-foreground: var(--palette-neutral-50);
+  --app-foreground-muted: var(--palette-neutral-300);
+  --app-border: var(--palette-neutral-700);
+
+  --app-primary: var(--palette-blue-600);
+  --app-primary-hover: var(--palette-blue-500);
+  --app-accent: var(--palette-orange-500);
+  --app-danger: var(--palette-red-500);
+}
+
+@theme {
+  --color-background: var(--app-background);
+  --color-surface: var(--app-surface);
+  --color-surface-hover: var(--app-surface-hover);
+  --color-foreground: var(--app-foreground);
+  --color-foreground-muted: var(--app-foreground-muted);
+  --color-border: var(--app-border);
+  
+  --color-primary: var(--app-primary);
+  --color-primary-hover: var(--app-primary-hover);
+  --color-accent: var(--app-accent);
+  --color-danger: var(--app-danger);
+}
