@@ -1,0 +1,9 @@
+<a
+  [routerLink]="link()"
+  class="grid h-12 shrink-0 grid-cols-[4rem_minmax(0,1fr)] items-center rounded-md hover:bg-surface-hover"
+>
+  <div class="flex items-center justify-center">
+    <app-icon [name]="iconName()" />
+  </div>
+  <span class="truncate text-lg font-semibold">{{ text() }}</span>
+</a>

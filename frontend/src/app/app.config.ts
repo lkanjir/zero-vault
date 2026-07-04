@@ -5,6 +5,7 @@ import { routes } from './app.routes';
 import {
   LucideCloud,
   LucidePanelLeft,
+  LucidePanelLeftClose,
   LucidePlus,
   LucideSearch,
   LucideShare2,
@@ -23,6 +24,7 @@ export const appConfig: ApplicationConfig = {
       LucideCloud,
       LucideShare2,
       LucidePanelLeft,
+      LucidePanelLeftClose,
     ),
   ],
 };
