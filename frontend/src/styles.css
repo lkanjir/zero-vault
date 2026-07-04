@@ -17,7 +17,7 @@
 
   --app-background: var(--palette-neutral-950);
   --app-surface: var(--palette-neutral-900);
-  --app-surface-hover: var(--palette-neutral-900);
+  --app-surface-hover: var(--palette-neutral-800);
   --app-foreground: var(--palette-neutral-50);
   --app-foreground-muted: var(--palette-neutral-300);
   --app-border: var(--palette-neutral-700);
@@ -28,7 +28,7 @@
   --app-danger: var(--palette-red-500);
 }
 
-@theme {
+@theme inline {
   --color-background: var(--app-background);
   --color-surface: var(--app-surface);
   --color-surface-hover: var(--app-surface-hover);
@@ -40,4 +40,14 @@
   --color-primary-hover: var(--app-primary-hover);
   --color-accent: var(--app-accent);
   --color-danger: var(--app-danger);
+
+  --font-default: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  body{
+    font-family: var(--font-default);
+    background: var(--color-background);
+    color: var(--color-foreground);
+  }
 }
