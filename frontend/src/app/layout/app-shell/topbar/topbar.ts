@@ -1,5 +1,5 @@
-import { Component } from '@angular/core';
-import { Icon } from "../../../shared/icon/icon";
+import { Component, output } from '@angular/core';
+import { Icon } from '../../../shared/icon/icon';
 
 @Component({
   selector: 'app-topbar',

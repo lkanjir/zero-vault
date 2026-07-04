@@ -2,7 +2,15 @@ import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/
 import { provideRouter } from '@angular/router';
 
 import { routes } from './app.routes';
-import { LucidePlus, LucideSearch, provideLucideIcons } from '@lucide/angular';
+import {
+  LucideCloud,
+  LucidePanelLeft,
+  LucidePlus,
+  LucideSearch,
+  LucideShare2,
+  LucideUser,
+  provideLucideIcons,
+} from '@lucide/angular';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -10,7 +18,11 @@ export const appConfig: ApplicationConfig = {
     provideRouter(routes),
     provideLucideIcons(
       LucideSearch,
-      LucidePlus
-    )
-  ]
+      LucidePlus,
+      LucideUser,
+      LucideCloud,
+      LucideShare2,
+      LucidePanelLeft,
+    ),
+  ],
 };

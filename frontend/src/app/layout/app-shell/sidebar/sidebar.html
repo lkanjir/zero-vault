@@ -1,0 +1,12 @@
+<aside [class.w-16]="!open()" [class.w-72]="open()" class="mt-3 flex flex-col">
+  <div class="grid shrink-0 grid-cols-[minmax(0,1fr)_4rem] items-center">
+    <div class="flex min-w-0 items-center gap-2 overflow-hidden pl-4">
+      <app-icon [name]="'user'" />
+      <span class="text-lg">Luka Kanjir</span>
+    </div>
+
+    <button type="button" class="h-10" (click)="toggleOpen()">
+      <app-icon [name]="'panel-left'" [size]="24" />
+    </button>
+  </div>
+</aside>

@@ -1,28 +1,26 @@
-<div id="topbar" class="flex h-16 items-center justify-center gap-3">
-  <div
-    id="search-bar"
-    class="flex h-10 w-[70%] cursor-pointer items-center gap-2 rounded-md bg-surface px-2"
-  >
-    <app-icon
-      [name]="'search'"
-      [size]="16"
-      [stroke]="3"
-      class="gap-2"
-      class="text-foreground-muted"
-    />
-    <input
-      id="search"
-      type="text"
-      placeholder="Pretraži po nazivu"
-      class="w-full text-sm font-semibold text-foreground-muted placeholder-foreground-muted"
-    />
+<div id="topbar" class="flex h-16 cursor-pointer items-center justify-center gap-3">
+  <div class="flex w-[70%] justify-center gap-3">
+    <div id="search-bar" class="flex h-10 w-[70%] cursor-pointer gap-2 rounded-md bg-surface px-2">
+      <app-icon
+        [name]="'search'"
+        [size]="16"
+        [stroke]="3"
+        class="gap-2"
+        class="text-foreground-muted"
+      />
+      <input
+        id="search"
+        type="text"
+        placeholder="Pretraži po nazivu"
+        class="w-full text-sm font-semibold text-foreground-muted placeholder-foreground-muted"
+      />
+    </div>
+    <button
+      type="button"
+      class="flex h-10 cursor-pointer items-center justify-center gap-1 rounded-md bg-surface px-2 text-sm font-semibold"
+    >
+      <app-icon [name]="'plus'" [size]="16" [stroke]="3" />
+      Novo
+    </button>
   </div>
-
-  <button
-    type="button"
-    class="text-md flex h-10 cursor-pointer items-center justify-center gap-1 rounded-md bg-surface px-2 text-sm font-semibold"
-  >
-    <app-icon [name]="'plus'" [size]="16" [stroke]="3" />
-    Novo
-  </button>
 </div>
