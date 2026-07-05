@@ -1,6 +1,5 @@
 import * as jose from 'jose';
-import { beforeEach } from 'node:test';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { verifyAccessToken } from '../../src/auth/access-token-verifier.js';
 import { InvalidAccessTokenError } from '../../src/shared/errors/invalid-access-token-error.js';
 
@@ -11,55 +10,43 @@ vi.mock('jose', () => ({
 
 const jwtVerifyMock = vi.mocked(jose.jwtVerify);
 
+const validToken = {
+  protectedHeader: { alg: 'RS256' },
+  payload: {
+    iss: process.env['OIDC_ISSUER']!,
+    sub: 'user-123',
+    iat: 100,
+    exp: 200,
+    preferred_username: 'test',
+  },
+  key: new Uint8Array(),
+};
+
 describe('verifyAccessToken', () => {
   beforeEach(() => jwtVerifyMock.mockReset());
 
   it('maps a verified payload to principal', async () => {
-    jwtVerifyMock.mockResolvedValueOnce({
-      protectedHeader: { alg: 'RS256' },
-      payload: {
-        iss: 'http://localhost:8080/realms/zero-vault',
-        sub: 'user-123',
-        iat: 100,
-        exp: 200,
-        preferred_username: 'test',
-      },
-      key: new Uint8Array(),
-    });
+    jwtVerifyMock.mockResolvedValueOnce(validToken);
 
     const principal = await verifyAccessToken('valid-token');
 
     expect(principal).toStrictEqual({
-      issuer: 'http://localhost:8080/realms/zero-vault',
+      issuer: process.env['OIDC_ISSUER']!,
       subject: 'user-123',
       username: 'test',
     });
   });
 
   it('token passed to jwtVerify with correct verification rules', async () => {
-    jwtVerifyMock.mockResolvedValueOnce({
-      protectedHeader: { alg: 'RS256' },
-      payload: {
-        iss: 'http://localhost:8080/realms/zero-vault',
-        sub: 'user-123',
-        iat: 100,
-        exp: 200,
-        preferred_username: 'test',
-      },
-      key: new Uint8Array(),
-    });
+    jwtVerifyMock.mockResolvedValueOnce(validToken);
 
     await verifyAccessToken('valid-token');
-
-    const audience = 'zero-vault-api';
-    const issuer = 'http://localhost:8080/realms/zero-vault';
-
     expect(jwtVerifyMock).toHaveBeenCalledExactlyOnceWith(
       'valid-token',
       expect.any(Function),
       expect.objectContaining({
-        issuer: issuer,
-        audience: audience,
+        issuer: process.env['OIDC_ISSUER'],
+        audience: process.env['OIDC_AUDIENCE'],
         algorithms: ['RS256'],
         clockTolerance: 1,
         requiredClaims: ['sub', 'iat', 'exp'],
