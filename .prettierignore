@@ -7,6 +7,5 @@
 **/bazel-out
 **/.vscode
 
-garage.toml
 *.pdf
 **/src/db/generated

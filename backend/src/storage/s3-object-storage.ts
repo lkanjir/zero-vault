@@ -17,7 +17,7 @@ export class S3ObjectStorage implements ObjectStorage {
   private readonly client = new S3Client({
     region: config.s3.region,
     endpoint: config.s3.endpoint,
-    forcePathStyle: true,
+    forcePathStyle: config.s3.forcePathStyle,
     credentials: {
       accessKeyId: config.s3.accessKeyId,
       secretAccessKey: config.s3.secretAccessKey,

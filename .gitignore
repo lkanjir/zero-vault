@@ -6,7 +6,7 @@
 
 # Docs
 *.pdf
-known-issues.md
+*.md
 
 # Deps
 node_modules/
@@ -56,6 +56,3 @@ Thumbs.db
 # Agents
 .agents
 skills-lock.json
-
-# Drizzle
-drizzle/
