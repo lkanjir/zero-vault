@@ -2,7 +2,12 @@ import type { ErrorRequestHandler } from 'express';
 import type { BodyParserError } from './body-parser-error.js';
 import { AppError } from '../errors/app-error.js';
 
-export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
+export const errorHandler: ErrorRequestHandler = (error, _req, res, next) => {
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
+
   if (isJsonParseError(error)) {
     res.status(400).json({
       error: 'Invalid JSON',
@@ -12,6 +17,10 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   }
 
   if (error instanceof AppError) {
+    for (const [name, value] of Object.entries(error.headers)) {
+      res.setHeader(name, value);
+    }
+
     res.status(error.statusCode).json({
       error: error.message,
       code: error.code,

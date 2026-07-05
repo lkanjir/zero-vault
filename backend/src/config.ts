@@ -45,7 +45,7 @@ export const config = {
     connectionString: env.DATABASE_URL,
   },
   oidc: {
-    issuer: env.OIDC_AUDIENCE,
+    issuer: env.OIDC_ISSUER,
     audience: env.OIDC_AUDIENCE,
   },
 } as const;
