@@ -48,5 +48,11 @@ export default [
       ],
     },
   },
+  {
+    files: ['tests/**/*.ts'],
+    rules: {
+      '@typescript-eslint/unbound-method': 'off',
+    },
+  },
   prettier,
 ];
