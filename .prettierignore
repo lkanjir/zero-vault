@@ -6,6 +6,7 @@
 **/out-tsc
 **/bazel-out
 **/.vscode
+**/drizzle/meta/**
 
 *.pdf
 **/src/db/generated
