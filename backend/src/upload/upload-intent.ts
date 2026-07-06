@@ -1,4 +1,5 @@
 export type UploadIntent = {
+  createdByUserId: number;
   uploadId: string;
   objectKey: string;
   fileName: string;

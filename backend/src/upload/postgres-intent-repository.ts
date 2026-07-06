@@ -5,14 +5,12 @@ import { uploadIntents } from '../db/schema.js';
 import { and, eq } from 'drizzle-orm';
 
 export class PostgresIntentRepository implements UploadIntentRepository {
-  async findByUploadId(uploadId: string): Promise<UploadIntent | null> {
-    const rows = await db
+  async findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null> {
+    const [row] = await db
       .select()
       .from(uploadIntents)
-      .where(eq(uploadIntents.uploadId, uploadId))
+      .where(and(eq(uploadIntents.uploadId, uploadId), eq(uploadIntents.createdByUserId, userId)))
       .limit(1);
-
-    const row = rows[0];
 
     return row ? this.toDomain(row) : null;
   }
@@ -25,7 +23,13 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     const rows = await db
       .update(uploadIntents)
       .set(this.toUpdate(intent))
-      .where(and(eq(uploadIntents.uploadId, intent.uploadId), eq(uploadIntents.status, 'pending')))
+      .where(
+        and(
+          eq(uploadIntents.uploadId, intent.uploadId),
+          eq(uploadIntents.status, 'pending'),
+          eq(uploadIntents.createdByUserId, intent.createdByUserId),
+        ),
+      )
       .returning({ uploadId: uploadIntents.uploadId });
 
     return rows.length > 0;
@@ -42,6 +46,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
 
   private toDomain(row: typeof uploadIntents.$inferSelect): UploadIntent {
     return {
+      createdByUserId: row.createdByUserId,
       uploadId: row.uploadId,
       objectKey: row.objectKey,
       fileName: row.fileName,
@@ -59,6 +64,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
 
   private toInsert(intent: UploadIntent): typeof uploadIntents.$inferInsert {
     return {
+      createdByUserId: intent.createdByUserId,
       uploadId: intent.uploadId,
       objectKey: intent.objectKey,
       fileName: intent.fileName,

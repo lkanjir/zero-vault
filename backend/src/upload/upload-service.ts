@@ -8,29 +8,31 @@ import { NotFoundError } from '../shared/errors/not-found-error.js';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
 import type { UploadIntentRepository } from './upload-intent-repository.js';
 import { sha256HexToBase64 } from '../shared/utils/sha256-convert.js';
+import type { User } from '../user/user.js';
 
 export class UploadService {
   private readonly EXPIRES_IN_SECONDS = 60;
 
   constructor(
     private readonly storage: ObjectStorage,
-    private readonly repo: UploadIntentRepository,
+    private readonly intentRepo: UploadIntentRepository,
   ) {}
 
-  async createUpload(request: UploadRequestBody): Promise<UploadResponse> {
+  async createUpload(user: User, requestBody: UploadRequestBody): Promise<UploadResponse> {
     const uploadId = randomUUID();
     const objectKey = `quarantine/${uploadId}/${randomUUID()}`;
 
-    const contentType = normalizedContentType(request.contentType);
+    const contentType = normalizedContentType(requestBody.contentType);
 
     const intent: UploadIntent = {
+      createdByUserId: user.id,
       uploadId: uploadId,
       objectKey: objectKey,
-      fileName: request.fileName,
+      fileName: requestBody.fileName,
       contentType: contentType,
-      size: request.size,
+      size: requestBody.size,
       status: 'pending',
-      expectedSha256: request.sha256,
+      expectedSha256: requestBody.sha256,
       actualSha256: null,
       checksumVerifiedAt: null,
       createdAt: new Date(),
@@ -41,23 +43,23 @@ export class UploadService {
       objectKey: objectKey,
       contentType: contentType,
       expiresInSeconds: this.EXPIRES_IN_SECONDS,
-      sha256Hex: request.sha256,
+      sha256Hex: requestBody.sha256,
     });
 
-    await this.repo.save(intent);
+    await this.intentRepo.save(intent);
 
     const response: UploadResponse = {
       uploadId,
       uploadUrl,
-      sha256Base64: sha256HexToBase64(request.sha256),
+      sha256Base64: sha256HexToBase64(requestBody.sha256),
       expiresInSeconds: this.EXPIRES_IN_SECONDS,
     };
 
     return response;
   }
 
-  async completeUpload(uploadId: string): Promise<UploadCompleteResponse> {
-    const pendingIntent = await this.repo.findByUploadId(uploadId);
+  async completeUpload(user: User, uploadId: string): Promise<UploadCompleteResponse> {
+    const pendingIntent = await this.intentRepo.findByUserAndUploadId(user.id, uploadId);
 
     if (!pendingIntent) {
       throw new NotFoundError("Upload intent doesn't exist");
@@ -69,7 +71,7 @@ export class UploadService {
 
     if (pendingIntent.expiredAt.getTime() < Date.now()) {
       pendingIntent.status = 'expired';
-      const expired = await this.repo.update(pendingIntent);
+      const expired = await this.intentRepo.update(pendingIntent);
 
       if (!expired) {
         throw new ConflictError('Upload intent is not pending');
@@ -106,7 +108,7 @@ export class UploadService {
     pendingIntent.actualSha256 = savedObject.sha256Hex;
     pendingIntent.checksumVerifiedAt = completedAt;
 
-    const completed = await this.repo.update(pendingIntent);
+    const completed = await this.intentRepo.update(pendingIntent);
 
     if (!completed) {
       throw new ConflictError('Upload intent is not pending');
