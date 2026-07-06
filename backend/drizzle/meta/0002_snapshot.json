@@ -1,0 +1,294 @@
+{
+  "id": "7ec0b7cf-d19f-4450-9198-7a3f93c9fc5d",
+  "prevId": "50954710-2b10-4f04-97ee-1e218ae0217a",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.upload_intents": {
+      "name": "upload_intents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "upload_intents_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "upload_id": {
+          "name": "upload_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "object_key": {
+          "name": "object_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "file_name": {
+          "name": "file_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "size_bytes": {
+          "name": "size_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "upload_intent_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expected_sha256": {
+          "name": "expected_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actual_sha256": {
+          "name": "actual_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checksum_verified_at": {
+          "name": "checksum_verified_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "upload_intents_status_expires_at_idx": {
+          "name": "upload_intents_status_expires_at_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "upload_intents_created_by_user_id_idx": {
+          "name": "upload_intents_created_by_user_id_idx",
+          "columns": [
+            {
+              "expression": "created_by_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "upload_intents_created_by_user_id_users_id_fk": {
+          "name": "upload_intents_created_by_user_id_users_id_fk",
+          "tableFrom": "upload_intents",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "upload_intents_upload_id_key": {
+          "name": "upload_intents_upload_id_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "upload_id"
+          ]
+        },
+        "upload_intents_object_key_key": {
+          "name": "upload_intents_object_key_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "object_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "upload_intents_expected_sha256_check": {
+          "name": "upload_intents_expected_sha256_check",
+          "value": "\"upload_intents\".\"expected_sha256\" ~ '^[0-9a-f]{64}$'"
+        },
+        "upload_intents_actual_sha256_check": {
+          "name": "upload_intents_actual_sha256_check",
+          "value": "\"upload_intents\".\"actual_sha256\" is null or \"upload_intents\".\"actual_sha256\" ~ '^[0-9a-f]{64}$'"
+        },
+        "upload_intents_size_bytes_positive": {
+          "name": "upload_intents_size_bytes_positive",
+          "value": "\"upload_intents\".\"size_bytes\" > 0"
+        },
+        "upload_intents_expires_after_created": {
+          "name": "upload_intents_expires_after_created",
+          "value": "\"upload_intents\".\"expires_at\" > \"upload_intents\".\"created_at\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.users": {
+      "name": "users",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "users_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "issuer": {
+          "name": "issuer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject": {
+          "name": "subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "username": {
+          "name": "username",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "users_issuer_subject_key": {
+          "name": "users_issuer_subject_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "issuer",
+            "subject"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.upload_intent_status": {
+      "name": "upload_intent_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "completed",
+        "expired"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

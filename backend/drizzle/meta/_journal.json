@@ -15,6 +15,13 @@
       "when": 1782307418451,
       "tag": "0001_glamorous_senator_kelly",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783343160769,
+      "tag": "0002_jittery_switch",
+      "breakpoints": true
     }
   ]
 }
