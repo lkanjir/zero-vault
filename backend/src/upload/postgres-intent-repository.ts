@@ -35,14 +35,14 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     return rows.length > 0;
   }
 
-  async deleteByUploadId(uploadId: string): Promise<boolean> {
-    const rows = await db
-      .delete(uploadIntents)
-      .where(eq(uploadIntents.uploadId, uploadId))
-      .returning();
+  // async deleteByUploadId(uploadId: string): Promise<boolean> {
+  //   const rows = await db
+  //     .delete(uploadIntents)
+  //     .where(eq(uploadIntents.uploadId, uploadId))
+  //     .returning();
 
-    return rows.length > 0;
-  }
+  //   return rows.length > 0;
+  // }
 
   private toDomain(row: typeof uploadIntents.$inferSelect): UploadIntent {
     return {
