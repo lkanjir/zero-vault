@@ -7,7 +7,7 @@ export type SignedUrlParams = {
 
 export type ObjectMetadata = {
   objectKey: string;
-  size: number;
+  sizeBytes: number;
   contentType: string;
   sha256Hex: string | null;
 };

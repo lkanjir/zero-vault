@@ -23,7 +23,7 @@ export function assertChecksumMatches(intent: UploadIntent, object: ObjectMetada
 }
 
 export function assertSizeMatches(intent: UploadIntent, object: ObjectMetadata) {
-  if (object.size !== intent.expectedSizeBytes) {
+  if (object.sizeBytes !== intent.expectedSizeBytes) {
     throw new ConflictError('Uploaded object size does not match intent');
   }
 }

@@ -10,33 +10,53 @@ export class FilePromotionService {
     private readonly storage: ObjectStorage,
   ) {}
 
-  async promoteFile(entryId: number): Promise<void> {
-    const file = await this.repo.findQuarantinedByEntryId(entryId);
+  async promoteFile(entryId: number): Promise<File> {
+    const file = await this.repo.findByEntryId(entryId);
 
     if (!file) {
       throw new NotFoundError('Quarantined file not found');
     }
 
+    if (file.status === 'available') {
+      return file;
+    }
+
+    if (file.status === 'rejected') {
+      throw new ConflictError('File is rejected');
+    }
+
     const quarantinedObject = await this.storage.headObject('quarantine', file.objectKey);
-    this.verifyObjectsMatch(quarantinedObject, file);
+    this.assertObjectsMatch(quarantinedObject, file);
 
     await this.storage.copyObject('quarantine', 'live', file.objectKey);
 
     const liveObject = await this.storage.headObject('live', file.objectKey);
-    this.verifyObjectsMatch(liveObject, file);
+    this.assertObjectsMatch(liveObject, file);
 
     const promotedFile = await this.repo.markAvailable(file.entryId);
 
     if (!promotedFile) {
       throw new ConflictError('File is no longer quarantined');
     }
+
+    return promotedFile;
   }
 
-  verifyObjectsMatch(quarantinedObject: ObjectMetadata, file: File): boolean {
-    return (
-      quarantinedObject.size !== file.sizeBytes ||
-      quarantinedObject.contentType !== file.contentType ||
-      quarantinedObject.sha256Hex != file.sha256
-    );
+  assertObjectsMatch(quarantinedObject: ObjectMetadata, file: File): void {
+    if (!quarantinedObject.sha256Hex) {
+      throw new ConflictError('Object has no SHA-256 checksum');
+    }
+
+    if (quarantinedObject.sizeBytes !== file.sizeBytes) {
+      throw new ConflictError('Object size does not match file record');
+    }
+
+    if (quarantinedObject.contentType !== file.contentType) {
+      throw new ConflictError('Object content type does not match file record');
+    }
+
+    if (quarantinedObject.sha256Hex !== file.sha256) {
+      throw new ConflictError('Object checksum does not match file record');
+    }
   }
 }

@@ -94,7 +94,7 @@ export class S3ObjectStorage implements ObjectStorage {
 
     return {
       objectKey: key,
-      size: result.data.ContentLength,
+      sizeBytes: result.data.ContentLength,
       contentType: contentType,
       sha256Hex,
     };

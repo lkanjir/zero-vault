@@ -5,12 +5,8 @@ import type { FileRepository } from './file-repository.js';
 import type { File } from './file.js';
 
 export class PostgresFileRepository implements FileRepository {
-  async findQuarantinedByEntryId(entryId: number): Promise<File | null> {
-    const [row] = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.entryId, entryId), eq(files.status, 'quarantined')))
-      .limit(1);
+  async findByEntryId(entryId: number): Promise<File | null> {
+    const [row] = await db.select().from(files).where(eq(files.entryId, entryId)).limit(1);
 
     return row ?? null;
   }
