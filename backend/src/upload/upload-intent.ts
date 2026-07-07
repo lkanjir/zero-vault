@@ -1,17 +1,19 @@
-export type UploadIntent = {
-  createdByUserId: number;
-  uploadId: string;
-  objectKey: string;
-  fileName: string;
-  contentType: string;
-  size: number;
-  status: UploadIntentStatus;
-  expectedSha256: string;
-  actualSha256?: string | null;
-  checksumVerifiedAt?: Date | null;
-  createdAt: Date;
-  expiredAt: Date;
-  completedAt?: Date | null;
-};
+export type UploadIntentStatus = 'pending' | 'completed' | 'expired' | 'rejected';
 
-export type UploadIntentStatus = 'pending' | 'completed' | 'expired';
+export type UploadIntent = {
+  id?: number;
+  uploadId: string;
+  fileId?: number | null;
+  createdByUserId: number;
+  targetParentId?: number | null;
+  fileName: string;
+  objectKey: string;
+  contentType: string;
+  expectedSizeBytes: number;
+  expectedSha256: string;
+  status: UploadIntentStatus;
+  createdAt: Date;
+  uploadUrlExpiresAt: Date;
+  completedAt?: Date | null;
+  finalizeDeadline: Date;
+};

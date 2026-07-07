@@ -26,12 +26,11 @@ export class S3ObjectStorage implements ObjectStorage {
   });
 
   async createPresignedUrl(params: SignedUrlParams): Promise<string> {
-    const contentType = normalizedContentType(params.contentType);
     const hashBase64 = sha256HexToBase64(params.sha256Hex);
     const command = new PutObjectCommand({
       Bucket: config.s3.buckets.quarantine,
       Key: params.objectKey,
-      ContentType: contentType,
+      ContentType: params.contentType,
       ChecksumSHA256: hashBase64,
       ChecksumAlgorithm: 'SHA256',
     });

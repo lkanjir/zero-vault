@@ -2,16 +2,28 @@ import { randomUUID } from 'node:crypto';
 import type { UploadCompleteResponse, UploadResponse } from './dto.js';
 import type { UploadRequestBody } from './validation-schemas.js';
 import type { UploadIntent } from './upload-intent.js';
-import type { ObjectStorage } from '../storage/object-storage.js';
+import type {
+  ObjectMetadata,
+  ObjectStorage,
+  ObjectMetadataWithChecksum,
+} from '../storage/object-storage.js';
 import { ConflictError } from '../shared/errors/conflict-error.js';
-import { NotFoundError } from '../shared/errors/not-found-error.js';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
 import type { UploadIntentRepository } from './upload-intent-repository.js';
 import { sha256HexToBase64 } from '../shared/utils/sha256-convert.js';
 import type { User } from '../user/user.js';
+import { NotFoundError } from '../shared/errors/not-found-error.js';
+import {
+  assertChecksumExists,
+  assertChecksumMatches,
+  assertContentTypeMatches,
+  assertObjectKeyMatches,
+  assertSizeMatches,
+} from './metadata-assertions.js';
 
 export class UploadService {
   private readonly EXPIRES_IN_SECONDS = 60;
+  private readonly FINALIZE_DEADLINE = this.EXPIRES_IN_SECONDS * 60;
 
   constructor(
     private readonly storage: ObjectStorage,
@@ -25,18 +37,17 @@ export class UploadService {
     const contentType = normalizedContentType(requestBody.contentType);
 
     const intent: UploadIntent = {
-      createdByUserId: user.id,
       uploadId: uploadId,
-      objectKey: objectKey,
+      createdByUserId: user.id,
       fileName: requestBody.fileName,
+      objectKey: objectKey,
       contentType: contentType,
-      size: requestBody.size,
-      status: 'pending',
+      expectedSizeBytes: requestBody.size,
       expectedSha256: requestBody.sha256,
-      actualSha256: null,
-      checksumVerifiedAt: null,
+      status: 'pending',
       createdAt: new Date(),
-      expiredAt: new Date(Date.now() + this.EXPIRES_IN_SECONDS * 1000),
+      uploadUrlExpiresAt: new Date(Date.now() + this.EXPIRES_IN_SECONDS * 1000),
+      finalizeDeadline: new Date(Date.now() + this.FINALIZE_DEADLINE * 1000),
     };
 
     const uploadUrl = await this.storage.createPresignedUrl({
@@ -59,70 +70,79 @@ export class UploadService {
   }
 
   async completeUpload(user: User, uploadId: string): Promise<UploadCompleteResponse> {
-    const pendingIntent = await this.intentRepo.findByUserAndUploadId(user.id, uploadId);
+    const intent = await this.getPendingIntent(user.id, uploadId);
 
-    if (!pendingIntent) {
+    await this.ensureIntentCanBeFinalized(intent);
+    const uploadedObject = await this.storage.headObject(intent.objectKey);
+    const verifiedObject = this.verifyUpload(intent, uploadedObject);
+
+    const completeCommand = {
+      userId: user.id,
+      uploadId: intent.uploadId,
+      objectKey: verifiedObject.objectKey,
+      contentType: verifiedObject.contentType,
+      sizeBytes: verifiedObject.size,
+      sha256: verifiedObject.sha256Hex,
+      completedAt: new Date(),
+    };
+
+    const completedFile = await this.intentRepo.completeVerifiedUpload(completeCommand);
+
+    if (!completedFile) {
+      throw new ConflictError('Upload intent is not pending');
+    }
+
+    return {
+      uploadId: intent.uploadId,
+      fileId: completedFile.publicId,
+      fileName: completedFile.name,
+      contentType: completeCommand.contentType,
+      sizeBytes: completedFile.sizeBytes,
+      fileStatus: completedFile.status,
+    };
+  }
+
+  private async getPendingIntent(userId: number, uploadId: string): Promise<UploadIntent> {
+    const intent = await this.intentRepo.findByUserAndUploadId(userId, uploadId);
+
+    if (!intent) {
       throw new NotFoundError("Upload intent doesn't exist");
     }
 
-    if (pendingIntent.status !== 'pending') {
+    if (intent.status !== 'pending') {
       throw new ConflictError('Upload intent is not pending');
     }
 
-    if (pendingIntent.expiredAt.getTime() < Date.now()) {
-      pendingIntent.status = 'expired';
-      const expired = await this.intentRepo.update(pendingIntent);
+    return intent;
+  }
 
-      if (!expired) {
-        throw new ConflictError('Upload intent is not pending');
-      }
+  private verifyUpload(intent: UploadIntent, object: ObjectMetadata): ObjectMetadataWithChecksum {
+    assertObjectKeyMatches(intent, object);
+    assertChecksumExists(object);
+    assertChecksumMatches(intent, object);
+    assertSizeMatches(intent, object);
+    assertContentTypeMatches(intent, object);
 
-      throw new ConflictError('Upload intent expired');
-    }
-
-    const savedObject = await this.storage.headObject(pendingIntent.objectKey);
-
-    if (savedObject.objectKey !== pendingIntent.objectKey) {
-      throw new ConflictError('Uploaded object key does not match intent');
-    }
-
-    if (!savedObject.sha256Hex) {
-      throw new ConflictError('Uploaded object has no SHA-256 checksum');
-    }
-
-    if (savedObject.sha256Hex !== pendingIntent.expectedSha256) {
-      throw new ConflictError('Uploaded object checksum does not match intent');
-    }
-
-    if (savedObject.size !== pendingIntent.size) {
-      throw new ConflictError('Uploaded object size does not match intent');
-    }
-
-    if (savedObject.contentType !== pendingIntent.contentType) {
-      throw new ConflictError('Uploaded object content type does not match intent');
-    }
-
-    const completedAt = new Date();
-    pendingIntent.status = 'completed';
-    pendingIntent.completedAt = completedAt;
-    pendingIntent.actualSha256 = savedObject.sha256Hex;
-    pendingIntent.checksumVerifiedAt = completedAt;
-
-    const completed = await this.intentRepo.update(pendingIntent);
-
-    if (!completed) {
-      throw new ConflictError('Upload intent is not pending');
-    }
-
-    const result: UploadCompleteResponse = {
-      uploadId: pendingIntent.uploadId,
-      objectKey: savedObject.objectKey,
-      fileName: pendingIntent.fileName,
-      contentType: savedObject.contentType,
-      size: savedObject.size,
-      status: pendingIntent.status,
+    return {
+      ...object,
+      sha256Hex: object.sha256Hex,
     };
+  }
 
-    return result;
+  private async ensureIntentCanBeFinalized(intent: UploadIntent): Promise<void> {
+    if (intent.finalizeDeadline.getTime() >= Date.now()) {
+      return;
+    }
+
+    const expired = await this.intentRepo.markedExpiredIfPending(
+      intent.createdByUserId,
+      intent.uploadId,
+    );
+
+    if (!expired) {
+      throw new ConflictError('Upload intent is not pending');
+    }
+
+    throw new ConflictError('Upload intent expired');
   }
 }

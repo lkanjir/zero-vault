@@ -1,5 +1,3 @@
-import type { UploadIntentStatus } from './upload-intent.js';
-
 export type UploadResponse = {
   uploadId: string;
   uploadUrl: string;
@@ -9,9 +7,9 @@ export type UploadResponse = {
 
 export type UploadCompleteResponse = {
   uploadId: string;
-  objectKey: string;
+  fileId: string;
   fileName: string;
   contentType: string;
-  size: number;
-  status: UploadIntentStatus;
+  sizeBytes: number;
+  fileStatus: 'quarantined';
 };
