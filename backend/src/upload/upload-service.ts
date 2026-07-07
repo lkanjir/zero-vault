@@ -10,7 +10,6 @@ import type {
 import { ConflictError } from '../shared/errors/conflict-error.js';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
 import type { UploadIntentRepository } from './upload-intent-repository.js';
-import { sha256HexToBase64 } from '../shared/utils/sha256-convert.js';
 import type { User } from '../user/user.js';
 import { NotFoundError } from '../shared/errors/not-found-error.js';
 import {
@@ -20,6 +19,7 @@ import {
   assertObjectKeyMatches,
   assertSizeMatches,
 } from './metadata-assertions.js';
+import { sha256HexToBase64 } from '../shared/utils/sha256-convert.js';
 
 export class UploadService {
   private readonly EXPIRES_IN_SECONDS = 60;
@@ -62,8 +62,11 @@ export class UploadService {
     const response: UploadResponse = {
       uploadId,
       uploadUrl,
-      sha256Base64: sha256HexToBase64(requestBody.sha256),
       expiresInSeconds: this.EXPIRES_IN_SECONDS,
+      requiredHeaders: {
+        'Content-Type': intent.contentType,
+        'x-amz-checksum-sha256': sha256HexToBase64(intent.expectedSha256),
+      },
     };
 
     return response;

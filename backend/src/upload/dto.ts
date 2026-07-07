@@ -1,8 +1,11 @@
 export type UploadResponse = {
   uploadId: string;
   uploadUrl: string;
-  sha256Base64: string;
   expiresInSeconds: number;
+  requiredHeaders: {
+    'Content-Type': string;
+    'x-amz-checksum-sha256': string;
+  };
 };
 
 export type UploadCompleteResponse = {

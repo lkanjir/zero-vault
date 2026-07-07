@@ -43,6 +43,7 @@ export class PostgresUserRepository implements UserRepository {
   private toDomain(row: typeof users.$inferSelect): User {
     return {
       id: row.id,
+      publicId: row.publicId,
       issuer: row.issuer,
       subject: row.subject,
       username: row.username,
