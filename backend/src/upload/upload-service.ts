@@ -106,7 +106,7 @@ export class UploadService {
 
   private async verifyPendingIntent(intent: UploadIntent) {
     await this.ensureIntentCanBeFinalized(intent);
-    const uploadedObject = await this.storage.headObject(intent.objectKey);
+    const uploadedObject = await this.storage.headObject('quarantine', intent.objectKey);
     this.verifyUpload(intent, uploadedObject);
   }
 
