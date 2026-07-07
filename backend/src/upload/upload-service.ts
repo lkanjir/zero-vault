@@ -72,9 +72,7 @@ export class UploadService {
     const intent = await this.getUploadIntent(user.id, uploadId);
 
     if (intent.status === 'pending') {
-      await this.ensureIntentCanBeFinalized(intent);
-      const uploadedObject = await this.storage.headObject(intent.objectKey);
-      this.verifyUpload(intent, uploadedObject);
+      await this.verifyPendingIntent(intent);
     } else if (intent.status !== 'completed') {
       throw new ConflictError('Upload intent is not pending');
     }
@@ -96,17 +94,6 @@ export class UploadService {
     throw new ConflictError('Upload intent is not pending');
   }
 
-  private toResponse(uploadId: string, file: CompletedUploadFile): UploadCompleteResponse {
-    return {
-      uploadId: uploadId,
-      fileId: file.publicId,
-      fileName: file.name,
-      contentType: file.contentType,
-      sizeBytes: file.sizeBytes,
-      fileStatus: file.status,
-    };
-  }
-
   private async getUploadIntent(userId: number, uploadId: string): Promise<UploadIntent> {
     const intent = await this.intentRepo.findByUserAndUploadId(userId, uploadId);
 
@@ -117,12 +104,10 @@ export class UploadService {
     return intent;
   }
 
-  private verifyUpload(intent: UploadIntent, object: ObjectMetadata): void {
-    assertObjectKeyMatches(intent, object);
-    assertChecksumExists(object);
-    assertChecksumMatches(intent, object);
-    assertSizeMatches(intent, object);
-    assertContentTypeMatches(intent, object);
+  private async verifyPendingIntent(intent: UploadIntent) {
+    await this.ensureIntentCanBeFinalized(intent);
+    const uploadedObject = await this.storage.headObject(intent.objectKey);
+    this.verifyUpload(intent, uploadedObject);
   }
 
   private async ensureIntentCanBeFinalized(intent: UploadIntent): Promise<void> {
@@ -140,5 +125,24 @@ export class UploadService {
     }
 
     throw new ConflictError('Upload intent expired');
+  }
+
+  private verifyUpload(intent: UploadIntent, object: ObjectMetadata): void {
+    assertObjectKeyMatches(intent, object);
+    assertChecksumExists(object);
+    assertChecksumMatches(intent, object);
+    assertSizeMatches(intent, object);
+    assertContentTypeMatches(intent, object);
+  }
+
+  private toResponse(uploadId: string, file: CompletedUploadFile): UploadCompleteResponse {
+    return {
+      uploadId: uploadId,
+      fileId: file.publicId,
+      fileName: file.name,
+      contentType: file.contentType,
+      sizeBytes: file.sizeBytes,
+      fileStatus: file.status,
+    };
   }
 }
