@@ -31,10 +31,10 @@ export class UploadService {
   ) {}
 
   async createUpload(user: User, requestBody: UploadRequestBody): Promise<UploadResponse> {
-    const uploadId = randomUUID();
-    const objectKey = `quarantine/${uploadId}/${randomUUID()}`;
-
+    const objectId = randomUUID();
+    const objectKey = `users/${user.publicId}/objects/${objectId}`;
     const contentType = normalizedContentType(requestBody.contentType);
+    const uploadId = randomUUID();
 
     const intent: UploadIntent = {
       uploadId: uploadId,
@@ -140,7 +140,7 @@ export class UploadService {
     );
 
     if (!expired) {
-      throw new ConflictError('Upload intent is not pending');
+      throw new ConflictError('Upload intent state changed - no longer pending');
     }
 
     throw new ConflictError('Upload intent expired');

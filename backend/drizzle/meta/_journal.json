@@ -29,6 +29,13 @@
       "when": 1783373107086,
       "tag": "0003_illegal_nico_minoru",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783432632950,
+      "tag": "0004_chief_imperial_guard",
+      "breakpoints": true
     }
   ]
 }

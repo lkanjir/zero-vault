@@ -112,13 +112,17 @@ export const users = pgTable(
   'users',
   {
     id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    publicId: uuid('public_id').defaultRandom().notNull(),
     issuer: text('issuer').notNull(),
     subject: text('subject').notNull(),
     username: text('username'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
   },
-  (table) => [unique('users_issuer_subject_key').on(table.issuer, table.subject)],
+  (table) => [
+    unique('users_issuer_subject_key').on(table.issuer, table.subject),
+    unique('users_public_id_key').on(table.publicId),
+  ],
 );
 
 export const entries = pgTable(
