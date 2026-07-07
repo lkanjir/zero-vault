@@ -1,3 +1,5 @@
+import type { FileStatus } from '../files/file.js';
+
 export type UploadResponse = {
   uploadId: string;
   uploadUrl: string;
@@ -14,5 +16,5 @@ export type UploadCompleteResponse = {
   fileName: string;
   contentType: string;
   sizeBytes: number;
-  fileStatus: 'quarantined';
+  fileStatus: FileStatus;
 };

@@ -1,12 +1,9 @@
+import type { FileStatus } from '../files/file.js';
 import type { UploadIntent } from './upload-intent.js';
 
 export type CompleteVerifiedUploadCommand = {
   userId: number;
   uploadId: string;
-  objectKey: string;
-  contentType: string;
-  sizeBytes: number;
-  sha256: string;
   completedAt: Date;
 };
 
@@ -16,14 +13,19 @@ export type CompletedUploadFile = {
   name: string;
   contentType: string;
   sizeBytes: number;
-  status: 'quarantined';
+  status: FileStatus;
 };
+
+export type CompletedVerifiedUploadResult =
+  | { kind: 'completed'; file: CompletedUploadFile }
+  | { kind: 'not_found' }
+  | { kind: 'not_pending' };
 
 export interface UploadIntentRepository {
   findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null>;
   save(intent: Omit<UploadIntent, 'id'>): Promise<void>;
-  markedExpiredIfPending(createdByUserId: number, uploadId: string): Promise<UploadIntent | null>;
+  markExpiredIfPending(createdByUserId: number, uploadId: string): Promise<UploadIntent | null>;
   completeVerifiedUpload(
     command: CompleteVerifiedUploadCommand,
-  ): Promise<CompletedUploadFile | null>;
+  ): Promise<CompletedVerifiedUploadResult>;
 }

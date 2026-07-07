@@ -8,5 +8,5 @@ export type File = {
   sha256: string;
   status: FileStatus;
   statusChangedAt: Date;
-  availableAt: Date;
+  availableAt: Date | null;
 };

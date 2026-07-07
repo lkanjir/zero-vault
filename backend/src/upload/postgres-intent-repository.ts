@@ -1,12 +1,16 @@
 import type {
   CompletedUploadFile,
+  CompletedVerifiedUploadResult,
   CompleteVerifiedUploadCommand,
   UploadIntentRepository,
 } from './upload-intent-repository.js';
 import type { UploadIntent } from './upload-intent.js';
 import { db } from '../db/db-client.js';
 import { entries, files, uploadIntents } from '../db/schema.js';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, type ExtractTablesWithRelations } from 'drizzle-orm';
+import type { PgTransaction } from 'drizzle-orm/pg-core';
+import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
+import type * as schema from '../db/schema.js';
 
 export class PostgresIntentRepository implements UploadIntentRepository {
   async findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null> {
@@ -23,7 +27,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     await db.insert(uploadIntents).values(this.toInsert(intent));
   }
 
-  async markedExpiredIfPending(
+  async markExpiredIfPending(
     createdByUserId: number,
     uploadId: string,
   ): Promise<UploadIntent | null> {
@@ -44,7 +48,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
 
   completeVerifiedUpload(
     command: CompleteVerifiedUploadCommand,
-  ): Promise<CompletedUploadFile | null> {
+  ): Promise<CompletedVerifiedUploadResult> {
     return db.transaction(async (tx) => {
       const [intent] = await tx
         .select()
@@ -53,14 +57,22 @@ export class PostgresIntentRepository implements UploadIntentRepository {
           and(
             eq(uploadIntents.uploadId, command.uploadId),
             eq(uploadIntents.createdByUserId, command.userId),
-            eq(uploadIntents.status, 'pending'),
           ),
         )
         .for('update')
         .limit(1);
 
       if (!intent) {
-        return null;
+        return { kind: 'not_found' };
+      }
+
+      if (intent.status === 'completed') {
+        const existingFile = await this.findCompletedFileInTransaction(tx, intent.id);
+        return { kind: 'completed', file: existingFile };
+      }
+
+      if (intent.status !== 'pending') {
+        return { kind: 'not_pending' };
       }
 
       const [entry] = await tx
@@ -77,17 +89,15 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         throw new Error('Failed to create file entry');
       }
 
-      const createdFileStatus = 'quarantined' as const;
-
       const [file] = await tx
         .insert(files)
         .values({
           entryId: entry.id,
-          objectKey: command.objectKey,
-          contentType: command.contentType,
-          sizeBytes: command.sizeBytes,
-          sha256: command.sha256,
-          status: createdFileStatus,
+          objectKey: intent.objectKey,
+          contentType: intent.contentType,
+          sizeBytes: intent.expectedSizeBytes,
+          sha256: intent.expectedSha256,
+          status: 'quarantined',
         })
         .returning();
 
@@ -100,15 +110,47 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         .set({ status: 'completed', fileId: entry.id, completedAt: command.completedAt })
         .where(eq(uploadIntents.id, intent.id));
 
-      return {
+      const completedFile: CompletedUploadFile = {
         entryId: entry.id,
         publicId: entry.publicId,
         name: entry.name,
         contentType: file.contentType,
         sizeBytes: file.sizeBytes,
-        status: createdFileStatus,
+        status: file.status,
       };
+
+      return { kind: 'completed', file: completedFile };
     });
+  }
+
+  private async findCompletedFileInTransaction(
+    tx: PgTransaction<
+      NodePgQueryResultHKT,
+      typeof schema,
+      ExtractTablesWithRelations<typeof schema>
+    >,
+    intentId: number,
+  ): Promise<CompletedUploadFile> {
+    const [row] = await tx
+      .select({
+        entryId: entries.id,
+        publicId: entries.publicId,
+        name: entries.name,
+        contentType: files.contentType,
+        sizeBytes: files.sizeBytes,
+        status: files.status,
+      })
+      .from(uploadIntents)
+      .innerJoin(entries, eq(uploadIntents.fileId, entries.id))
+      .innerJoin(files, eq(entries.id, files.entryId))
+      .where(and(eq(uploadIntents.id, intentId), eq(uploadIntents.status, 'completed')))
+      .limit(1);
+
+    if (!row) {
+      throw new Error('Completed upload intent has no file');
+    }
+
+    return row;
   }
 
   private toDomain(row: typeof uploadIntents.$inferSelect): UploadIntent {
