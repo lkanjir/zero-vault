@@ -94,13 +94,13 @@ export class S3ObjectStorage implements ObjectStorage {
 
   async createPresignedDownloadUrl(params: SignedDownloadUrlParams): Promise<string> {
     const bucket = this.getBucketName('live');
-    const contentDispositoin = this.getDisposition(params.fileName);
+    const contentDisposition = this.getDisposition(params.fileName);
 
     const command = new GetObjectCommand({
       Bucket: bucket,
       Key: params.objectKey,
       ResponseContentType: params.contentType,
-      ResponseContentDisposition: contentDispositoin,
+      ResponseContentDisposition: contentDisposition,
     });
 
     return getSignedUrl(this.client, command, { expiresIn: params.expiresInSeconds });

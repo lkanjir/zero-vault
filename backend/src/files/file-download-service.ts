@@ -4,8 +4,8 @@ import type { DownloadResponse } from './dto.js';
 import type { FileRepository } from './file-repository.js';
 import { NotFoundError } from '../shared/errors/not-found-error.js';
 
-export class FileDonwloadService {
-  private readonly EXIRES_IN_SECONDS = 60;
+export class FileDownloadService {
+  private readonly EXPIRES_IN_SECONDS = 60;
 
   constructor(
     private readonly repo: FileRepository,
@@ -22,14 +22,14 @@ export class FileDonwloadService {
     const downloadUrl = await this.storage.createPresignedDownloadUrl({
       objectKey: file.objectKey,
       contentType: file.contentType,
-      expiresInSeconds: this.EXIRES_IN_SECONDS,
+      expiresInSeconds: this.EXPIRES_IN_SECONDS,
       fileName: file.name,
     });
 
     return {
       contentType: file.contentType,
       downloadUrl: downloadUrl,
-      expiresInSeconds: this.EXIRES_IN_SECONDS,
+      expiresInSeconds: this.EXPIRES_IN_SECONDS,
       fileId: file.publicId,
       fileName: file.name,
       sizeBytes: file.sizeBytes,

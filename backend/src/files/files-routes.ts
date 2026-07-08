@@ -1,13 +1,13 @@
 import express, { type Router } from 'express';
 import type { UserService } from '../user/user-service.js';
-import type { FileDonwloadService } from './file-download-service.js';
+import type { FileDownloadService } from './file-download-service.js';
 import { validateParams } from '../shared/validation/validate-params.js';
 import { fileIdParamsSchema } from './validation-schemas.js';
 import { requirePrincipal } from '../auth/require-principal.js';
 
 export type FileRouterDeps = {
   userService: UserService;
-  downloadService: FileDonwloadService;
+  downloadService: FileDownloadService;
 };
 
 export function createFilesRouter(deps: FileRouterDeps): Router {
