@@ -25,7 +25,7 @@ export type EntryListRecord = {
 
 export type EntriesQuery = {
   ownerId: number;
-  parentId: string | undefined;
+  parentId: string | null;
   cursor: EntryListCursor | null;
   limit: number;
 };

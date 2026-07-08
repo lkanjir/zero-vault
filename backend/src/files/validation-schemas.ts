@@ -5,8 +5,16 @@ export const fileIdParamsSchema = z.object({
 });
 
 export const listEntriesQuerySchema = z.object({
-  parentId: z.uuid().optional(),
-  cursor: z.string().trim().min(1).optional(),
+  parentId: z
+    .uuid()
+    .optional()
+    .transform((val) => val ?? null),
+  cursor: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .transform((val) => val ?? null),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 

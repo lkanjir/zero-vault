@@ -54,10 +54,7 @@ export class PostgresEntryRepository implements EntryRepository {
     return rows.map(toEntryListRecord);
   }
 
-  private async resolveParentId(
-    ownerId: number,
-    parentId: string | undefined,
-  ): Promise<number | null> {
+  private async resolveParentId(ownerId: number, parentId: string | null): Promise<number | null> {
     if (!parentId) {
       return null;
     }

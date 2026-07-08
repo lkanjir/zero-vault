@@ -28,5 +28,5 @@ export type FileItemResponse = {
 export type EntryItem = FolderItemResponse | FileItemResponse;
 
 export type EntryListResponse = CursorPage<EntryItem> & {
-  parentId: string | undefined;
+  parentId: string | null;
 };
