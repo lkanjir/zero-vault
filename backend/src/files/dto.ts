@@ -9,14 +9,14 @@ export type DownloadResponse = {
   expiresInSeconds: number;
 };
 
-export type FolderItemResponse = {
+export type FolderResponse = {
   kind: 'folder';
   id: string;
   name: string;
   updatedAt: string;
 };
 
-export type FileItemResponse = {
+export type FileResponse = {
   kind: 'file';
   id: string;
   name: string;
@@ -25,7 +25,7 @@ export type FileItemResponse = {
   updatedAt: string;
 };
 
-export type EntryItem = FolderItemResponse | FileItemResponse;
+export type EntryItem = FolderResponse | FileResponse;
 
 export type EntryListResponse = CursorPage<EntryItem> & {
   parentId: string | null;

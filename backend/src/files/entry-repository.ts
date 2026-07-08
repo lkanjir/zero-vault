@@ -1,4 +1,5 @@
 import type { EntryListCursor } from './entry-list-cursor.js';
+import type { Folder } from './folder.js';
 
 export type ListedEntry =
   | {
@@ -30,6 +31,13 @@ export type EntriesQuery = {
   limit: number;
 };
 
+export type CreateFolderCommand = {
+  ownerId: number;
+  parentId: string | null;
+  name: string;
+};
+
 export interface EntryRepository {
   getEntries(query: EntriesQuery): Promise<EntryListRecord[]>;
+  createFolder(command: CreateFolderCommand): Promise<Folder>;
 }

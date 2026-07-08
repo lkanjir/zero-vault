@@ -1,9 +1,15 @@
-import type { EntriesQuery, EntryListRecord, EntryRepository } from './entry-repository.js';
+import type {
+  CreateFolderCommand,
+  EntriesQuery,
+  EntryListRecord,
+  EntryRepository,
+} from './entry-repository.js';
 import { eq, isNull, sql, and, or, gt, type SQL } from 'drizzle-orm';
 import { entries, files } from '../db/schema.js';
 import { db } from '../db/db-client.js';
 import { NotFoundError } from '../shared/errors/not-found-error.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
+import type { Folder } from './folder.js';
 
 type QueryDbRow = {
   entryId: number;
@@ -54,6 +60,26 @@ export class PostgresEntryRepository implements EntryRepository {
     return rows.map(toEntryListRecord);
   }
 
+  async createFolder(command: CreateFolderCommand): Promise<Folder> {
+    const parentDbId = await this.resolveParentId(command.ownerId, command.parentId);
+
+    const [folder] = await db
+      .insert(entries)
+      .values({
+        kind: 'folder',
+        name: command.name,
+        ownerId: command.ownerId,
+        parentId: parentDbId,
+      })
+      .returning();
+
+    if (!folder) {
+      throw new Error('Failed to create folder');
+    }
+
+    return this.toFolder(folder);
+  }
+
   private async resolveParentId(ownerId: number, parentId: string | null): Promise<number | null> {
     if (!parentId) {
       return null;
@@ -96,6 +122,24 @@ export class PostgresEntryRepository implements EntryRepository {
         gt(entries.id, cursor.entryId),
       ),
     );
+  }
+
+  private toFolder(row: typeof entries.$inferSelect): Folder {
+    if (row.kind !== 'folder') {
+      throw new Error('Expected folder entry, got file');
+    }
+
+    return {
+      createdAt: row.createdAt,
+      deletedAt: row.deletedAt,
+      id: row.id,
+      kind: row.kind,
+      name: row.name,
+      ownerId: row.ownerId,
+      parentId: row.parentId,
+      publicId: row.publicId,
+      updatedAt: row.updatedAt,
+    };
   }
 }
 
