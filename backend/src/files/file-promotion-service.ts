@@ -18,6 +18,7 @@ export class FilePromotionService {
     }
 
     if (file.status === 'available') {
+      this.tryDeleteQuarantinedObject(file);
       return file;
     }
 
@@ -36,12 +37,14 @@ export class FilePromotionService {
     const promotedFile = await this.repo.markAvailable(file.entryId);
 
     if (promotedFile) {
+      this.tryDeleteQuarantinedObject(file);
       return promotedFile;
     }
 
     const currentFile = await this.repo.findByEntryId(file.entryId);
 
     if (currentFile?.status === 'available') {
+      this.tryDeleteQuarantinedObject(currentFile);
       return currentFile;
     }
 
@@ -52,7 +55,7 @@ export class FilePromotionService {
     throw new ConflictError('File is no longer quarantined');
   }
 
-  assertObjectsMatch(quarantinedObject: ObjectMetadata, file: File): void {
+  private assertObjectsMatch(quarantinedObject: ObjectMetadata, file: File): void {
     if (!quarantinedObject.sha256Hex) {
       throw new ConflictError('Object has no SHA-256 checksum');
     }
@@ -68,5 +71,15 @@ export class FilePromotionService {
     if (quarantinedObject.sha256Hex !== file.sha256) {
       throw new ConflictError('Object checksum does not match file record');
     }
+  }
+
+  private tryDeleteQuarantinedObject(file: File): void {
+    this.storage.deleteObject('quarantine', file.objectKey).catch((err: Error) => {
+      console.error('Failed to delete promoted file from quarantine', {
+        entryId: file.entryId,
+        objectKey: file.objectKey,
+        error: err,
+      });
+    });
   }
 }

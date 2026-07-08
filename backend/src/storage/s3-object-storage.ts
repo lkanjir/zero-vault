@@ -1,5 +1,6 @@
 import {
   CopyObjectCommand,
+  DeleteObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -77,6 +78,14 @@ export class S3ObjectStorage implements ObjectStorage {
       Key: objectKey,
       CopySource: this.encodeCopySource(fromBucket, objectKey),
     });
+
+    await this.client.send(command);
+  }
+
+  async deleteObject(from: ObjectLocation, objectKey: string): Promise<void> {
+    const fromBucket = this.getBucketName(from);
+
+    const command = new DeleteObjectCommand({ Bucket: fromBucket, Key: objectKey });
 
     await this.client.send(command);
   }

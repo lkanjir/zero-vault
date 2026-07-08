@@ -22,4 +22,5 @@ export interface ObjectStorage {
   createPresignedUrl(params: SignedUrlParams): Promise<string>;
   headObject(location: ObjectLocation, objectKey: string): Promise<ObjectMetadata>;
   copyObject(from: ObjectLocation, to: ObjectLocation, objectKey: string): Promise<void>;
+  deleteObject(from: ObjectLocation, objectKey: string): Promise<void>;
 }
