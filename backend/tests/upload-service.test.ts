@@ -1,24 +1,30 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { mock, type MockProxy } from 'vitest-mock-extended';
 import { UploadService } from '../src/upload/upload-service.js';
 import type { UploadIntent } from '../src/upload/upload-intent.js';
-import type { UploadIntentRepository } from '../src/upload/upload-intent-repository.js';
+import type {
+  CompletedUploadFile,
+  CompletedVerifiedUploadResult,
+  UploadIntentRepository,
+} from '../src/upload/upload-intent-repository.js';
 import type { ObjectMetadata, ObjectStorage } from '../src/storage/object-storage.js';
 import { ConflictError } from '../src/shared/errors/conflict-error.js';
-import type { User } from '../src/user/user.js';
-import { mock, type MockProxy } from 'vitest-mock-extended';
 import { NotFoundError } from '../src/shared/errors/not-found-error.js';
+import type { User } from '../src/user/user.js';
 
 const EXPECTED_SHA256 = 'a'.repeat(64);
 const EXPECTED_SHA256_BASE64 = 'qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo=';
 const OTHER_SHA256 = 'b'.repeat(64);
 const SIGNED_URL = 'https://storage.example.test/upload';
+
 const USER: User = {
   id: 1,
+  publicId: '10000000-0000-4000-8000-000000000001',
   issuer: process.env['OIDC_ISSUER']!,
   subject: 'user-123',
   username: 'test',
-  createdAt: new Date(),
-  updatedAt: new Date(),
+  createdAt: new Date('2026-01-01T00:00:00Z'),
+  updatedAt: new Date('2026-01-01T00:00:00Z'),
 };
 
 describe('UploadService', () => {
@@ -32,13 +38,12 @@ describe('UploadService', () => {
     service = new UploadService(storage, repo);
   });
 
-  it('stores the expected checksum and signs the upload with it', async () => {
-    storage.createPresignedUrl.mockResolvedValue(SIGNED_URL);
-    repo.save.mockResolvedValue(undefined);
+  it('creates a pending upload intent and returns required upload headers', async () => {
+    storage.createPresignedUploadUrl.mockResolvedValue(SIGNED_URL);
 
     const result = await service.createUpload(USER, {
       fileName: 'document.txt',
-      contentType: 'text/plain',
+      contentType: ' text/plain ',
       size: 12,
       sha256: EXPECTED_SHA256,
     });
@@ -46,155 +51,173 @@ describe('UploadService', () => {
     expect(result).toStrictEqual({
       uploadId: result.uploadId,
       uploadUrl: SIGNED_URL,
-      sha256Base64: EXPECTED_SHA256_BASE64,
       expiresInSeconds: 60,
+      requiredHeaders: {
+        'Content-Type': 'text/plain',
+        'x-amz-checksum-sha256': EXPECTED_SHA256_BASE64,
+      },
     });
-    expect(result.uploadId).toMatch(/^[0-9a-f-]{36}$/);
 
-    expect(storage.createPresignedUrl).toHaveBeenCalledOnce();
-    const [signedRequest] = storage.createPresignedUrl.mock.lastCall!;
+    expect(storage.createPresignedUploadUrl).toHaveBeenCalledOnce();
+    const [signedRequest] = storage.createPresignedUploadUrl.mock.lastCall!;
+    expect(signedRequest.objectKey).toMatch(
+      new RegExp(`^users/${USER.publicId}/objects/[0-9a-f-]{36}$`),
+    );
     expect(signedRequest).toStrictEqual({
       objectKey: signedRequest.objectKey,
       contentType: 'text/plain',
       expiresInSeconds: 60,
       sha256Hex: EXPECTED_SHA256,
     });
-    expect(signedRequest.objectKey).toMatch(
-      new RegExp(`^quarantine/${result.uploadId}/[0-9a-f-]{36}$`),
-    );
 
     expect(repo.save).toHaveBeenCalledOnce();
-    const [savedIntent] = repo.save.mock.lastCall!;
-    expect(savedIntent).toMatchObject({
-      createdByUserId: USER.id,
+    expect(repo.save.mock.lastCall![0]).toMatchObject({
       uploadId: result.uploadId,
-      objectKey: signedRequest.objectKey,
+      createdByUserId: USER.id,
+      fileName: 'document.txt',
+      contentType: 'text/plain',
+      expectedSizeBytes: 12,
       expectedSha256: EXPECTED_SHA256,
-      actualSha256: null,
-      checksumVerifiedAt: null,
       status: 'pending',
     });
   });
 
-  it('verifies checksum metadata and persists the actual checksum on completion', async () => {
+  it('verifies the uploaded object and completes a pending upload', async () => {
     const intent = makePendingIntent();
+    const completedFile = makeCompletedFile();
 
-    repo.findByUserAndUploadId.mockResolvedValue(structuredClone(intent));
-    repo.update.mockResolvedValue(true);
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
     storage.headObject.mockResolvedValue(makeObjectMetadata(intent));
+    repo.completeVerifiedUpload.mockResolvedValue(completed(completedFile));
 
     const result = await service.completeUpload(USER, intent.uploadId);
 
-    expect(result.status).toBe('completed');
-    expect(result.objectKey).toBe(intent.objectKey);
-    expect(repo.findByUserAndUploadId).toHaveBeenCalledExactlyOnceWith(USER.id, intent.uploadId);
-    expect(storage.headObject).toHaveBeenCalledExactlyOnceWith(intent.objectKey);
-
-    expect(repo.update).toHaveBeenCalledOnce();
-    const [updatedIntent] = repo.update.mock.lastCall!;
-    expect(updatedIntent).toMatchObject({
-      status: 'completed',
-      actualSha256: EXPECTED_SHA256,
+    expect(result).toStrictEqual({
+      entryId: completedFile.entryId,
+      uploadId: intent.uploadId,
+      fileId: completedFile.publicId,
+      fileName: completedFile.name,
+      contentType: completedFile.contentType,
+      sizeBytes: completedFile.sizeBytes,
+      fileStatus: completedFile.status,
     });
-    expect(updatedIntent.completedAt).toBeInstanceOf(Date);
-    expect(updatedIntent.checksumVerifiedAt).toBeInstanceOf(Date);
+    expect(storage.headObject).toHaveBeenCalledExactlyOnceWith('quarantine', intent.objectKey);
+    expect(repo.completeVerifiedUpload).toHaveBeenCalledOnce();
+    const [completeCommand] = repo.completeVerifiedUpload.mock.lastCall!;
+    expect(completeCommand).toMatchObject({
+      userId: USER.id,
+      uploadId: intent.uploadId,
+    });
+    expect(completeCommand.completedAt).toBeInstanceOf(Date);
+  });
+
+  it('returns an already completed upload without reading object storage', async () => {
+    const intent = makeCompletedIntent();
+    const completedFile = makeCompletedFile({ status: 'available' });
+
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
+    repo.completeVerifiedUpload.mockResolvedValue(completed(completedFile));
+
+    const result = await service.completeUpload(USER, intent.uploadId);
+
+    expect(result.fileStatus).toBe('available');
+    expect(storage.headObject).not.toHaveBeenCalled();
+    expect(repo.completeVerifiedUpload).toHaveBeenCalledOnce();
+    const [completeCommand] = repo.completeVerifiedUpload.mock.lastCall!;
+    expect(completeCommand).toMatchObject({
+      userId: USER.id,
+      uploadId: intent.uploadId,
+    });
+    expect(completeCommand.completedAt).toBeInstanceOf(Date);
   });
 
   it.each([
+    ['missing provider checksum', { sha256Hex: null }, 'Uploaded object has no SHA-256 checksum'],
     [
-      'whose checksum does not match',
+      'checksum mismatch',
       { sha256Hex: OTHER_SHA256 },
       'Uploaded object checksum does not match intent',
     ],
-    [
-      'without provider checksum metadata',
-      { sha256Hex: null },
-      'Uploaded object has no SHA-256 checksum',
-    ],
-  ])('rejects an object %s', async (_case, metadataOverrides, errorMessage) => {
+    ['size mismatch', { sizeBytes: 99 }, 'Uploaded object size does not match intent'],
+  ])('rejects an uploaded object with %s', async (_case, metadataOverrides, message) => {
     const intent = makePendingIntent();
 
-    repo.findByUserAndUploadId.mockResolvedValue(structuredClone(intent));
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
     storage.headObject.mockResolvedValue(makeObjectMetadata(intent, metadataOverrides));
 
     await expect(service.completeUpload(USER, intent.uploadId)).rejects.toThrow(
-      new ConflictError(errorMessage),
+      new ConflictError(message),
     );
-    expect(repo.update).not.toHaveBeenCalled();
+    expect(repo.completeVerifiedUpload).not.toHaveBeenCalled();
   });
 
-  it('expires old intents before reading object storage', async () => {
+  it('expires stale pending intents before reading object storage', async () => {
     const intent = makePendingIntent({
-      expiredAt: new Date(Date.now() - 1_000),
+      finalizeDeadline: new Date(Date.now() - 1_000),
     });
 
-    repo.findByUserAndUploadId.mockResolvedValue(structuredClone(intent));
-    repo.update.mockResolvedValue(true);
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
+    repo.markExpiredIfPending.mockResolvedValue({ ...intent, status: 'expired' });
 
     await expect(service.completeUpload(USER, intent.uploadId)).rejects.toThrow(
       new ConflictError('Upload intent expired'),
     );
 
     expect(storage.headObject).not.toHaveBeenCalled();
-
-    expect(repo.update).toHaveBeenCalledOnce();
-    const [updatedIntent] = repo.update.mock.lastCall!;
-    expect(updatedIntent.status).toBe('expired');
+    expect(repo.completeVerifiedUpload).not.toHaveBeenCalled();
+    expect(repo.markExpiredIfPending).toHaveBeenCalledExactlyOnceWith(USER.id, intent.uploadId);
   });
 
-  it('does not report success if the pending DB update loses a race', async () => {
+  it('does not report success if completion loses a DB race', async () => {
     const intent = makePendingIntent();
 
-    repo.findByUserAndUploadId.mockResolvedValue(structuredClone(intent));
-    repo.update.mockResolvedValue(false);
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
     storage.headObject.mockResolvedValue(makeObjectMetadata(intent));
+    repo.completeVerifiedUpload.mockResolvedValue({ kind: 'not_pending' });
 
     await expect(service.completeUpload(USER, intent.uploadId)).rejects.toThrow(
       new ConflictError('Upload intent is not pending'),
     );
-
-    expect(repo.update).toHaveBeenCalledOnce();
-    const [attemptedUpdate] = repo.update.mock.lastCall!;
-    expect(attemptedUpdate).toMatchObject({
-      status: 'completed',
-      actualSha256: EXPECTED_SHA256,
-    });
   });
 
-  it('other user is not allowed to complete the intent', async () => {
-    const intent = makePendingIntent();
-    const otherUser = {
-      ...USER,
-      id: 2,
-      subject: 'other-user',
-    };
+  it('does not allow another user to complete the upload', async () => {
+    repo.findByUserAndUploadId.mockResolvedValue(null);
 
-    repo.findByUserAndUploadId.calledWith(otherUser.id, intent.uploadId).mockResolvedValue(null);
-
-    await expect(service.completeUpload(otherUser, intent.uploadId)).rejects.toBeInstanceOf(
+    await expect(service.completeUpload({ ...USER, id: 2 }, 'upload-id')).rejects.toBeInstanceOf(
       NotFoundError,
     );
     expect(storage.headObject).not.toHaveBeenCalled();
-    expect(repo.update).not.toHaveBeenCalled();
+    expect(repo.completeVerifiedUpload).not.toHaveBeenCalled();
   });
 });
 
 function makePendingIntent(overrides: Partial<UploadIntent> = {}): UploadIntent {
   return {
-    createdByUserId: USER.id,
+    id: 1,
     uploadId: '00000000-0000-4000-8000-000000000001',
-    objectKey: 'quarantine/00000000-0000-4000-8000-000000000001/object',
+    createdByUserId: USER.id,
+    targetParentId: null,
+    fileId: null,
     fileName: 'document.txt',
+    objectKey: `users/${USER.publicId}/objects/00000000-0000-4000-8000-000000000002`,
     contentType: 'text/plain',
-    size: 12,
-    status: 'pending',
+    expectedSizeBytes: 12,
     expectedSha256: EXPECTED_SHA256,
-    actualSha256: null,
-    checksumVerifiedAt: null,
+    status: 'pending',
     createdAt: new Date(Date.now() - 1_000),
-    expiredAt: new Date(Date.now() + 60_000),
+    uploadUrlExpiresAt: new Date(Date.now() + 60_000),
+    finalizeDeadline: new Date(Date.now() + 600_000),
     completedAt: null,
     ...overrides,
+  };
+}
+
+function makeCompletedIntent(): UploadIntent {
+  return {
+    ...makePendingIntent(),
+    fileId: 10,
+    status: 'completed',
+    completedAt: new Date(),
   };
 }
 
@@ -204,9 +227,25 @@ function makeObjectMetadata(
 ): ObjectMetadata {
   return {
     objectKey: intent.objectKey,
-    size: intent.size,
+    sizeBytes: intent.expectedSizeBytes,
     contentType: intent.contentType,
     sha256Hex: EXPECTED_SHA256,
     ...overrides,
   };
+}
+
+function makeCompletedFile(overrides: Partial<CompletedUploadFile> = {}): CompletedUploadFile {
+  return {
+    entryId: 10,
+    publicId: '20000000-0000-4000-8000-000000000001',
+    name: 'document.txt',
+    contentType: 'text/plain',
+    sizeBytes: 12,
+    status: 'quarantined',
+    ...overrides,
+  };
+}
+
+function completed(file: CompletedUploadFile): CompletedVerifiedUploadResult {
+  return { kind: 'completed', file };
 }

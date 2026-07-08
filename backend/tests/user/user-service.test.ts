@@ -7,6 +7,7 @@ import { UserService } from '../../src/user/user-service.js';
 
 const existingUser: User = {
   id: 1,
+  publicId: '10000000-0000-4000-8000-000000000001',
   issuer: process.env['OIDC_ISSUER']!,
   subject: 'existing_user',
   username: 'test',
