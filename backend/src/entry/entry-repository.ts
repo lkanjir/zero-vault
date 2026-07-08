@@ -1,5 +1,5 @@
 import type { EntryListCursor } from './entry-list-cursor.js';
-import type { Folder } from './folder.js';
+import type { Folder } from '../folder/folder.js';
 
 export type ListedEntry =
   | {

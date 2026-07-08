@@ -9,7 +9,7 @@ import { entries, files } from '../db/schema.js';
 import { db } from '../db/db-client.js';
 import { NotFoundError } from '../shared/errors/not-found-error.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
-import type { Folder } from './folder.js';
+import type { Folder } from '../folder/folder.js';
 
 type QueryDbRow = {
   entryId: number;
@@ -24,7 +24,7 @@ type QueryDbRow = {
 
 export class PostgresEntryRepository implements EntryRepository {
   readonly kindRankExpression = sql<number>`case when ${entries.kind} = 'folder' then 0 else 1 end`;
-  readonly sortNameExpresssion = sql<string>`lower(${entries.name})`;
+  readonly sortNameExpression = sql<string>`lower(${entries.name})`;
 
   async getEntries(query: EntriesQuery): Promise<EntryListRecord[]> {
     const parentDbId = await this.resolveParentId(query.ownerId, query.parentId);
@@ -47,14 +47,14 @@ export class PostgresEntryRepository implements EntryRepository {
         kind: entries.kind,
         name: entries.name,
         updatedAt: entries.updatedAt,
-        sortName: this.sortNameExpresssion,
+        sortName: this.sortNameExpression,
         contentType: files.contentType,
         sizeBytes: files.sizeBytes,
       })
       .from(entries)
       .leftJoin(files, eq(files.entryId, entries.id))
       .where(and(...condition))
-      .orderBy(this.kindRankExpression, this.sortNameExpresssion, entries.id)
+      .orderBy(this.kindRankExpression, this.sortNameExpression, entries.id)
       .limit(query.limit);
 
     return rows.map(toEntryListRecord);
@@ -114,11 +114,11 @@ export class PostgresEntryRepository implements EntryRepository {
       gt(this.kindRankExpression, cursor.kindRank),
       and(
         eq(this.kindRankExpression, cursor.kindRank),
-        gt(this.sortNameExpresssion, cursor.sortName),
+        gt(this.sortNameExpression, cursor.sortName),
       ),
       and(
         eq(this.kindRankExpression, cursor.kindRank),
-        eq(this.sortNameExpresssion, cursor.sortName),
+        eq(this.sortNameExpression, cursor.sortName),
         gt(entries.id, cursor.entryId),
       ),
     );

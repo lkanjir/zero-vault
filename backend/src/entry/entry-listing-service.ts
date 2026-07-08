@@ -1,11 +1,11 @@
 import type { User } from '../user/user.js';
-import type { EntryItem, EntryListResponse } from './dto.js';
 import { decodeCursor, encodeCursor } from './entry-list-cursor.js';
 import type { EntryRepository, ListedEntry } from './entry-repository.js';
-import type { EntriesListRequest } from './validation-schemas.js';
 import { BadRequestError } from '../shared/errors/bad-request-error.js';
+import type { EntryItem, EntryListResponse } from './dto.js';
+import type { EntriesListRequest } from './validation-schemas.js';
 
-export class FileListingService {
+export class EntryListingService {
   constructor(private readonly entryRepository: EntryRepository) {}
 
   async listEntries(user: User, request: EntriesListRequest): Promise<EntryListResponse> {

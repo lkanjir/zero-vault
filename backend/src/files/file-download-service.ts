@@ -1,6 +1,6 @@
 import type { ObjectStorage } from '../storage/object-storage.js';
 import type { User } from '../user/user.js';
-import type { DownloadResponse } from './dto.js';
+import type { FileDownloadResponse } from './dto.js';
 import type { FileRepository } from './file-repository.js';
 import { NotFoundError } from '../shared/errors/not-found-error.js';
 
@@ -12,7 +12,7 @@ export class FileDownloadService {
     private readonly storage: ObjectStorage,
   ) {}
 
-  async createDownloadUrl(user: User, fileId: string): Promise<DownloadResponse> {
+  async createDownloadUrl(user: User, fileId: string): Promise<FileDownloadResponse> {
     const file = await this.repo.findAvailableFileByPublicIdForOwner(fileId, user.id);
 
     if (!file) {

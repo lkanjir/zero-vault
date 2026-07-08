@@ -1,6 +1,6 @@
-import type { User } from '../user/user.js';
 import type { FolderResponse } from './dto.js';
-import type { EntryRepository } from './entry-repository.js';
+import type { User } from '../user/user.js';
+import type { EntryRepository } from '../entry/entry-repository.js';
 import type { Folder } from './folder.js';
 import type { CreateFolderRequestBody } from './validation-schemas.js';
 
