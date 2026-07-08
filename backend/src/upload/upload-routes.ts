@@ -1,11 +1,10 @@
 import express, { type Router } from 'express';
-import { validateBody } from '../shared/validation/validate-body.js';
 import { completeUploadSchema, uploadRequestSchema } from './validation-schemas.js';
-import { validateParams } from '../shared/validation/validate-params.js';
 import { requirePrincipal } from '../auth/require-principal.js';
 import type { UserService } from '../user/user-service.js';
 import type { UploadService } from './upload-service.js';
 import type { CompleteUploadUseCase } from './complete-upload-use-case.js';
+import { validateRequest } from '../shared/validation/validate-request.js';
 
 export type UploadRouterDeps = {
   userService: UserService;
@@ -18,22 +17,25 @@ export function createUploadRouter(deps: UploadRouterDeps): Router {
 
   router.post(
     '/presign',
-    validateBody(uploadRequestSchema, async (req, res, body) => {
+    validateRequest({ body: uploadRequestSchema }, async (req, res, validated) => {
       const principal = requirePrincipal(req);
       const authenticatedUser = await deps.userService.resolveUser(principal);
 
-      const result = await deps.uploadService.createUpload(authenticatedUser, body);
+      const result = await deps.uploadService.createUpload(authenticatedUser, validated.body);
       res.status(201).json(result);
     }),
   );
 
   router.post(
     '/:uploadId/complete',
-    validateParams(completeUploadSchema, async (req, res, params) => {
+    validateRequest({ params: completeUploadSchema }, async (req, res, validated) => {
       const principal = requirePrincipal(req);
       const authenticatedUser = await deps.userService.resolveUser(principal);
 
-      const result = await deps.completeUploadUseCase.execute(authenticatedUser, params.uploadId);
+      const result = await deps.completeUploadUseCase.execute(
+        authenticatedUser,
+        validated.params.uploadId,
+      );
 
       res.status(200).json(result);
     }),

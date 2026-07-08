@@ -2,10 +2,11 @@ import type { User } from '../user/user.js';
 import { decodeCursor, encodeCursor } from './entry-list-cursor.js';
 import type { EntryRepository, ListedEntry } from './entry-repository.js';
 import { BadRequestError } from '../shared/errors/bad-request-error.js';
-import type { EntryItem, EntryListResponse } from './dto.js';
-import type { EntriesListRequest } from './validation-schemas.js';
+import type { EntryResponse, EntryListResponse } from './dto.js';
+import type { EntriesListRequest, EntryUpdateRequest } from './validation-schemas.js';
+import { NotFoundError } from '../shared/errors/not-found-error.js';
 
-export class EntryListingService {
+export class EntryService {
   constructor(private readonly entryRepository: EntryRepository) {}
 
   async listEntries(user: User, request: EntriesListRequest): Promise<EntryListResponse> {
@@ -42,7 +43,26 @@ export class EntryListingService {
     };
   }
 
-  private toResponseItem(entry: ListedEntry): EntryItem {
+  async updateEntry(
+    user: User,
+    entryId: string,
+    request: EntryUpdateRequest,
+  ): Promise<EntryResponse> {
+    const updatedEntry = await this.entryRepository.updateEntry({
+      entryId: entryId,
+      ownerId: user.id,
+      name: request.name,
+      parentId: request.parentId,
+    });
+
+    if (!updatedEntry) {
+      throw new NotFoundError('File / folder not found');
+    }
+
+    return this.toResponseItem(updatedEntry);
+  }
+
+  private toResponseItem(entry: ListedEntry): EntryResponse {
     if (entry.kind === 'folder') {
       return {
         kind: 'folder',

@@ -37,7 +37,15 @@ export type CreateFolderCommand = {
   name: string;
 };
 
+export type UpdateEntryCommand = {
+  ownerId: number;
+  entryId: string;
+  parentId?: string | null;
+  name: string | null;
+};
+
 export interface EntryRepository {
   getEntries(query: EntriesQuery): Promise<EntryListRecord[]>;
   createFolder(command: CreateFolderCommand): Promise<Folder>;
+  updateEntry(command: UpdateEntryCommand): Promise<ListedEntry>;
 }

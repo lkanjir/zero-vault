@@ -24,3 +24,21 @@ export const entryNameSchema = z
   .refine((value) => !/[\\/]+/.test(value), {
     message: 'Folder name must not contain path separators',
   });
+
+export const updateEntryBodySchema = z
+  .object({
+    name: entryNameSchema.optional().transform((val) => val ?? null),
+    parentId: z
+      .uuid()
+      .optional()
+      .transform((val) => val ?? null),
+  })
+  .refine((body) => body.name !== undefined || body.parentId !== undefined, {
+    message: 'Specify at least one filed, name or parentId',
+  });
+
+export type EntryUpdateRequest = z.infer<typeof updateEntryBodySchema>;
+
+export const entryIdParamsSchema = z.object({
+  entryId: z.uuid(),
+});

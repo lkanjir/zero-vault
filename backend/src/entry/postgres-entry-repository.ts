@@ -3,13 +3,29 @@ import type {
   EntriesQuery,
   EntryListRecord,
   EntryRepository,
+  ListedEntry,
+  UpdateEntryCommand,
 } from './entry-repository.js';
-import { eq, isNull, sql, and, or, gt, type SQL } from 'drizzle-orm';
+import {
+  eq,
+  isNull,
+  sql,
+  and,
+  or,
+  gt,
+  type SQL,
+  type ExtractTablesWithRelations,
+} from 'drizzle-orm';
 import { entries, files } from '../db/schema.js';
 import { db } from '../db/db-client.js';
 import { NotFoundError } from '../shared/errors/not-found-error.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
+import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
+import type { PgTransaction } from 'drizzle-orm/pg-core';
+import type * as schema from '../db/schema.js';
+import type { Entry } from './entry.js';
+import { ConflictError } from '../shared/errors/conflict-error.js';
 
 type QueryDbRow = {
   entryId: number;
@@ -78,6 +94,185 @@ export class PostgresEntryRepository implements EntryRepository {
     }
 
     return this.toFolder(folder);
+  }
+
+  async updateEntry(command: UpdateEntryCommand): Promise<ListedEntry> {
+    return db.transaction(async (tx) => {
+      const target = await this.findEntryForUpdate(tx, command.ownerId, command.entryId);
+      const nextParentId =
+        command.parentId === undefined
+          ? target.parentId
+          : await this.resolveParentIdInTransaction(tx, command.ownerId, command.parentId);
+
+      if (target.kind === 'folder' && command.parentId !== undefined) {
+        await this.assertFolderCanMove(tx, target.id, nextParentId);
+      }
+
+      const updatedData: Partial<Entry> = {
+        updatedAt: new Date(),
+      };
+
+      if (command.name) {
+        updatedData.name = command.name;
+      }
+
+      if (command.parentId !== undefined) {
+        updatedData.parentId = nextParentId;
+      }
+
+      const [updatedEntry] = await tx
+        .update(entries)
+        .set(updatedData)
+        .where(
+          and(
+            eq(entries.id, target.id),
+            eq(entries.ownerId, command.ownerId),
+            isNull(entries.deletedAt),
+          ),
+        )
+        .returning();
+
+      if (!updatedEntry) {
+        throw new Error('Failed to update file / folder');
+      }
+
+      return this.toListedEntryInTransaction(tx, updatedEntry);
+    });
+  }
+
+  private async toListedEntryInTransaction(
+    tx: PgTransaction<
+      NodePgQueryResultHKT,
+      typeof schema,
+      ExtractTablesWithRelations<typeof schema>
+    >,
+    updatedEntry: Entry,
+  ): Promise<ListedEntry> {
+    if (updatedEntry.kind === 'folder') {
+      return {
+        kind: 'folder',
+        id: updatedEntry.publicId,
+        name: updatedEntry.name,
+        updatedAt: updatedEntry.updatedAt,
+      };
+    }
+
+    const [file] = await tx
+      .select({
+        contentType: files.contentType,
+        sizeBytes: files.sizeBytes,
+      })
+      .from(files)
+      .where(eq(files.entryId, updatedEntry.id))
+      .limit(1);
+
+    if (!file) {
+      throw new Error('File entry is missing file metadata');
+    }
+
+    return {
+      kind: 'file',
+      id: updatedEntry.publicId,
+      name: updatedEntry.name,
+      contentType: file.contentType,
+      sizeBytes: file.sizeBytes,
+      updatedAt: updatedEntry.updatedAt,
+    };
+  }
+
+  private async assertFolderCanMove(
+    tx: PgTransaction<
+      NodePgQueryResultHKT,
+      typeof schema,
+      ExtractTablesWithRelations<typeof schema>
+    >,
+    folderId: number,
+    nextParentId: number | null,
+  ) {
+    if (folderId === null) return;
+    if (folderId === nextParentId) {
+      throw new ConflictError('Folder cannot be moved into itself');
+    }
+
+    const result = await tx.execute<{ id: number }>(sql`
+      with recursive descendants(id) as (
+        select id
+        from entries
+        where id = ${folderId}
+
+        union all
+
+        select child.id
+        from entries child
+        join descendants d on child.parent_id = d.id
+        where child.deleted_at is null
+      )
+      select id
+      from descendants
+      where id = ${nextParentId}
+      limit 1`);
+
+    if (result) {
+      throw new ConflictError('Folder cannot be moved into its descendant');
+    }
+  }
+
+  private async resolveParentIdInTransaction(
+    tx: PgTransaction<
+      NodePgQueryResultHKT,
+      typeof schema,
+      ExtractTablesWithRelations<typeof schema>
+    >,
+    ownerId: number,
+    parentId: string | null,
+  ) {
+    if (parentId === null) {
+      return null;
+    }
+
+    const [parent] = await tx
+      .select({ id: entries.id })
+      .from(entries)
+      .where(
+        and(
+          eq(entries.publicId, parentId),
+          eq(entries.ownerId, ownerId),
+          eq(entries.kind, 'folder'),
+          isNull(entries.deletedAt),
+        ),
+      )
+      .limit(1);
+
+    if (!parent) {
+      throw new NotFoundError('Folder not found');
+    }
+
+    return parent.id;
+  }
+
+  private async findEntryForUpdate(
+    tx: PgTransaction<
+      NodePgQueryResultHKT,
+      typeof schema,
+      ExtractTablesWithRelations<typeof schema>
+    >,
+    ownerId: number,
+    entryId: string,
+  ): Promise<Entry> {
+    const [entry] = await tx
+      .select()
+      .from(entries)
+      .where(
+        and(eq(entries.publicId, entryId), eq(entries.ownerId, ownerId), isNull(entries.deletedAt)),
+      )
+      .for('update')
+      .limit(1);
+
+    if (!entry) {
+      throw new NotFoundError('Entry not found');
+    }
+
+    return entry;
   }
 
   private async resolveParentId(ownerId: number, parentId: string | null): Promise<number | null> {

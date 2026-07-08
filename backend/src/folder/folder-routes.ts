@@ -1,9 +1,9 @@
 import express, { type Router } from 'express';
 import type { UserService } from '../user/user-service.js';
 import { requirePrincipal } from '../auth/require-principal.js';
-import { validateBody } from '../shared/validation/validate-body.js';
 import type { FolderService } from '../folder/folder-service.js';
 import { createFolderBodySchema } from './validation-schemas.js';
+import { validateRequest } from '../shared/validation/validate-request.js';
 
 export type FolderRouterDeps = {
   userService: UserService;
@@ -15,11 +15,11 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
 
   router.post(
     '/',
-    validateBody(createFolderBodySchema, async (req, res, body) => {
+    validateRequest({ body: createFolderBodySchema }, async (req, res, validated) => {
       const principal = requirePrincipal(req);
       const authenticatedUser = await deps.userService.resolveUser(principal);
 
-      const result = await deps.folderService.createFolder(authenticatedUser, body);
+      const result = await deps.folderService.createFolder(authenticatedUser, validated.body);
 
       res.status(201).json(result);
     }),
