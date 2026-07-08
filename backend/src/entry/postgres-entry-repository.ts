@@ -189,7 +189,7 @@ export class PostgresEntryRepository implements EntryRepository {
     folderId: number,
     nextParentId: number | null,
   ) {
-    if (folderId === null) return;
+    if (nextParentId === null) return;
     if (folderId === nextParentId) {
       throw new ConflictError('Folder cannot be moved into itself');
     }
@@ -212,7 +212,7 @@ export class PostgresEntryRepository implements EntryRepository {
       where id = ${nextParentId}
       limit 1`);
 
-    if (result) {
+    if (result.rows.length > 0) {
       throw new ConflictError('Folder cannot be moved into its descendant');
     }
   }

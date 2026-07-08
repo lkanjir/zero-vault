@@ -27,7 +27,7 @@ export const entryNameSchema = z
 
 export const updateEntryBodySchema = z
   .object({
-    name: entryNameSchema.optional().transform((val) => val ?? null),
+    name: entryNameSchema.optional(),
     parentId: z
       .uuid()
       .optional()

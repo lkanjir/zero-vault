@@ -51,8 +51,8 @@ export class EntryService {
     const updatedEntry = await this.entryRepository.updateEntry({
       entryId: entryId,
       ownerId: user.id,
-      name: request.name,
-      parentId: request.parentId,
+      ...(request.name !== undefined ? { name: request.name } : {}),
+      ...(request.parentId !== undefined ? { parentId: request.parentId } : {}),
     });
 
     if (!updatedEntry) {

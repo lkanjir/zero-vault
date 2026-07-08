@@ -41,7 +41,7 @@ export type UpdateEntryCommand = {
   ownerId: number;
   entryId: string;
   parentId?: string | null;
-  name: string | null;
+  name?: string;
 };
 
 export interface EntryRepository {
