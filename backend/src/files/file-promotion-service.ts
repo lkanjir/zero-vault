@@ -35,11 +35,21 @@ export class FilePromotionService {
 
     const promotedFile = await this.repo.markAvailable(file.entryId);
 
-    if (!promotedFile) {
-      throw new ConflictError('File is no longer quarantined');
+    if (promotedFile) {
+      return promotedFile;
     }
 
-    return promotedFile;
+    const currentFile = await this.repo.findByEntryId(file.entryId);
+
+    if (currentFile?.status === 'available') {
+      return currentFile;
+    }
+
+    if (currentFile?.status === 'rejected') {
+      throw new ConflictError('File is rejected');
+    }
+
+    throw new ConflictError('File is no longer quarantined');
   }
 
   assertObjectsMatch(quarantinedObject: ObjectMetadata, file: File): void {
