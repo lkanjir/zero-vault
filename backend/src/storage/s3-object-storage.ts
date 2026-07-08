@@ -1,6 +1,7 @@
 import {
   CopyObjectCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -13,7 +14,8 @@ import type {
   ObjectLocation,
   ObjectMetadata,
   ObjectStorage,
-  SignedUrlParams,
+  SignedDownloadUrlParams,
+  SignedUploadUrlParams,
 } from './object-storage.js';
 import { headSchema } from './head-schema.js';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
@@ -32,7 +34,7 @@ export class S3ObjectStorage implements ObjectStorage {
     requestChecksumCalculation: 'WHEN_REQUIRED',
   });
 
-  async createPresignedUrl(params: SignedUrlParams): Promise<string> {
+  async createPresignedUploadUrl(params: SignedUploadUrlParams): Promise<string> {
     const hashBase64 = sha256HexToBase64(params.sha256Hex);
     const command = new PutObjectCommand({
       Bucket: config.s3.buckets.quarantine,
@@ -90,6 +92,20 @@ export class S3ObjectStorage implements ObjectStorage {
     await this.client.send(command);
   }
 
+  async createPresignedDownloadUrl(params: SignedDownloadUrlParams): Promise<string> {
+    const bucket = this.getBucketName('live');
+    const contentDispositoin = this.getDisposition(params.fileName);
+
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: params.objectKey,
+      ResponseContentType: params.contentType,
+      ResponseContentDisposition: contentDispositoin,
+    });
+
+    return getSignedUrl(this.client, command, { expiresIn: params.expiresInSeconds });
+  }
+
   private mapToMetadata(key: string, response: HeadObjectCommandOutput): ObjectMetadata {
     const result = headSchema.safeParse(response);
     if (!result.success) {
@@ -125,5 +141,10 @@ export class S3ObjectStorage implements ObjectStorage {
       .join('/');
 
     return `${bucket}/${encodedKey}`;
+  }
+
+  private getDisposition(fileName: string): string {
+    const encodedFileName = encodeURIComponent(fileName);
+    return `attachment; filename*=UTF-8''${encodedFileName}`;
   }
 }

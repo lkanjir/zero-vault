@@ -1,47 +1,43 @@
-import express from 'express';
-import { S3ObjectStorage } from '../storage/s3-object-storage.js';
-import { UploadService } from './upload-service.js';
+import express, { type Router } from 'express';
 import { validateBody } from '../shared/validation/validate-body.js';
 import { completeUploadSchema, uploadRequestSchema } from './validation-schemas.js';
-import { PostgresIntentRepository } from './postgres-intent-repository.js';
 import { validateParams } from '../shared/validation/validate-params.js';
 import { requirePrincipal } from '../auth/require-principal.js';
-import { UserService } from '../user/user-service.js';
-import { PostgresUserRepository } from '../user/postgres-user-repository.js';
-import { CompleteUploadUseCase } from './complete-upload-use-case.js';
-import { FilePromotionService } from '../files/file-promotion-service.js';
-import { PostgresFileRepository } from '../files/postgres-file-repository.js';
+import type { UserService } from '../user/user-service.js';
+import type { UploadService } from './upload-service.js';
+import type { CompleteUploadUseCase } from './complete-upload-use-case.js';
 
-export const storageRouter = express.Router();
+export type UploadRouterDeps = {
+  userService: UserService;
+  uploadService: UploadService;
+  completeUploadUseCase: CompleteUploadUseCase;
+};
 
-const s3 = new S3ObjectStorage();
-const intentRepository = new PostgresIntentRepository();
-const uploadService = new UploadService(s3, intentRepository);
-const userRepo = new PostgresUserRepository();
-const userService = new UserService(userRepo);
-const fileRepo = new PostgresFileRepository();
-const promotionService = new FilePromotionService(fileRepo, s3);
-const completeUploadUC = new CompleteUploadUseCase(uploadService, promotionService);
+export function createUploadRouter(deps: UploadRouterDeps): Router {
+  const router = express.Router();
 
-storageRouter.post(
-  '/presign',
-  validateBody(uploadRequestSchema, async (req, res, body) => {
-    const principal = requirePrincipal(req);
-    const authenticatedUser = await userService.resolveUser(principal);
+  router.post(
+    '/presign',
+    validateBody(uploadRequestSchema, async (req, res, body) => {
+      const principal = requirePrincipal(req);
+      const authenticatedUser = await deps.userService.resolveUser(principal);
 
-    const result = await uploadService.createUpload(authenticatedUser, body);
-    res.status(201).json(result);
-  }),
-);
+      const result = await deps.uploadService.createUpload(authenticatedUser, body);
+      res.status(201).json(result);
+    }),
+  );
 
-storageRouter.post(
-  '/:uploadId/complete',
-  validateParams(completeUploadSchema, async (req, res, params) => {
-    const principal = requirePrincipal(req);
-    const authenticatedUser = await userService.resolveUser(principal);
+  router.post(
+    '/:uploadId/complete',
+    validateParams(completeUploadSchema, async (req, res, params) => {
+      const principal = requirePrincipal(req);
+      const authenticatedUser = await deps.userService.resolveUser(principal);
 
-    const result = await completeUploadUC.execute(authenticatedUser, params.uploadId);
+      const result = await deps.completeUploadUseCase.execute(authenticatedUser, params.uploadId);
 
-    res.status(200).json(result);
-  }),
-);
+      res.status(200).json(result);
+    }),
+  );
+
+  return router;
+}

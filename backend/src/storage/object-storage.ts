@@ -1,4 +1,4 @@
-export type SignedUrlParams = {
+export type SignedUploadUrlParams = {
   objectKey: string;
   contentType: string;
   expiresInSeconds: number;
@@ -18,8 +18,16 @@ export type ObjectMetadataWithChecksum = ObjectMetadata & {
 
 export type ObjectLocation = 'quarantine' | 'live';
 
+export type SignedDownloadUrlParams = {
+  objectKey: string;
+  fileName: string;
+  contentType: string;
+  expiresInSeconds: number;
+};
+
 export interface ObjectStorage {
-  createPresignedUrl(params: SignedUrlParams): Promise<string>;
+  createPresignedUploadUrl(params: SignedUploadUrlParams): Promise<string>;
+  createPresignedDownloadUrl(params: SignedDownloadUrlParams): Promise<string>;
   headObject(location: ObjectLocation, objectKey: string): Promise<ObjectMetadata>;
   copyObject(from: ObjectLocation, to: ObjectLocation, objectKey: string): Promise<void>;
   deleteObject(from: ObjectLocation, objectKey: string): Promise<void>;

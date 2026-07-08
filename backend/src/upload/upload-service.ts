@@ -46,7 +46,7 @@ export class UploadService {
       finalizeDeadline: new Date(Date.now() + this.FINALIZE_DEADLINE_SECONDS * 1000),
     };
 
-    const uploadUrl = await this.storage.createPresignedUrl({
+    const uploadUrl = await this.storage.createPresignedUploadUrl({
       objectKey: objectKey,
       contentType: contentType,
       expiresInSeconds: this.EXPIRES_IN_SECONDS,
