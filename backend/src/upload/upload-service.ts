@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { UploadCompleteResponse, UploadResponse } from './dto.js';
+import type { CompletedUpload, UploadResponse } from './dto.js';
 import type { UploadRequestBody } from './validation-schemas.js';
 import type { UploadIntent } from './upload-intent.js';
 import type { ObjectMetadata, ObjectStorage } from '../storage/object-storage.js';
@@ -68,7 +68,7 @@ export class UploadService {
     return response;
   }
 
-  async completeUpload(user: User, uploadId: string): Promise<UploadCompleteResponse> {
+  async completeUpload(user: User, uploadId: string): Promise<CompletedUpload> {
     const intent = await this.getUploadIntent(user.id, uploadId);
 
     if (intent.status === 'pending') {
@@ -135,8 +135,9 @@ export class UploadService {
     assertContentTypeMatches(intent, object);
   }
 
-  private toResponse(uploadId: string, file: CompletedUploadFile): UploadCompleteResponse {
+  private toResponse(uploadId: string, file: CompletedUploadFile): CompletedUpload {
     return {
+      entryId: file.entryId,
       uploadId: uploadId,
       fileId: file.publicId,
       fileName: file.name,

@@ -8,6 +8,9 @@ import { validateParams } from '../shared/validation/validate-params.js';
 import { requirePrincipal } from '../auth/require-principal.js';
 import { UserService } from '../user/user-service.js';
 import { PostgresUserRepository } from '../user/postgres-user-repository.js';
+import { CompleteUploadUseCase } from './complete-upload-use-case.js';
+import { FilePromotionService } from '../files/file-promotion-service.js';
+import { PostgresFileRepository } from '../files/postgres-file-repository.js';
 
 export const storageRouter = express.Router();
 
@@ -16,6 +19,9 @@ const intentRepository = new PostgresIntentRepository();
 const uploadService = new UploadService(s3, intentRepository);
 const userRepo = new PostgresUserRepository();
 const userService = new UserService(userRepo);
+const fileRepo = new PostgresFileRepository();
+const promotionService = new FilePromotionService(fileRepo, s3);
+const completeUploadUC = new CompleteUploadUseCase(uploadService, promotionService);
 
 storageRouter.post(
   '/presign',
@@ -34,7 +40,8 @@ storageRouter.post(
     const principal = requirePrincipal(req);
     const authenticatedUser = await userService.resolveUser(principal);
 
-    const result = await uploadService.completeUpload(authenticatedUser, params.uploadId);
+    const result = await completeUploadUC.execute(authenticatedUser, params.uploadId);
+
     res.status(200).json(result);
   }),
 );

@@ -18,3 +18,5 @@ export type UploadCompleteResponse = {
   sizeBytes: number;
   fileStatus: FileStatus;
 };
+
+export type CompletedUpload = UploadCompleteResponse & { entryId: number };
