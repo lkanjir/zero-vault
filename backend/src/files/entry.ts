@@ -4,10 +4,10 @@ export type Entry = {
   id: number;
   publicId: string;
   ownerId: number;
-  parentId: number;
+  parentId: number | null;
   kind: EntryKind;
   name: string;
   createdAt: Date;
   updatedAt: Date;
-  deletedAt?: Date;
+  deletedAt: Date | null;
 };

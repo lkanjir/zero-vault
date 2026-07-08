@@ -3,3 +3,11 @@ import z from 'zod';
 export const fileIdParamsSchema = z.object({
   fileId: z.uuid(),
 });
+
+export const listEntriesQuerySchema = z.object({
+  parentId: z.uuid().optional(),
+  cursor: z.string().trim().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type EntriesListRequest = z.infer<typeof listEntriesQuerySchema>;

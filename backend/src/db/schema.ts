@@ -154,7 +154,13 @@ export const entries = pgTable(
     ),
     check('entries_name_not_blank_check', sql`char_length(btrim(${table.name})) between 1 and 500`),
     index('entries_owner_parent_listing_index')
-      .on(table.ownerId, table.parentId, sql`lower(${table.name})`, table.id)
+      .on(
+        table.ownerId,
+        table.parentId,
+        sql`(case when ${table.kind} = 'folder' then 0 else 1 end)`,
+        sql`lower(${table.name})`,
+        table.id,
+      )
       .where(sql`${table.deletedAt} is null`),
   ],
 );
