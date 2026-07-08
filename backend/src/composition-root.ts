@@ -1,3 +1,4 @@
+import { FileDonwloadService } from './files/file-download-service.js';
 import { FilePromotionService } from './files/file-promotion-service.js';
 import { PostgresFileRepository } from './files/postgres-file-repository.js';
 import { S3ObjectStorage } from './storage/s3-object-storage.js';
@@ -18,6 +19,7 @@ export function createCompositionRoot() {
 
   const fileRepository = new PostgresFileRepository();
   const filePromotionService = new FilePromotionService(fileRepository, storage);
+  const downloadService = new FileDonwloadService(fileRepository, storage);
 
   const completeUploadUseCase = new CompleteUploadUseCase(uploadService, filePromotionService);
 
@@ -25,5 +27,6 @@ export function createCompositionRoot() {
     userService,
     uploadService,
     completeUploadUseCase,
+    downloadService,
   };
 }
