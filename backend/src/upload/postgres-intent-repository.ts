@@ -2,13 +2,14 @@ import type {
   CompletedUploadFile,
   CompletedVerifiedUploadResult,
   CompleteVerifiedUploadCommand,
+  ExpiredIntent,
   SaveUploadIntentCommand,
   UploadIntentRepository,
 } from './upload-intent-repository.js';
 import type { UploadIntent } from './upload-intent.js';
 import { db } from '../db/db-client.js';
 import { entries, files, uploadIntents } from '../db/schema.js';
-import { and, eq, type ExtractTablesWithRelations } from 'drizzle-orm';
+import { and, eq, sql, type ExtractTablesWithRelations } from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
 import type * as schema from '../db/schema.js';
@@ -50,7 +51,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     });
   }
 
-  completeVerifiedUpload(
+  async completeVerifiedUpload(
     command: CompleteVerifiedUploadCommand,
   ): Promise<CompletedVerifiedUploadResult> {
     return db.transaction(async (tx) => {
@@ -260,5 +261,27 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       uploadUrlExpiresAt: intent.uploadUrlExpiresAt,
       finalizeDeadline: intent.finalizeDeadline,
     };
+  }
+
+  async markExpiredIntents(now: Date, limit: number): Promise<ExpiredIntent[]> {
+    const updateStatement = sql`
+      WITH expired_rows AS (
+        SELECT id
+        FROM upload_intents
+        WHERE finalize_deadline < ${now} AND status = 'pending'
+        ORDER BY finalize_deadline, id
+        LIMIT ${limit}
+        FOR UPDATE SKIP LOCKED
+      ) 
+      UPDATE upload_intents AS ui 
+        SET status = 'expired'
+        FROM expired_rows AS er
+        WHERE ui.id = er.id
+        RETURNING ui.id, ui.object_key AS objectKey
+    `;
+
+    const result = await db.execute<ExpiredIntent>(updateStatement);
+
+    return result.rows;
   }
 }

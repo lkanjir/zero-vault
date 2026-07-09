@@ -28,4 +28,5 @@ export interface ObjectStorage {
   createPresignedDownloadUrl(params: SignedDownloadUrlParams): Promise<string>;
   headObject(objectKey: string): Promise<ObjectMetadata>;
   deleteObject(objectKey: string): Promise<void>;
+  deleteObjects(objectKeys: string[]): Promise<string[]>;
 }

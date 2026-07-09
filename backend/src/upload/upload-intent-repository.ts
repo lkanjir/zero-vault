@@ -26,10 +26,16 @@ export type SaveUploadIntentCommand = Omit<UploadIntent, 'id' | 'targetParentId'
   parentFolderId: string | null;
 };
 
+export type ExpiredIntent = {
+  id: number;
+  objectKey: string;
+};
+
 export interface UploadIntentRepository {
   findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null>;
   save(intent: SaveUploadIntentCommand): Promise<void>;
   completeVerifiedUpload(
     command: CompleteVerifiedUploadCommand,
   ): Promise<CompletedVerifiedUploadResult>;
+  markExpiredIntents(now: Date, limit: number): Promise<ExpiredIntent[]>;
 }
