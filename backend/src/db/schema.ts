@@ -21,7 +21,7 @@ export const uploadIntentStatus = pgEnum('upload_intent_status', [
 
 export const entryKind = pgEnum('entry_kind', ['file', 'folder']);
 
-export const fileStatus = pgEnum('file_status', ['quarantined', 'available', 'rejected']);
+export const fileStatus = pgEnum('file_status', ['available', 'rejected']);
 
 export const uploadIntents = pgTable(
   'upload_intents',
@@ -175,7 +175,7 @@ export const files = pgTable(
     contentType: text('content_type').default('application/octet-stream').notNull(),
     sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
     sha256: text('sha256').notNull(),
-    status: fileStatus('status').default('quarantined').notNull(),
+    status: fileStatus('status').notNull(),
     statusChangedAt: timestamp('status_changed_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),

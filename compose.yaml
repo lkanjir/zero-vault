@@ -44,10 +44,13 @@ services:
       KC_HEALTH_ENABLED: true
       KC_METRICS_ENABLED: true
 
-    command: ["start-dev"]
+    command: ["start-dev", "--import-realm"]
 
     ports:
       - "127.0.0.1:8080:8080"
+
+    volumes:
+      - "./keycloak-import:/opt/keycloak/data/import:ro"
     
     depends_on:
       - keycloak-db

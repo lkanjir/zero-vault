@@ -1,5 +1,4 @@
 import {
-  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -11,7 +10,6 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { config } from '../config.js';
 import type {
-  ObjectLocation,
   ObjectMetadata,
   ObjectStorage,
   SignedDownloadUrlParams,
@@ -37,7 +35,7 @@ export class S3ObjectStorage implements ObjectStorage {
   async createPresignedUploadUrl(params: SignedUploadUrlParams): Promise<string> {
     const hashBase64 = sha256HexToBase64(params.sha256Hex);
     const command = new PutObjectCommand({
-      Bucket: config.s3.buckets.quarantine,
+      Bucket: config.s3.bucket,
       Key: params.objectKey,
       ContentType: params.contentType,
       ChecksumSHA256: hashBase64,
@@ -47,11 +45,9 @@ export class S3ObjectStorage implements ObjectStorage {
     return getSignedUrl(this.client, command, { expiresIn: params.expiresInSeconds });
   }
 
-  async headObject(location: ObjectLocation, objectKey: string): Promise<ObjectMetadata> {
-    const bucket = this.getBucketName(location);
-
+  async headObject(objectKey: string): Promise<ObjectMetadata> {
     const command = new HeadObjectCommand({
-      Bucket: bucket,
+      Bucket: config.s3.bucket,
       Key: objectKey,
       ChecksumMode: 'ENABLED',
     });
@@ -71,33 +67,17 @@ export class S3ObjectStorage implements ObjectStorage {
     }
   }
 
-  async copyObject(from: ObjectLocation, to: ObjectLocation, objectKey: string): Promise<void> {
-    const fromBucket = this.getBucketName(from);
-    const toBucket = this.getBucketName(to);
-
-    const command = new CopyObjectCommand({
-      Bucket: toBucket,
-      Key: objectKey,
-      CopySource: this.encodeCopySource(fromBucket, objectKey),
-    });
-
-    await this.client.send(command);
-  }
-
-  async deleteObject(from: ObjectLocation, objectKey: string): Promise<void> {
-    const fromBucket = this.getBucketName(from);
-
-    const command = new DeleteObjectCommand({ Bucket: fromBucket, Key: objectKey });
+  async deleteObject(objectKey: string): Promise<void> {
+    const command = new DeleteObjectCommand({ Bucket: config.s3.bucket, Key: objectKey });
 
     await this.client.send(command);
   }
 
   async createPresignedDownloadUrl(params: SignedDownloadUrlParams): Promise<string> {
-    const bucket = this.getBucketName('live');
     const contentDisposition = this.getDisposition(params.fileName);
 
     const command = new GetObjectCommand({
-      Bucket: bucket,
+      Bucket: config.s3.bucket,
       Key: params.objectKey,
       ResponseContentType: params.contentType,
       ResponseContentDisposition: contentDisposition,
@@ -123,24 +103,6 @@ export class S3ObjectStorage implements ObjectStorage {
       contentType: contentType,
       sha256Hex,
     };
-  }
-
-  private getBucketName(location: ObjectLocation): string {
-    switch (location) {
-      case 'quarantine':
-        return config.s3.buckets.quarantine;
-      case 'live':
-        return config.s3.buckets.live;
-    }
-  }
-
-  private encodeCopySource(bucket: string, key: string): string {
-    const encodedKey = key
-      .split('/')
-      .map((part) => encodeURIComponent(part))
-      .join('/');
-
-    return `${bucket}/${encodedKey}`;
   }
 
   private getDisposition(fileName: string): string {

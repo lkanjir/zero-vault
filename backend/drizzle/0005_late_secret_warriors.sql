@@ -1,2 +1,0 @@
-DROP INDEX "entries_owner_parent_listing_index";--> statement-breakpoint
-CREATE INDEX "entries_owner_parent_listing_index" ON "entries" USING btree ("owner_id","parent_id",(case when "kind" = 'folder' then 0 else 1 end),lower("name"),"id") WHERE "entries"."deleted_at" is null;

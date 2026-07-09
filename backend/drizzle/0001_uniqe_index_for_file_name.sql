@@ -1,4 +1,4 @@
--- Custom SQL migration file, put your code below! --
+-- Custom SQL migration file, put your code below! --  
 CREATE UNIQUE INDEX entries_owner_parent_name_active_key
 ON entries (
     owner_id,

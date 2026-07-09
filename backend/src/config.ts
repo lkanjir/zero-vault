@@ -12,8 +12,7 @@ const envSchema = z.object({
   S3_FORCE_PATH_STYLE: z.stringbool().default(false),
   S3_ACCESS_KEY_ID: requiredTrimmedString,
   S3_SECRET_ACCESS_KEY: requiredTrimmedString,
-  S3_QUARANTINE_BUCKET: requiredTrimmedString,
-  S3_LIVE_BUCKET: requiredTrimmedString,
+  S3_BUCKET: requiredTrimmedString,
   DATABASE_URL: z.url().trim(),
   OIDC_ISSUER: z.url().transform((v) => v.replace(/\/+$/, '')),
   OIDC_AUDIENCE: requiredTrimmedString,
@@ -36,10 +35,7 @@ export const config = {
     forcePathStyle: env.S3_FORCE_PATH_STYLE,
     accessKeyId: env.S3_ACCESS_KEY_ID,
     secretAccessKey: env.S3_SECRET_ACCESS_KEY,
-    buckets: {
-      quarantine: env.S3_QUARANTINE_BUCKET,
-      live: env.S3_LIVE_BUCKET,
-    },
+    bucket: env.S3_BUCKET,
   },
   db: {
     connectionString: env.DATABASE_URL,

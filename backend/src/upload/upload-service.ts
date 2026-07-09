@@ -79,7 +79,7 @@ export class UploadService {
     const intent = await this.getUploadIntent(user.id, uploadId);
 
     if (this.shouldVerifyUploadedObject(intent)) {
-      const uploadedObject = await this.storage.headObject('quarantine', intent.objectKey);
+      const uploadedObject = await this.storage.headObject(intent.objectKey);
       this.verifyUpload(intent, uploadedObject);
     }
 

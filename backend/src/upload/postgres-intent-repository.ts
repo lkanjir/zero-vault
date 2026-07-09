@@ -145,7 +145,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       throw new Error('Failed to create entry');
     }
 
-    const file = await this.createFileForIntent(tx, entry.id, intent);
+    const file = await this.createFileForIntent(tx, entry.id, intent, command.completedAt);
 
     if (!file) {
       throw new Error('Failed to create file');
@@ -177,6 +177,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     tx: Transaction,
     entryId: number,
     intent: UploadIntentRow,
+    completedAt: Date,
   ): Promise<FileRow | null> {
     const [file] = await tx
       .insert(files)
@@ -186,7 +187,9 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         contentType: intent.contentType,
         sizeBytes: intent.expectedSizeBytes,
         sha256: intent.expectedSha256,
-        status: 'quarantined',
+        status: 'available',
+        availableAt: completedAt,
+        statusChangedAt: completedAt,
       })
       .returning();
 

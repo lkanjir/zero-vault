@@ -1,4 +1,4 @@
-export type FileStatus = 'quarantined' | 'available' | 'rejected';
+export type FileStatus = 'available' | 'rejected';
 
 export type File = {
   entryId: number;
