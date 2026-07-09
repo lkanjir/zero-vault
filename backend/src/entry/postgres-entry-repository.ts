@@ -27,6 +27,8 @@ import type * as schema from '../db/schema.js';
 import type { Entry } from './entry.js';
 import { ConflictError } from '../shared/errors/conflict-error.js';
 import { resolveParentIdInTransaction } from './resolve-parent-id-in-transaction.js';
+import { isUniqueViolation } from '../db/postgres-error.js';
+import { DuplicateEntryNameError } from '../shared/errors/duplicate-entry-name-error.js';
 
 type QueryDbRow = {
   entryId: number;
@@ -79,66 +81,86 @@ export class PostgresEntryRepository implements EntryRepository {
 
   async createFolder(command: CreateFolderCommand): Promise<Folder> {
     const parentDbId = await this.resolveParentId(command.ownerId, command.parentId);
-
-    const [folder] = await db
-      .insert(entries)
-      .values({
-        kind: 'folder',
-        name: command.name,
-        ownerId: command.ownerId,
-        parentId: parentDbId,
-      })
-      .returning();
-
-    if (!folder) {
-      throw new Error('Failed to create folder');
-    }
-
+    const folder = await this.insertFolder(command.ownerId, command.name, parentDbId);
     return this.toFolder(folder);
   }
 
-  async updateEntry(command: UpdateEntryCommand): Promise<ListedEntry> {
-    return db.transaction(async (tx) => {
-      const target = await this.findEntryForUpdate(tx, command.ownerId, command.entryId);
-      const nextParentId =
-        command.parentId === undefined
-          ? target.parentId
-          : await resolveParentIdInTransaction(tx, command.ownerId, command.parentId);
-
-      if (target.kind === 'folder' && command.parentId !== undefined) {
-        await this.assertFolderCanMove(tx, target.id, nextParentId);
-      }
-
-      const updatedData: Partial<Entry> = {
-        updatedAt: new Date(),
-      };
-
-      if (command.name) {
-        updatedData.name = command.name;
-      }
-
-      if (command.parentId !== undefined) {
-        updatedData.parentId = nextParentId;
-      }
-
-      const [updatedEntry] = await tx
-        .update(entries)
-        .set(updatedData)
-        .where(
-          and(
-            eq(entries.id, target.id),
-            eq(entries.ownerId, command.ownerId),
-            isNull(entries.deletedAt),
-          ),
-        )
+  private async insertFolder(owner: number, name: string, parent: number | null): Promise<Entry> {
+    try {
+      const [folder] = await db
+        .insert(entries)
+        .values({
+          kind: 'folder',
+          name: name,
+          ownerId: owner,
+          parentId: parent,
+        })
         .returning();
 
-      if (!updatedEntry) {
-        throw new Error('Failed to update file / folder');
+      if (!folder) {
+        throw new Error('Failed to create folder');
       }
 
-      return this.toListedEntryInTransaction(tx, updatedEntry);
-    });
+      return folder;
+    } catch (error) {
+      throw this.mapToDatabaseError(error);
+    }
+  }
+
+  private mapToDatabaseError(error: unknown): Error {
+    if (isUniqueViolation(error, 'entries_owner_parent_name_active_key')) {
+      return new DuplicateEntryNameError();
+    }
+
+    return error instanceof Error ? error : new Error('Unknown database error');
+  }
+
+  async updateEntry(command: UpdateEntryCommand): Promise<ListedEntry> {
+    try {
+      return db.transaction(async (tx) => {
+        const target = await this.findEntryForUpdate(tx, command.ownerId, command.entryId);
+        const nextParentId =
+          command.parentId === undefined
+            ? target.parentId
+            : await resolveParentIdInTransaction(tx, command.ownerId, command.parentId);
+
+        if (target.kind === 'folder' && command.parentId !== undefined) {
+          await this.assertFolderCanMove(tx, target.id, nextParentId);
+        }
+
+        const updatedData: Partial<Entry> = {
+          updatedAt: new Date(),
+        };
+
+        if (command.name) {
+          updatedData.name = command.name;
+        }
+
+        if (command.parentId !== undefined) {
+          updatedData.parentId = nextParentId;
+        }
+
+        const [updatedEntry] = await tx
+          .update(entries)
+          .set(updatedData)
+          .where(
+            and(
+              eq(entries.id, target.id),
+              eq(entries.ownerId, command.ownerId),
+              isNull(entries.deletedAt),
+            ),
+          )
+          .returning();
+
+        if (!updatedEntry) {
+          throw new Error('Failed to update file / folder');
+        }
+
+        return this.toListedEntryInTransaction(tx, updatedEntry);
+      });
+    } catch (error) {
+      throw this.mapToDatabaseError(error);
+    }
   }
 
   private async toListedEntryInTransaction(
