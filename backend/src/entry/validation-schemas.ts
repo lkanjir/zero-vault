@@ -22,16 +22,13 @@ export const entryNameSchema = z
   .min(1)
   .max(500)
   .refine((value) => !/[\\/]+/.test(value), {
-    message: 'Folder name must not contain path separators',
+    message: 'File / folder name must not contain path separators',
   });
 
 export const updateEntryBodySchema = z
   .object({
     name: entryNameSchema.optional(),
-    parentId: z
-      .uuid()
-      .optional()
-      .transform((val) => val ?? null),
+    parentId: z.uuid().nullable().optional(),
   })
   .refine((body) => body.name !== undefined || body.parentId !== undefined, {
     message: 'Specify at least one filed, name or parentId',
