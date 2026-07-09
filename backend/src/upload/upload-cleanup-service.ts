@@ -8,10 +8,10 @@ export class UploadCleanupService {
     private readonly storage: ObjectStorage,
   ) {}
 
-  async cleanExpiredUploads(now: Date, limit: number): Promise<void> {
+  async cleanExpiredUploads(limit: number): Promise<void> {
     limit = clamp(limit, 1, 1000);
 
-    const expired = await this.repo.markExpiredIntents(now, limit);
+    const expired = await this.repo.markExpiredIntents(limit);
     const failed = await this.storage.deleteObjects(expired.map((e) => e.objectKey));
 
     if (failed.length != 0) {

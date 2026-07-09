@@ -37,5 +37,5 @@ export interface UploadIntentRepository {
   completeVerifiedUpload(
     command: CompleteVerifiedUploadCommand,
   ): Promise<CompletedVerifiedUploadResult>;
-  markExpiredIntents(now: Date, limit: number): Promise<ExpiredIntent[]>;
+  markExpiredIntents(limit: number): Promise<ExpiredIntent[]>;
 }

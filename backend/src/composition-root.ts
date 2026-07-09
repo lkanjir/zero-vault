@@ -9,6 +9,7 @@ import { PostgresIntentRepository } from './upload/postgres-intent-repository.js
 import { UploadService } from './upload/upload-service.js';
 import { PostgresUserRepository } from './user/postgres-user-repository.js';
 import { UserService } from './user/user-service.js';
+import { UploadCleanupService } from './upload/upload-cleanup-service.js';
 
 export function createCompositionRoot() {
   const storage = new S3ObjectStorage();
@@ -18,6 +19,7 @@ export function createCompositionRoot() {
 
   const intentRepository = new PostgresIntentRepository();
   const uploadService = new UploadService(storage, intentRepository);
+  const uploadCleanupService = new UploadCleanupService(intentRepository, storage);
 
   const fileRepository = new PostgresFileRepository();
   const downloadService = new FileDownloadService(fileRepository, storage);
@@ -31,6 +33,7 @@ export function createCompositionRoot() {
   return {
     userService,
     uploadService,
+    uploadCleanupService,
     completeUploadUseCase,
     downloadService,
     entryService,

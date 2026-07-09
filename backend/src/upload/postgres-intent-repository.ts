@@ -263,12 +263,12 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     };
   }
 
-  async markExpiredIntents(now: Date, limit: number): Promise<ExpiredIntent[]> {
+  async markExpiredIntents(limit: number): Promise<ExpiredIntent[]> {
     const updateStatement = sql`
       WITH expired_rows AS (
         SELECT id
         FROM upload_intents
-        WHERE finalize_deadline < ${now} AND status = 'pending'
+        WHERE finalize_deadline < now() AND status = 'pending'
         ORDER BY finalize_deadline, id
         LIMIT ${limit}
         FOR UPDATE SKIP LOCKED
@@ -277,11 +277,12 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         SET status = 'expired'
         FROM expired_rows AS er
         WHERE ui.id = er.id
-        RETURNING ui.id, ui.object_key AS objectKey
+        RETURNING ui.id, ui.object_key
     `;
 
     const result = await db.execute<ExpiredIntent>(updateStatement);
 
-    return result.rows;
+
+    return result.rows.map((row) => ({ id: row.id, objectKey: row.objectKey }));
   }
 }
