@@ -177,15 +177,31 @@ describe('UploadService', () => {
     });
 
     repo.findByUserAndUploadId.mockResolvedValue(intent);
-    repo.markExpiredIfPending.mockResolvedValue({ ...intent, status: 'expired' });
+    repo.completeVerifiedUpload.mockResolvedValue({ kind: 'expired' });
 
     await expect(service.completeUpload(USER, intent.uploadId)).rejects.toThrow(
       new ConflictError('Upload intent expired'),
     );
 
     expect(storage.headObject).not.toHaveBeenCalled();
-    expect(repo.completeVerifiedUpload).not.toHaveBeenCalled();
-    expect(repo.markExpiredIfPending).toHaveBeenCalledExactlyOnceWith(USER.id, intent.uploadId);
+    expect(repo.completeVerifiedUpload).toHaveBeenCalledOnce();
+  });
+
+  it('reports expired if finalize deadline passes during repository completion', async () => {
+    const intent = makePendingIntent({
+      finalizeDeadline: new Date(Date.now() + 60_000),
+    });
+
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
+    storage.headObject.mockResolvedValue(makeObjectMetadata(intent));
+    repo.completeVerifiedUpload.mockResolvedValue({ kind: 'expired' });
+
+    await expect(service.completeUpload(USER, intent.uploadId)).rejects.toThrow(
+      new ConflictError('Upload intent expired'),
+    );
+
+    expect(storage.headObject).toHaveBeenCalledExactlyOnceWith('quarantine', intent.objectKey);
+    expect(repo.completeVerifiedUpload).toHaveBeenCalledOnce();
   });
 
   it('does not report success if completion loses a DB race', async () => {
