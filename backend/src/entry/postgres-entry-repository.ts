@@ -26,6 +26,7 @@ import type { PgTransaction } from 'drizzle-orm/pg-core';
 import type * as schema from '../db/schema.js';
 import type { Entry } from './entry.js';
 import { ConflictError } from '../shared/errors/conflict-error.js';
+import { resolveParentIdInTransaction } from './resolve-parent-id-in-transaction.js';
 
 type QueryDbRow = {
   entryId: number;
@@ -102,7 +103,7 @@ export class PostgresEntryRepository implements EntryRepository {
       const nextParentId =
         command.parentId === undefined
           ? target.parentId
-          : await this.resolveParentIdInTransaction(tx, command.ownerId, command.parentId);
+          : await resolveParentIdInTransaction(tx, command.ownerId, command.parentId);
 
       if (target.kind === 'folder' && command.parentId !== undefined) {
         await this.assertFolderCanMove(tx, target.id, nextParentId);
@@ -215,39 +216,6 @@ export class PostgresEntryRepository implements EntryRepository {
     if (result.rows.length > 0) {
       throw new ConflictError('Folder cannot be moved into its descendant');
     }
-  }
-
-  private async resolveParentIdInTransaction(
-    tx: PgTransaction<
-      NodePgQueryResultHKT,
-      typeof schema,
-      ExtractTablesWithRelations<typeof schema>
-    >,
-    ownerId: number,
-    parentId: string | null,
-  ) {
-    if (parentId === null) {
-      return null;
-    }
-
-    const [parent] = await tx
-      .select({ id: entries.id })
-      .from(entries)
-      .where(
-        and(
-          eq(entries.publicId, parentId),
-          eq(entries.ownerId, ownerId),
-          eq(entries.kind, 'folder'),
-          isNull(entries.deletedAt),
-        ),
-      )
-      .limit(1);
-
-    if (!parent) {
-      throw new NotFoundError('Folder not found');
-    }
-
-    return parent.id;
   }
 
   private async findEntryForUpdate(

@@ -21,9 +21,13 @@ export type CompletedVerifiedUploadResult =
   | { kind: 'not_found' }
   | { kind: 'not_pending' };
 
+export type SaveUploadIntentCommand = Omit<UploadIntent, 'id' | 'targetParentId'> & {
+  parentFolderId: string | null;
+};
+
 export interface UploadIntentRepository {
   findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null>;
-  save(intent: Omit<UploadIntent, 'id'>): Promise<void>;
+  save(intent: SaveUploadIntentCommand): Promise<void>;
   markExpiredIfPending(createdByUserId: number, uploadId: string): Promise<UploadIntent | null>;
   completeVerifiedUpload(
     command: CompleteVerifiedUploadCommand,

@@ -2,6 +2,7 @@ import type {
   CompletedUploadFile,
   CompletedVerifiedUploadResult,
   CompleteVerifiedUploadCommand,
+  SaveUploadIntentCommand,
   UploadIntentRepository,
 } from './upload-intent-repository.js';
 import type { UploadIntent } from './upload-intent.js';
@@ -11,6 +12,7 @@ import { and, eq, type ExtractTablesWithRelations } from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
 import type * as schema from '../db/schema.js';
+import { resolveParentIdInTransaction } from '../entry/resolve-parent-id-in-transaction.js';
 
 export class PostgresIntentRepository implements UploadIntentRepository {
   async findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null> {
@@ -23,8 +25,19 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     return row ? this.toDomain(row) : null;
   }
 
-  async save(intent: Omit<UploadIntent, 'id'>): Promise<void> {
-    await db.insert(uploadIntents).values(this.toInsert(intent));
+  async save(command: SaveUploadIntentCommand): Promise<void> {
+    await db.transaction(async (tx) => {
+      const targetParentDbId = await resolveParentIdInTransaction(
+        tx,
+        command.createdByUserId,
+        command.parentFolderId,
+      );
+
+      await tx.insert(uploadIntents).values({
+        ...this.toInsert(command),
+        targetParentId: targetParentDbId,
+      });
+    });
   }
 
   async markExpiredIfPending(

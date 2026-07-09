@@ -53,7 +53,10 @@ export class UploadService {
       sha256Hex: requestBody.sha256,
     });
 
-    await this.intentRepo.save(intent);
+    await this.intentRepo.save({
+      ...intent,
+      parentFolderId: requestBody.parentFolderId ?? null,
+    });
 
     const response: UploadResponse = {
       uploadId,
