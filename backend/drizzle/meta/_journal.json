@@ -43,6 +43,13 @@
       "when": 1783523160416,
       "tag": "0005_late_secret_warriors",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783600461351,
+      "tag": "0006_manual_unique_index",
+      "breakpoints": true
     }
   ]
 }
