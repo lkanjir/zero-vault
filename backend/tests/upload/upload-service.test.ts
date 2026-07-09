@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
-import { UploadService } from '../src/upload/upload-service.js';
-import type { UploadIntent } from '../src/upload/upload-intent.js';
+import { UploadService } from '../../src/upload/upload-service.js';
+import type { UploadIntent } from '../../src/upload/upload-intent.js';
 import type {
   CompletedUploadFile,
   CompletedVerifiedUploadResult,
   UploadIntentRepository,
-} from '../src/upload/upload-intent-repository.js';
-import type { ObjectMetadata, ObjectStorage } from '../src/storage/object-storage.js';
-import { ConflictError } from '../src/shared/errors/conflict-error.js';
-import { NotFoundError } from '../src/shared/errors/not-found-error.js';
-import type { User } from '../src/user/user.js';
+} from '../../src/upload/upload-intent-repository.js';
+import type { ObjectMetadata, ObjectStorage } from '../../src/storage/object-storage.js';
+import { ConflictError } from '../../src/shared/errors/conflict-error.js';
+import { NotFoundError } from '../../src/shared/errors/not-found-error.js';
+import type { User } from '../../src/user/user.js';
 
 const EXPECTED_SHA256 = 'a'.repeat(64);
 const EXPECTED_SHA256_BASE64 = 'qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo=';
@@ -41,11 +41,14 @@ describe('UploadService', () => {
   it('creates a pending upload intent and returns required upload headers', async () => {
     storage.createPresignedUploadUrl.mockResolvedValue(SIGNED_URL);
 
+    const parentFolderId = '0e3a99c9-efc6-4302-8e50-02df497bab88';
+
     const result = await service.createUpload(USER, {
       fileName: 'document.txt',
       contentType: ' text/plain ',
       size: 12,
       sha256: EXPECTED_SHA256,
+      parentFolderId: parentFolderId,
     });
 
     expect(result).toStrictEqual({
@@ -79,6 +82,23 @@ describe('UploadService', () => {
       expectedSizeBytes: 12,
       expectedSha256: EXPECTED_SHA256,
       status: 'pending',
+      parentFolderId,
+    });
+  });
+
+  it('given empty parentFolderId creates pending upload intent for root', async () => {
+    storage.createPresignedUploadUrl.mockResolvedValue(SIGNED_URL);
+
+    await service.createUpload(USER, {
+      fileName: 'document.txt',
+      contentType: ' text/plain ',
+      size: 12,
+      sha256: EXPECTED_SHA256,
+    });
+
+    expect(repo.save).toHaveBeenCalledOnce();
+    expect(repo.save.mock.lastCall![0]).toMatchObject({
+      parentFolderId: null,
     });
   });
 
