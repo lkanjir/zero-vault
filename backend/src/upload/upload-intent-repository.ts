@@ -1,5 +1,5 @@
 import type { FileStatus } from '../files/file.js';
-import type { UploadIntent } from './upload-intent.js';
+import type { UploadIntent, UploadIntentStatus } from './upload-intent.js';
 
 export type CompleteVerifiedUploadCommand = {
   userId: number;
@@ -19,7 +19,8 @@ export type CompletedUploadFile = {
 export type CompletedVerifiedUploadResult =
   | { kind: 'completed'; file: CompletedUploadFile }
   | { kind: 'not_found' }
-  | { kind: 'not_pending' };
+  | { kind: 'not_pending'; status: UploadIntentStatus }
+  | { kind: 'expired' };
 
 export type SaveUploadIntentCommand = Omit<UploadIntent, 'id' | 'targetParentId'> & {
   parentFolderId: string | null;
@@ -28,7 +29,6 @@ export type SaveUploadIntentCommand = Omit<UploadIntent, 'id' | 'targetParentId'
 export interface UploadIntentRepository {
   findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null>;
   save(intent: SaveUploadIntentCommand): Promise<void>;
-  markExpiredIfPending(createdByUserId: number, uploadId: string): Promise<UploadIntent | null>;
   completeVerifiedUpload(
     command: CompleteVerifiedUploadCommand,
   ): Promise<CompletedVerifiedUploadResult>;

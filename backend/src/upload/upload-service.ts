@@ -5,7 +5,11 @@ import type { UploadIntent } from './upload-intent.js';
 import type { ObjectMetadata, ObjectStorage } from '../storage/object-storage.js';
 import { ConflictError } from '../shared/errors/conflict-error.js';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
-import type { CompletedUploadFile, UploadIntentRepository } from './upload-intent-repository.js';
+import type {
+  CompletedUploadFile,
+  CompletedVerifiedUploadResult,
+  UploadIntentRepository,
+} from './upload-intent-repository.js';
 import type { User } from '../user/user.js';
 import { NotFoundError } from '../shared/errors/not-found-error.js';
 import {
@@ -74,10 +78,9 @@ export class UploadService {
   async completeUpload(user: User, uploadId: string): Promise<CompletedUpload> {
     const intent = await this.getUploadIntent(user.id, uploadId);
 
-    if (intent.status === 'pending') {
-      await this.verifyPendingIntent(intent);
-    } else if (intent.status !== 'completed') {
-      throw new ConflictError('Upload intent is not pending');
+    if (this.shouldVerifyUploadedObject(intent)) {
+      const uploadedObject = await this.storage.headObject('quarantine', intent.objectKey);
+      this.verifyUpload(intent, uploadedObject);
     }
 
     const result = await this.intentRepo.completeVerifiedUpload({
@@ -86,15 +89,7 @@ export class UploadService {
       completedAt: new Date(),
     });
 
-    if (result.kind === 'completed') {
-      return this.toResponse(intent.uploadId, result.file);
-    }
-
-    if (result.kind === 'not_found') {
-      throw new NotFoundError("Upload intent doesn't exist");
-    }
-
-    throw new ConflictError('Upload intent is not pending');
+    return this.mapCompletionResult(intent.uploadId, result);
   }
 
   private async getUploadIntent(userId: number, uploadId: string): Promise<UploadIntent> {
@@ -107,27 +102,8 @@ export class UploadService {
     return intent;
   }
 
-  private async verifyPendingIntent(intent: UploadIntent) {
-    await this.ensureIntentCanBeFinalized(intent);
-    const uploadedObject = await this.storage.headObject('quarantine', intent.objectKey);
-    this.verifyUpload(intent, uploadedObject);
-  }
-
-  private async ensureIntentCanBeFinalized(intent: UploadIntent): Promise<void> {
-    if (intent.finalizeDeadline.getTime() >= Date.now()) {
-      return;
-    }
-
-    const expired = await this.intentRepo.markExpiredIfPending(
-      intent.createdByUserId,
-      intent.uploadId,
-    );
-
-    if (!expired) {
-      throw new ConflictError('Upload intent state changed - no longer pending');
-    }
-
-    throw new ConflictError('Upload intent expired');
+  private shouldVerifyUploadedObject(intent: UploadIntent): boolean {
+    return intent.status === 'pending' && intent.finalizeDeadline.getTime() >= Date.now();
   }
 
   private verifyUpload(intent: UploadIntent, object: ObjectMetadata): void {
@@ -136,6 +112,22 @@ export class UploadService {
     assertChecksumMatches(intent, object);
     assertSizeMatches(intent, object);
     assertContentTypeMatches(intent, object);
+  }
+
+  private mapCompletionResult(
+    uploadId: string,
+    result: CompletedVerifiedUploadResult,
+  ): CompletedUpload {
+    switch (result.kind) {
+      case 'completed':
+        return this.toResponse(uploadId, result.file);
+      case 'not_found':
+        throw new NotFoundError('Upload intent does not exist');
+      case 'not_pending':
+        throw new ConflictError('Upload intent is not pending');
+      case 'expired':
+        throw new ConflictError('Upload intent expired');
+    }
   }
 
   private toResponse(uploadId: string, file: CompletedUploadFile): CompletedUpload {

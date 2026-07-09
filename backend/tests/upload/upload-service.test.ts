@@ -193,7 +193,7 @@ describe('UploadService', () => {
 
     repo.findByUserAndUploadId.mockResolvedValue(intent);
     storage.headObject.mockResolvedValue(makeObjectMetadata(intent));
-    repo.completeVerifiedUpload.mockResolvedValue({ kind: 'not_pending' });
+    repo.completeVerifiedUpload.mockResolvedValue({ kind: 'not_pending', status: 'rejected' });
 
     await expect(service.completeUpload(USER, intent.uploadId)).rejects.toThrow(
       new ConflictError('Upload intent is not pending'),

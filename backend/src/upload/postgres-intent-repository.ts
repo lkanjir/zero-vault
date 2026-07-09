@@ -14,6 +14,16 @@ import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
 import type * as schema from '../db/schema.js';
 import { resolveParentIdInTransaction } from '../entry/resolve-parent-id-in-transaction.js';
 
+type Transaction = PgTransaction<
+  NodePgQueryResultHKT,
+  typeof schema,
+  ExtractTablesWithRelations<typeof schema>
+>;
+
+type UploadIntentRow = typeof uploadIntents.$inferSelect;
+type EntryRow = typeof entries.$inferSelect;
+type FileRow = typeof files.$inferSelect;
+
 export class PostgresIntentRepository implements UploadIntentRepository {
   async findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null> {
     const [row] = await db
@@ -40,108 +50,61 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     });
   }
 
-  async markExpiredIfPending(
-    createdByUserId: number,
-    uploadId: string,
-  ): Promise<UploadIntent | null> {
-    const [row] = await db
-      .update(uploadIntents)
-      .set({ status: 'expired' })
-      .where(
-        and(
-          eq(uploadIntents.uploadId, uploadId),
-          eq(uploadIntents.createdByUserId, createdByUserId),
-          eq(uploadIntents.status, 'pending'),
-        ),
-      )
-      .returning();
-
-    return row ? this.toDomain(row) : null;
-  }
-
   completeVerifiedUpload(
     command: CompleteVerifiedUploadCommand,
   ): Promise<CompletedVerifiedUploadResult> {
     return db.transaction(async (tx) => {
-      const [intent] = await tx
-        .select()
-        .from(uploadIntents)
-        .where(
-          and(
-            eq(uploadIntents.uploadId, command.uploadId),
-            eq(uploadIntents.createdByUserId, command.userId),
-          ),
-        )
-        .for('update')
-        .limit(1);
+      const intent = await this.findIntentForCompletion(tx, command);
 
       if (!intent) {
         return { kind: 'not_found' };
       }
 
-      if (intent.status === 'completed') {
-        const existingFile = await this.findCompletedFileInTransaction(tx, intent.id);
-        return { kind: 'completed', file: existingFile };
-      }
-
-      if (intent.status !== 'pending') {
-        return { kind: 'not_pending' };
-      }
-
-      const [entry] = await tx
-        .insert(entries)
-        .values({
-          ownerId: command.userId,
-          parentId: intent.targetParentId,
-          kind: 'file',
-          name: intent.fileName,
-        })
-        .returning();
-
-      if (!entry) {
-        throw new Error('Failed to create file entry');
-      }
-
-      const [file] = await tx
-        .insert(files)
-        .values({
-          entryId: entry.id,
-          objectKey: intent.objectKey,
-          contentType: intent.contentType,
-          sizeBytes: intent.expectedSizeBytes,
-          sha256: intent.expectedSha256,
-          status: 'quarantined',
-        })
-        .returning();
-
-      if (!file) {
-        throw new Error('Failed to create file');
-      }
-
-      await tx
-        .update(uploadIntents)
-        .set({ status: 'completed', fileId: entry.id, completedAt: command.completedAt })
-        .where(eq(uploadIntents.id, intent.id));
-
-      const completedFile: CompletedUploadFile = {
-        entryId: entry.id,
-        publicId: entry.publicId,
-        name: entry.name,
-        contentType: file.contentType,
-        sizeBytes: file.sizeBytes,
-        status: file.status,
-      };
-
-      return { kind: 'completed', file: completedFile };
+      return this.completeLockedIntent(tx, intent, command);
     });
   }
 
+  private async findIntentForCompletion(
+    tx: Transaction,
+    command: CompleteVerifiedUploadCommand,
+  ): Promise<UploadIntentRow | null> {
+    const [intent] = await tx
+      .select()
+      .from(uploadIntents)
+      .where(
+        and(
+          eq(uploadIntents.uploadId, command.uploadId),
+          eq(uploadIntents.createdByUserId, command.userId),
+        ),
+      )
+      .for('update')
+      .limit(1);
+
+    return intent ?? null;
+  }
+
+  private async completeLockedIntent(
+    tx: Transaction,
+    intent: UploadIntentRow,
+    command: CompleteVerifiedUploadCommand,
+  ): Promise<CompletedVerifiedUploadResult> {
+    switch (intent.status) {
+      case 'completed':
+        return {
+          kind: 'completed',
+          file: await this.findCompletedFileInTransaction(tx, intent.id),
+        };
+      case 'expired':
+        return { kind: 'expired' };
+      case 'rejected':
+        return { kind: 'not_pending', status: intent.status };
+      case 'pending':
+        return this.completePendingIntent(tx, intent, command);
+    }
+  }
+
   private async findCompletedFileInTransaction(
-    tx: PgTransaction<
-      NodePgQueryResultHKT,
-      typeof schema,
-      ExtractTablesWithRelations<typeof schema>
-    >,
+    tx: Transaction,
     intentId: number,
   ): Promise<CompletedUploadFile> {
     const [row] = await tx
@@ -164,6 +127,100 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     }
 
     return row;
+  }
+
+  private async completePendingIntent(
+    tx: Transaction,
+    intent: UploadIntentRow,
+    command: CompleteVerifiedUploadCommand,
+  ): Promise<CompletedVerifiedUploadResult> {
+    if (this.isPastFinalizeDeadline(intent, command.completedAt)) {
+      await this.expireIntent(tx, intent.id);
+      return { kind: 'expired' };
+    }
+
+    const entry = await this.createEntryForIntent(tx, command.userId, intent);
+
+    if (!entry) {
+      throw new Error('Failed to create entry');
+    }
+
+    const file = await this.createFileForIntent(tx, entry.id, intent);
+
+    if (!file) {
+      throw new Error('Failed to create file');
+    }
+
+    await this.markIntentCompleted(tx, intent.id, file.entryId, command.completedAt);
+
+    const completedFile: CompletedUploadFile = {
+      entryId: file.entryId,
+      publicId: entry.publicId,
+      name: entry.name,
+      contentType: file.contentType,
+      sizeBytes: file.sizeBytes,
+      status: file.status,
+    };
+
+    return { kind: 'completed', file: completedFile };
+  }
+
+  private isPastFinalizeDeadline(intent: UploadIntentRow, completedAt: Date): boolean {
+    return intent.finalizeDeadline.getTime() < completedAt.getTime();
+  }
+
+  private async expireIntent(tx: Transaction, intentId: number): Promise<void> {
+    await tx.update(uploadIntents).set({ status: 'expired' }).where(eq(uploadIntents.id, intentId));
+  }
+
+  private async createFileForIntent(
+    tx: Transaction,
+    entryId: number,
+    intent: UploadIntentRow,
+  ): Promise<FileRow | null> {
+    const [file] = await tx
+      .insert(files)
+      .values({
+        entryId: entryId,
+        objectKey: intent.objectKey,
+        contentType: intent.contentType,
+        sizeBytes: intent.expectedSizeBytes,
+        sha256: intent.expectedSha256,
+        status: 'quarantined',
+      })
+      .returning();
+
+    return file ?? null;
+  }
+
+  private async createEntryForIntent(
+    tx: Transaction,
+    userId: number,
+    intent: UploadIntentRow,
+  ): Promise<EntryRow | null> {
+    const [entry] = await tx
+      .insert(entries)
+      .values({
+        ownerId: userId,
+        parentId: intent.targetParentId,
+        kind: 'file',
+        name: intent.fileName,
+      })
+      .returning();
+
+    return entry ?? null;
+  }
+
+  private async markIntentCompleted(
+    tx: Transaction,
+    intentId: number,
+    entryId: number,
+    completedAt: Date,
+  ): Promise<void> {
+    await tx
+      .update(uploadIntents)
+      .set({ status: 'completed', fileId: entryId, completedAt: completedAt })
+      .where(eq(uploadIntents.id, intentId));
   }
 
   private toDomain(row: typeof uploadIntents.$inferSelect): UploadIntent {
