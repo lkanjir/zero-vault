@@ -33,7 +33,7 @@
           cdkMenuItem
           type="button"
           class="flex h-10 w-full items-center gap-2 border-b border-border px-3 text-sm hover:bg-surface-hover"
-          (cdkMenuItemTriggered)="createDirectory()"
+          (cdkMenuItemTriggered)="createFolderRequested.emit()"
         >
           <app-icon [size]="16" [name]="'folder-open'" />
           <span>Dodaj direktorij</span>
@@ -43,7 +43,7 @@
           cdkMenuItem
           type="button"
           class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
-          (cdkMenuItemTriggered)="uploadFile()"
+          (cdkMenuItemTriggered)="uploadFileRequested.emit()"
         >
           <app-icon [size]="16" [name]="'file-text'" />
           <span>Prenesi datoteku</span>
@@ -53,7 +53,7 @@
           cdkMenuItem
           type="button"
           class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
-          (cdkMenuItemTriggered)="uploadFile()"
+          (cdkMenuItemTriggered)="uploadFolderRequested.emit()"
         >
           <app-icon [size]="16" [name]="'folder-up'" />
           <span>Prenesi mapu</span>

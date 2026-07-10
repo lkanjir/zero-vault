@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, output } from '@angular/core';
 import { Icon } from '../../../shared/icon/icon';
 import { CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
 
@@ -9,10 +9,7 @@ import { CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
   styleUrl: './topbar.css',
 })
 export class Topbar {
-uploadFile() {
-throw new Error('Method not implemented.');
-}
-createDirectory() {
-throw new Error('Method not implemented.');
-}
+  readonly createFolderRequested = output<void>();
+  readonly uploadFileRequested = output<void>();
+  readonly uploadFolderRequested = output<void>();
 }
