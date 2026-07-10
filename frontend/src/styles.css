@@ -1,5 +1,5 @@
 /* You can add global styles to this file, and also import other style files */
-
+@import '@angular/cdk/overlay-prebuilt.css';
 @import 'tailwindcss';
 
 :root {
@@ -35,7 +35,7 @@
   --color-foreground: var(--app-foreground);
   --color-foreground-muted: var(--app-foreground-muted);
   --color-border: var(--app-border);
-  
+
   --color-primary: var(--app-primary);
   --color-primary-hover: var(--app-primary-hover);
   --color-accent: var(--app-accent);
@@ -45,7 +45,7 @@
 }
 
 @layer base {
-  body{
+  body {
     font-family: var(--font-default);
     background: var(--color-background);
     color: var(--color-foreground);

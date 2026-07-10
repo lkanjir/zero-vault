@@ -2,13 +2,15 @@ import { Component, DestroyRef, inject, OnInit, Signal, signal } from '@angular/
 import { EntryService } from './entry-service';
 import { EntryList } from './dto/entry';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { finalize } from 'rxjs';
+import { finalize, single } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { EntryItem } from './entry-item/entry-item';
+import { File } from './dto/file';
+import { Folder } from './dto/folder';
 
 @Component({
   selector: 'app-drive',
-  imports: [EntryItem],
+  imports: [EntryItem, ],
   templateUrl: './drive.html',
   styleUrl: './drive.css',
 })
@@ -67,4 +69,6 @@ export class Drive implements OnInit {
   retry() {
     this.loadEntries(null);
   }
+
+  showMenu(selected: Folder | File) {}
 }

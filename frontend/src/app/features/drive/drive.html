@@ -29,7 +29,7 @@
         </tr>
       } @else {
         @for (entry of entries(); track entry.id) {
-          <tr app-entry-item [entry]="entry"></tr>
+          <tr app-entry-item [entry]="entry" (auxclick)="showMenu(entry)"></tr>
         }
       }
     </tbody>
