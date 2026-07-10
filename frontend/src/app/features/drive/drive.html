@@ -29,7 +29,55 @@
         </tr>
       } @else {
         @for (entry of entries(); track entry.id) {
-          <tr app-entry-item [entry]="entry" (auxclick)="showMenu(entry)"></tr>
+          <tr app-entry-item [entry]="entry" [cdkContextMenuTriggerFor]="entryMenu"></tr>
+
+          <ng-template #entryMenu>
+            <div
+              cdkMenu
+              cdkTargetMenuAim
+              class="min-w-40 rounded-md border-border bg-surface shadow-xl"
+            >
+              <button
+                cdkMenuItem
+                type="button"
+                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover focus:bg-surface-hover"
+                (cdkMenuItemTriggered)="download(entry)"
+              >
+                <app-icon [name]="'download'" [size]="16" />
+                <span>Preuzmi</span>
+              </button>
+
+              <button
+                cdkMenuItem
+                type="button"
+                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover focus:bg-surface-hover"
+                (cdkMenuItemTriggered)="rename(entry)"
+              >
+                <app-icon [name]="'square-pen'" [size]="16" />
+                <span>Preimenuj</span>
+              </button>
+
+              <button
+                cdkMenuItem
+                type="button"
+                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover focus:bg-surface-hover"
+                (cdkMenuItemTriggered)="move(entry)"
+              >
+                <app-icon [name]="'move'" [size]="16" />
+                <span>Premjesti</span>
+              </button>
+
+              <button
+                cdkMenuItem
+                type="button"
+                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover focus:bg-surface-hover"
+                (cdkMenuItemTriggered)="delete(entry)"
+              >
+                <app-icon [name]="'trash'" [size]="16" />
+                <span>Obriši</span>
+              </button>
+            </div>
+          </ng-template>
         }
       }
     </tbody>

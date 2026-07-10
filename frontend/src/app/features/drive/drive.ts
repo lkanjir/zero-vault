@@ -7,14 +7,32 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { EntryItem } from './entry-item/entry-item';
 import { File } from './dto/file';
 import { Folder } from './dto/folder';
+import { CdkContextMenuTrigger, CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
+import { Icon } from '../../shared/icon/icon';
 
 @Component({
   selector: 'app-drive',
-  imports: [EntryItem, ],
+  imports: [EntryItem, CdkMenu, CdkMenuItem, CdkContextMenuTrigger, Icon],
   templateUrl: './drive.html',
   styleUrl: './drive.css',
 })
 export class Drive implements OnInit {
+  download(selectedEntry: Folder | File) {
+    throw new Error('Method not implemented.');
+  }
+
+  rename(selectedEntry: Folder | File) {
+    throw new Error('Method not implemented.');
+  }
+
+  move(selectedEntry: Folder | File) {
+    throw new Error('Method not implemented.');
+  }
+
+  delete(selectedEntry: Folder | File) {
+    throw new Error('Method not implemented.');
+  }
+
   private readonly entryService = inject(EntryService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -69,6 +87,4 @@ export class Drive implements OnInit {
   retry() {
     this.loadEntries(null);
   }
-
-  showMenu(selected: Folder | File) {}
 }

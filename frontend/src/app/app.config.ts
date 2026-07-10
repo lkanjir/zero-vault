@@ -9,12 +9,16 @@ import { provideRouter } from '@angular/router';
 import { routes } from './app.routes';
 import {
   LucideCloud,
+  LucideDownload,
   LucideFileText,
+  LucideMove,
   LucidePanelLeft,
   LucidePanelLeftClose,
   LucidePlus,
   LucideSearch,
   LucideShare2,
+  LucideSquarePen,
+  LucideTrash,
   LucideUser,
   provideLucideIcons,
 } from '@lucide/angular';
@@ -37,6 +41,10 @@ export const appConfig: ApplicationConfig = {
       LucidePanelLeft,
       LucidePanelLeftClose,
       LucideFileText,
+      LucideDownload,
+      LucideSquarePen,
+      LucideMove,
+      LucideTrash,
     ),
   ],
 };

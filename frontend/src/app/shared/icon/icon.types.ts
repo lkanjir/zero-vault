@@ -7,6 +7,10 @@ export const appIconNames = [
   'panel-left',
   'panel-left-close',
   'file-text',
+  'download',
+  'square-pen',
+  'move',
+  'trash',
 ] as const;
 
 export type AppIconName = (typeof appIconNames)[number];
