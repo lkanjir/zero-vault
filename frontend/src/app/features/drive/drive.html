@@ -35,12 +35,12 @@
             <div
               cdkMenu
               cdkTargetMenuAim
-              class="min-w-40 rounded-md border-border bg-surface shadow-xl"
+              class="min-w-40 overflow-hidden rounded-md border-border bg-surface shadow-xl"
             >
               <button
                 cdkMenuItem
                 type="button"
-                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover focus:bg-surface-hover"
+                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
                 (cdkMenuItemTriggered)="download(entry)"
               >
                 <app-icon [name]="'download'" [size]="16" />
@@ -50,7 +50,7 @@
               <button
                 cdkMenuItem
                 type="button"
-                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover focus:bg-surface-hover"
+                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
                 (cdkMenuItemTriggered)="rename(entry)"
               >
                 <app-icon [name]="'square-pen'" [size]="16" />
@@ -60,7 +60,7 @@
               <button
                 cdkMenuItem
                 type="button"
-                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover focus:bg-surface-hover"
+                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
                 (cdkMenuItemTriggered)="move(entry)"
               >
                 <app-icon [name]="'move'" [size]="16" />
@@ -70,7 +70,7 @@
               <button
                 cdkMenuItem
                 type="button"
-                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover focus:bg-surface-hover"
+                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
                 (cdkMenuItemTriggered)="delete(entry)"
               >
                 <app-icon [name]="'trash'" [size]="16" />

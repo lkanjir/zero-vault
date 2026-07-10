@@ -16,11 +16,49 @@
       />
     </div>
     <button
+      [cdkMenuTriggerFor]="upload"
       type="button"
       class="flex h-10 cursor-pointer items-center justify-center gap-1 rounded-md bg-surface px-2 text-sm font-semibold"
     >
       <app-icon [name]="'plus'" [size]="16" [stroke]="3" />
       Novo
     </button>
+
+    <ng-template #upload>
+      <div
+        cdkMenu
+        class="mt-2 min-w-40 overflow-hidden rounded-md border-border bg-surface shadow-xl"
+      >
+        <button
+          cdkMenuItem
+          type="button"
+          class="flex h-10 w-full items-center gap-2 border-b border-border px-3 text-sm hover:bg-surface-hover"
+          (cdkMenuItemTriggered)="createDirectory()"
+        >
+          <app-icon [size]="16" [name]="'folder-open'" />
+          <span>Dodaj direktorij</span>
+        </button>
+
+        <button
+          cdkMenuItem
+          type="button"
+          class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
+          (cdkMenuItemTriggered)="uploadFile()"
+        >
+          <app-icon [size]="16" [name]="'file-text'" />
+          <span>Prenesi datoteku</span>
+        </button>
+
+        <button
+          cdkMenuItem
+          type="button"
+          class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
+          (cdkMenuItemTriggered)="uploadFile()"
+        >
+          <app-icon [size]="16" [name]="'folder-up'" />
+          <span>Prenesi mapu</span>
+        </button>
+      </div>
+    </ng-template>
   </div>
 </div>

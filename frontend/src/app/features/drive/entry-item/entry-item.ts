@@ -2,11 +2,12 @@ import { Component, computed, input } from '@angular/core';
 import { Icon } from '../../../shared/icon/icon';
 import { Folder } from '../dto/folder';
 import type { File } from '../dto/file';
-import { FileSizePipe } from "../../../shared/pipes/file-size-pipe";
+import { FileSizePipe } from '../../../shared/pipes/file-size-pipe';
+import { DatePipe } from '@angular/common';
 
 @Component({
   selector: 'tr[app-entry-item]',
-  imports: [Icon, FileSizePipe],
+  imports: [Icon, FileSizePipe, DatePipe],
   templateUrl: './entry-item.html',
   styleUrl: './entry-item.css',
   host: {

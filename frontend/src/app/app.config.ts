@@ -11,6 +11,8 @@ import {
   LucideCloud,
   LucideDownload,
   LucideFileText,
+  LucideFolderOpen,
+  LucideFolderUp,
   LucideMove,
   LucidePanelLeft,
   LucidePanelLeftClose,
@@ -45,6 +47,8 @@ export const appConfig: ApplicationConfig = {
       LucideSquarePen,
       LucideMove,
       LucideTrash,
+      LucideFolderUp,
+      LucideFolderOpen,
     ),
   ],
 };
