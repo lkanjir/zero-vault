@@ -1,16 +1,18 @@
 import { DestroyRef, inject, Injectable, signal } from '@angular/core';
 import { FolderService } from './folder-service';
 import { EntryList } from './dto/entry';
-import { finalize, firstValueFrom, Subscription } from 'rxjs';
+import { catchError, finalize, firstValueFrom, map, of, Subscription } from 'rxjs';
 import { EntryService } from './entry-service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
+import { ApiError, apiErrorMessage, toApiError } from '../../shared/api-error';
+import { Result } from '../../shared/result';
+import { Folder } from './dto/folder';
 
 @Injectable({ providedIn: 'root' })
 export class DriveStore {
   private readonly entryService = inject(EntryService);
   private readonly folderService = inject(FolderService);
-  private readonly destroyRef = inject(DestroyRef);
 
   private readonly _parentId = signal<string | null>(null);
   private readonly _entries = signal<EntryList['items']>([]);
@@ -36,10 +38,7 @@ export class DriveStore {
 
     this.loadSubscription = this.entryService
       .getEntries({ parentId: parentId, cursor: null, limit: 50 })
-      .pipe(
-        takeUntilDestroyed(this.destroyRef),
-        finalize(() => this._loading.set(false)),
-      )
+      .pipe(finalize(() => this._loading.set(false)))
       .subscribe({
         next: (response) => {
           this._entries.set(response.items);
@@ -47,7 +46,9 @@ export class DriveStore {
           this._hasMore.set(response.page.hasMore);
         },
         error: (error: HttpErrorResponse) => {
-          this._error.set(this.getErrorMessage(error));
+          this._error.set(
+            apiErrorMessage(toApiError(error), 'Datoteke se trenutno ne mogu učitati'),
+          );
         },
       });
   }
@@ -56,26 +57,20 @@ export class DriveStore {
     this.loadFolder(this._parentId());
   }
 
-  async createFolder(name: string): Promise<void> {
-    const folder = await firstValueFrom(
-      this.folderService.createFolder({ name: name, parentKey: this._parentId() }),
+  async createFolder(name: string): Promise<Result<Folder, ApiError>> {
+    const result = await firstValueFrom(
+      this.folderService.createFolder({ name: name, parentId: this._parentId() }).pipe(
+        map((folder): Result<Folder, ApiError> => ({ ok: true, value: folder })),
+        catchError((error) =>
+          of<Result<Folder, ApiError>>({ ok: false, error: toApiError(error) }),
+        ),
+      ),
     );
 
-    this._entries.update((entries) => [folder, ...entries]);
-  }
-
-  private getErrorMessage(error: HttpErrorResponse): string {
-    switch (error.status) {
-      case 0:
-        return 'Backend nije dostupan.';
-      case 400:
-        return 'Zahtjev nije ispravan.';
-      case 403:
-        return 'Nemaš dopuštenje za ovaj sadržaj.';
-      case 404:
-        return 'Mapa ne postoji.';
-      default:
-        return 'Datoteke se trenutno ne mogu učitati.';
+    if (result.ok) {
+      this._entries.update((current) => [result.value, ...current]);
     }
+
+    return result;
   }
 }

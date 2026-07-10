@@ -3,6 +3,7 @@ import z from 'zod';
 export const listEntriesQuerySchema = z.object({
   parentId: z
     .uuid()
+    .nullable()
     .optional()
     .transform((val) => val ?? null),
   cursor: z

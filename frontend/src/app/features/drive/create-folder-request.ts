@@ -1,4 +1,4 @@
 export type CreateFolderRequest = {
   name: string;
-  parentKey: string | null;
+  parentId: string | null;
 };

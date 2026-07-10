@@ -14,11 +14,11 @@ export class EntryService {
     let httpParams = new HttpParams().set('limit', params.limit);
 
     if (params.parentId !== null) {
-      httpParams.set('parentId', params.parentId);
+      httpParams = httpParams.set('parentId', params.parentId);
     }
 
     if (params.cursor !== null) {
-      httpParams.set('cursor', params.cursor);
+      httpParams = httpParams.set('cursor', params.cursor);
     }
 
     return this.http.get<EntryList>('/api/entries', { params: httpParams });

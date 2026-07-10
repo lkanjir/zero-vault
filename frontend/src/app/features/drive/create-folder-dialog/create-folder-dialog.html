@@ -1,5 +1,5 @@
 <div class="w-full rounded-lg bg-background p-6 shadow-xl">
-  <form (submit)="onSubmit($event)">
+  <form [formRoot]="createFolderForm">
     <label
       ><span class="mb-3 block text-lg font-bold">Kreiraj novi direktorij</span>
       <input
@@ -18,8 +18,12 @@
       </ul>
     }
 
-    @if (error()) {
-      <span class="block pt-1 text-danger">{{ error() }}</span>
+    @if (createFolderForm().errors().length > 0) {
+      <ul class="block pt-1 text-danger">
+        @for (error of createFolderForm().errors(); track error) {
+          <li>{{ error.message }}</li>
+        }
+      </ul>
     }
 
     <div class="flex justify-end gap-3 py-1">
@@ -31,10 +35,11 @@
         Odustani
       </button>
       <button
+        [disabled]="createFolderForm().submitting()"
         type="submit"
         class="h-10 cursor-pointer rounded-md bg-foreground px-2 text-sm font-semibold text-surface"
       >
-        Kreiraj
+        {{ createFolderForm().submitting() ? 'Kreiranje...' : 'Kreiraj' }}
       </button>
     </div>
   </form>

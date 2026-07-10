@@ -5,45 +5,74 @@ import {
   debounce,
   form,
   FormField,
+  FormRoot,
   maxLength,
   minLength,
   pattern,
   required,
+  submit,
+  validate,
 } from '@angular/forms/signals';
-import { SignalFormControl } from '@angular/forms/signals/compat';
+import { apiErrorMessage } from '../../../shared/api-error';
 
 @Component({
   selector: 'app-create-folder-dialog',
-  imports: [FormField],
+  imports: [FormField, FormRoot],
   templateUrl: './create-folder-dialog.html',
   styleUrl: './create-folder-dialog.css',
 })
 export class CreateFolderDialog {
   private readonly store = inject(DriveStore);
   readonly dialogRef = inject(DialogRef);
-  readonly error = signal<string | null>(null);
 
   readonly formModel = signal({ name: '' });
-  readonly createFolderForm = form(this.formModel, (schema) => {
-    debounce(schema.name, 150);
-    required(schema.name, { message: 'Naziv direktorija je obavezan' });
-    maxLength(schema.name, 500, {
-      message: 'Naziv direktorija može ne može biti duži od 500 znakova',
-    });
-    pattern(schema.name, /^[^\\/]+$/, { message: 'Naziv ne smije sadržavati separatore putanje' });
-  });
+  readonly createFolderForm = form(
+    this.formModel,
+    (schema) => {
+      debounce(schema.name, 150);
+      maxLength(schema.name, 500, {
+        message: 'Naziv direktorija može ne može biti duži od 500 znakova',
+      });
+      pattern(schema.name, /^[^\\/]+$/, {
+        message: 'Naziv ne smije sadržavati separatore putanje',
+      });
+      validate(schema.name, ({ value }) => {
+        if (value().trim().length === 0) {
+          return {
+            kind: 'emtpy-string',
+            message: 'Naziv direktorija je obavezan',
+          };
+        }
 
-  async onSubmit(event: Event) {
-    event.preventDefault();
+        return null;
+      });
+    },
+    {
+      submission: {
+        action: async (field) => {
+          const result = await this.store.createFolder(this.formModel().name.trim());
+          if (result.ok) {
+            this.dialogRef.close();
+            return;
+          }
 
-    try {
-      this.error.set(null);
-      await this.store.createFolder(this.formModel().name.trim());
-      this.dialogRef.close();
-    } catch {
-      this.error.set('Nije moguće kreirati direktorij');
-    }
-  }
+          const message = apiErrorMessage(result.error, 'Nije moguće kreirati direktorij');
+          if (result.error.code === 'duplicate_entry_name') {
+            return {
+              kind: result.error.code,
+              message,
+              fieldTree: field.name,
+            };
+          }
+
+          return {
+            kind: result.error.code,
+            message,
+          };
+        },
+      },
+    },
+  );
 
   closeDialog() {
     this.dialogRef.close();
