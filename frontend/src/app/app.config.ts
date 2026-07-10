@@ -4,6 +4,7 @@ import { provideRouter } from '@angular/router';
 import { routes } from './app.routes';
 import {
   LucideCloud,
+  LucideFileText,
   LucidePanelLeft,
   LucidePanelLeftClose,
   LucidePlus,
@@ -25,6 +26,7 @@ export const appConfig: ApplicationConfig = {
       LucideShare2,
       LucidePanelLeft,
       LucidePanelLeftClose,
+      LucideFileText,
     ),
   ],
 };
