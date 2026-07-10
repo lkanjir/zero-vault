@@ -23,9 +23,8 @@
     "test:unit": "vitest run",
     "test:watch": "vitest",
     "test": "npm run check && npm run typecheck:test && npm run test:unit",
-
-    "dev:upload-cleanup" : "tsx watch src/workers/upload-cleanup-worker.ts",
-    "start:upload-cleanup" : "node dist/workers/upload-cleanup-worker.js"
+    "dev:upload-cleanup": "tsx watch src/workers/upload-cleanup-worker.ts",
+    "start:upload-cleanup": "node dist/workers/upload-cleanup-worker.js"
   },
   "keywords": [],
   "author": "Luka Kanjir",
@@ -38,6 +37,7 @@
     "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
     "jose": "^6.2.3",
+    "keycloak-js": "^26.2.4",
     "node-cron": "^4.6.0",
     "pg": "^8.22.0",
     "zod": "^4.4.3"

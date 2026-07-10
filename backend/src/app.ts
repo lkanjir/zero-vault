@@ -12,9 +12,9 @@ const composition = createCompositionRoot();
 
 app.use(express.json({ limit: '16kb' }));
 
-app.use('/uploads', requireAuth, createUploadRouter(composition));
-app.use('/entries', requireAuth, createEntryRouter(composition));
-app.use('/files', requireAuth, createFilesRouter(composition));
-app.use('/folders', requireAuth, createFolderRouter(composition));
+app.use('/api/uploads', requireAuth, createUploadRouter(composition));
+app.use('/api/entries', requireAuth, createEntryRouter(composition));
+app.use('/api/files', requireAuth, createFilesRouter(composition));
+app.use('/api/folders', requireAuth, createFolderRouter(composition));
 
 app.use(errorHandler);
