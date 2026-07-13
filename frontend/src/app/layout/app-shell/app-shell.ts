@@ -4,6 +4,7 @@ import { Topbar } from './topbar/topbar';
 import { Sidebar } from './sidebar/sidebar';
 import { Dialog, DialogModule } from '@angular/cdk/dialog';
 import { CreateFolderDialog } from '../../features/drive/create-folder-dialog/create-folder-dialog';
+import { DriveStore } from '../../features/drive/drive-store';
 
 @Component({
   selector: 'app-app-shell',
@@ -13,6 +14,7 @@ import { CreateFolderDialog } from '../../features/drive/create-folder-dialog/cr
 })
 export class AppShell {
   private readonly dialog = inject(Dialog);
+  private readonly store = inject(DriveStore);
 
   openCreateFolderDialog(): void {
     this.dialog.open(CreateFolderDialog, {
@@ -21,5 +23,14 @@ export class AppShell {
       autoFocus: 'first-tabbable',
       restoreFocus: true,
     });
+  }
+
+  async onFileChanged(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.item(0);
+
+    if (file) {
+      await this.store.uploadFile(file);
+    }
   }
 }

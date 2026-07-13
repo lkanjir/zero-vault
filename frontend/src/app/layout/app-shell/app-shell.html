@@ -3,7 +3,12 @@
 
   <div class="flex min-w-0 flex-1 flex-col">
     <header class="shrink-0">
-      <app-topbar (createFolderRequested)="openCreateFolderDialog()" />
+      <app-topbar
+        (createFolderRequested)="openCreateFolderDialog()"
+        (uploadFileRequested)="fileInput.click()"
+      />
+
+      <input type="file" #fileInput hidden single (change)="onFileChanged($event)" />
     </header>
 
     <main class="min-h-0 flex-1 overflow-y-auto">
