@@ -3,6 +3,7 @@ export type UploadIntentRequest = {
   contentType: string;
   size: number;
   sha256: string;
+  parentFolder: string | null;
 };
 
 export type UploadIntentResponse = {

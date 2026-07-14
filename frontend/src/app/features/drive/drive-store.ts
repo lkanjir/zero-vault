@@ -1,7 +1,7 @@
 import { DestroyRef, inject, Injectable, signal } from '@angular/core';
 import { FolderService } from './folder-service';
 import { EntryList } from './dto/entry';
-import { catchError, finalize, firstValueFrom, map, of, ReplaySubject, Subscription } from 'rxjs';
+import { catchError, finalize, firstValueFrom, map, of, Subscription } from 'rxjs';
 import { EntryService } from './entry-service';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiError, apiErrorMessage, toApiError } from '../../shared/api-error';
@@ -84,12 +84,14 @@ export class DriveStore {
 
   async uploadFile(file: File): Promise<Result<UploadCompleteResponse, ApiError>> {
     const hash = await calcualteSha256(file);
+    const parent = this._parentId();
 
     const intentRequest: UploadIntentRequest = {
       fileName: file.name,
       contentType: file.type,
       size: file.size,
       sha256: hash,
+      parentFolder: parent,
     };
 
     const intentResult = await firstValueFrom(
@@ -120,6 +122,8 @@ export class DriveStore {
     if (!uploadResult.ok) return uploadResult;
 
     const completionResult = await this.completeUpload(intentResult.value.uploadId);
+
+    this.reload();
 
     return completionResult;
   }
