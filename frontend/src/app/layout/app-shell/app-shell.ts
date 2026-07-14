@@ -5,12 +5,12 @@ import { Sidebar } from './sidebar/sidebar';
 import { Dialog, DialogModule } from '@angular/cdk/dialog';
 import { CreateFolderDialog } from '../../features/drive/create-folder-dialog/create-folder-dialog';
 import { DriveStore } from '../../features/drive/drive-store';
+import { TransferPanel } from '../../features/drive/transfer-panel/transfer-panel';
 
 @Component({
   selector: 'app-app-shell',
-  imports: [RouterOutlet, Topbar, Sidebar, DialogModule],
+  imports: [RouterOutlet, Topbar, Sidebar, DialogModule, TransferPanel],
   templateUrl: './app-shell.html',
-  styleUrl: './app-shell.css',
 })
 export class AppShell {
   private readonly dialog = inject(Dialog);
@@ -32,5 +32,15 @@ export class AppShell {
     if (file) {
       await this.store.uploadFile(file);
     }
+  }
+
+  readonly transfersOpen = signal(false);
+
+  toggleTransfers() {
+    this.transfersOpen.update((curr) => !curr);
+  }
+
+  closeTransfers() {
+    this.transfersOpen.set(false);
   }
 }

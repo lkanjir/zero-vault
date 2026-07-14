@@ -1,0 +1,14 @@
+<aside
+  class="fixed inset-y-0 right-0 z-30 block w-96 max-w-full border-l border-border bg-surface shadow-xl transition-transform duration-200 ease-out"
+  [class.translate-x-0]="open()"
+  [class.translate-x-full]="!open()"
+  [class.pointer-events-auto]="open()"
+  [class.pointer-events-none]="!open()"
+>
+  <header class="flex h-16 items-center justify-between px-5">
+    <h2 class="text-lg font-semibold">Aktivni prijenosi</h2>
+    <button type="button" (click)="dismissed.emit()" class="rounded-sm hover:bg-surface-hover">
+      <app-icon class="text-foreground" [name]="'x'" [size]="24" />
+    </button>
+  </header>
+</aside>

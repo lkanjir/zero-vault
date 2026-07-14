@@ -6,7 +6,6 @@ import { CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
   selector: 'app-topbar',
   imports: [Icon, CdkMenu, CdkMenuItem, CdkMenuTrigger],
   templateUrl: './topbar.html',
-  styleUrl: './topbar.css',
 })
 export class Topbar {
   readonly createFolderRequested = output<void>();

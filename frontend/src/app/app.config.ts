@@ -8,6 +8,7 @@ import { provideRouter } from '@angular/router';
 
 import { routes } from './app.routes';
 import {
+  LucideArrowUpDown,
   LucideCloud,
   LucideDownload,
   LucideFileText,
@@ -22,6 +23,7 @@ import {
   LucideSquarePen,
   LucideTrash,
   LucideUser,
+  LucideX,
   provideLucideIcons,
 } from '@lucide/angular';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
@@ -49,6 +51,8 @@ export const appConfig: ApplicationConfig = {
       LucideTrash,
       LucideFolderUp,
       LucideFolderOpen,
+      LucideArrowUpDown,
+      LucideX,
     ),
   ],
 };

@@ -13,5 +13,5 @@ export class SidebarItem {
   readonly sidebarOpen = input.required<boolean>();
   readonly iconName = input.required<AppIconName>();
   readonly text = input.required<string>();
-  readonly link = input.required<string>();
+  readonly link = input<string>('');
 }

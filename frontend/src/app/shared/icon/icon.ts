@@ -6,7 +6,6 @@ import { LucideDynamicIcon } from '@lucide/angular';
   selector: 'app-icon',
   imports: [LucideDynamicIcon],
   templateUrl: './icon.html',
-  styleUrl: './icon.css',
   host: {
     class: 'inline-flex shrink-0 items-center justify-center align-middle leading-none',
   },
