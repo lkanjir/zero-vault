@@ -11,4 +11,28 @@
       <app-icon class="text-foreground" [name]="'x'" [size]="24" />
     </button>
   </header>
+
+  <section class="px-5 pt-2">
+    <div class="flex items-center gap-2">
+      <div
+        class="flex size-10 shrink-0 items-center justify-center rounded-md bg-surface-hover text-foreground"
+      >
+        <app-icon class="bg-surface-hover text-foreground" [name]="'file-text'" [size]="24" />
+      </div>
+      <div class="flex size-10 w-full min-w-0 flex-col">
+        <span class="truncate font-medium">{{ transfer().fileName }}</span>
+        <div class="flex w-full items-center justify-between">
+          <span class="mt-0.5 text-xs text-foreground-muted">{{ transfer().sizeLabel }}</span>
+          <span class="mt-0.5 text-xs text-foreground-muted">{{ transfer().speedLabel }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-4 h-1 overflow-hidden rounded-full bg-border">
+      <div
+        class="h-full rounded-full bg-foreground transition-[width] duration-200 ease-out"
+        [style.width.%]="transfer().progress"
+      ></div>
+    </div>
+  </section>
 </aside>
