@@ -22,16 +22,44 @@
         </div>
         <div class="flex size-10 w-full min-w-0 flex-col">
           <span class="truncate font-medium">{{ transfer.fileName }}</span>
+
           <div class="flex w-full items-center justify-between">
-            <span class="mt-0.5 text-xs text-foreground-muted">{{
+            <span #sizeSpan class="mt-0.5 text-xs text-foreground-muted">{{
               transfer.sizeBytes | fileSize
             }}</span>
-            @if (transfer.bytesPerSecond !== null) {
-              <span class="mt-0.5 text-xs text-foreground-muted">
-                {{ transfer.bytesPerSecond | fileSize }}/s
-              </span>
-            } @else {
-              <span class="mt-0.5 text-xs text-foreground-muted">—</span>
+
+            @switch (transfer.phase) {
+              @case ('preparing') {
+                <span class="mt-0.5 text-xs text-foreground-muted">Priprema…</span>
+              }
+
+              @case ('uploading') {
+                @if (transfer.bytesPerSecond !== null) {
+                  <span class="mt-0.5 text-xs text-foreground-muted">
+                    {{ transfer.bytesPerSecond | fileSize }}/s
+                  </span>
+                } @else {
+                  <span class="mt-0.5 text-xs text-foreground-muted">—</span>
+                }
+
+                <span class="mt-0.5 text-xs text-foreground-muted"
+                  >{{ transfer.progress ?? 0 }}%</span
+                >
+              }
+
+              @case ('finalizing') {
+                <span class="mt-0.5 text-xs text-foreground-muted">Dovršavanje…</span>
+              }
+
+              @case ('completed') {
+                <span class="mt-0.5 text-xs text-foreground-muted">Dovršeno</span>
+              }
+
+              @case ('failed') {
+                <span class="text-d anger mt-0.5 text-xs">
+                  {{ transfer.error?.message }}
+                </span>
+              }
             }
           </div>
         </div>

@@ -39,9 +39,9 @@
 
   <app-sidebar-item
     (click)="transfersRequested.emit()"
-    class="align-bottom"
     [sidebarOpen]="open()"
     [iconName]="'arrow-up-down'"
+    [badgeCount]="failedTransferCount()"
     [text]="'Aktivni prijenosi'"
   >
   </app-sidebar-item>

@@ -1,4 +1,4 @@
-import { Component, output, signal } from '@angular/core';
+import { Component, input, output, signal } from '@angular/core';
 import { Icon } from '../../../shared/icon/icon';
 import { SidebarItem } from './sidebar-item/sidebar-item';
 
@@ -16,6 +16,8 @@ import { SidebarItem } from './sidebar-item/sidebar-item';
 export class Sidebar {
   readonly open = signal<boolean>(false);
   readonly transfersRequested = output<void>();
+
+  readonly failedTransferCount = input<number>(0);
 
   toggleOpen() {
     this.open.update((current) => !current);

@@ -1,5 +1,8 @@
 <div class="flex h-svh overflow-hidden">
-  <app-sidebar (transfersRequested)="toggleTransfers()" />
+  <app-sidebar
+    (transfersRequested)="toggleTransfers()"
+    [failedTransferCount]="transferStore.failedCount()"
+  />
 
   <div class="flex min-w-0 flex-1 flex-col">
     <header class="shrink-0">
@@ -28,7 +31,6 @@
       [open]="transfersOpen()"
       (dismissed)="closeTransfers()"
       [transfers]="transferStore.transfers()"
-      (removeRequested)="transferStore.remove($event)"
     ></app-transfer-panel>
   </div>
 </div>

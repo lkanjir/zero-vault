@@ -21,7 +21,7 @@ export class TransferStore {
     () => this._transfers().filter((transfer) => transfer.phase === 'failed').length,
   );
 
-  async startUplaod(
+  async startUpload(
     file: File,
     targetParentId: string | null,
   ): Promise<Result<UploadCompleteResponse, TransferFailure>> {
@@ -97,7 +97,7 @@ export class TransferStore {
       });
 
       const completed = await firstValueFrom(this.fileService.completeRequest(intent.uploadId));
-      this.patch(transferId, { phase: 'finalizing', bytesPerSecond: null, progress: 100 });
+      this.patch(transferId, { phase: 'completed', bytesPerSecond: null, progress: 100 });
       return { ok: true, value: completed };
     } catch (error) {
       const failure = this.mapFailure(error, failureContext);
@@ -137,10 +137,10 @@ export class TransferStore {
     }
 
     const fallback = {
-      preparing: 'Datoteka se nije mogla pripremiti.',
-      presigning: 'Prijenos datoteke nije moguće započeti.',
-      uploading: 'Prijenos datoteke u pohranu nije uspio.',
-      finalizing: 'Datoteka je prenesena, ali dovršavanje nije uspjelo.',
+      preparing: 'Greška pripreme prijenosa',
+      presigning: 'Prijenos ne može početi.',
+      uploading: 'Prijenos nije uspio.',
+      finalizing: 'Greška pri završavanju.',
     }[context];
 
     const message = context === 'uploading' ? fallback : apiErrorMessage(error, fallback);

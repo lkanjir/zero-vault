@@ -14,4 +14,5 @@ export class SidebarItem {
   readonly iconName = input.required<AppIconName>();
   readonly text = input.required<string>();
   readonly link = input<string>('');
+  readonly badgeCount = input<number>(0);
 }

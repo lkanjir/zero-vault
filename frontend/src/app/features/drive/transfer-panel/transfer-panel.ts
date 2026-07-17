@@ -1,7 +1,7 @@
 import { Component, input, output, signal } from '@angular/core';
 import { Icon } from '../../../shared/icon/icon';
 import { UploadTransfer } from '../transfers/transfer';
-import { FileSizePipe } from "../../../shared/pipes/file-size-pipe";
+import { FileSizePipe } from '../../../shared/pipes/file-size-pipe';
 
 @Component({
   selector: 'app-transfer-panel',
@@ -12,5 +12,4 @@ export class TransferPanel {
   readonly open = input.required<boolean>();
   readonly dismissed = output<void>();
   readonly transfers = input.required<readonly UploadTransfer[]>();
-  readonly removeRequested = output<string>();
 }

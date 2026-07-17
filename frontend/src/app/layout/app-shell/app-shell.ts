@@ -39,7 +39,7 @@ export class AppShell {
     const targetParentId = this.driveStore.parentId();
     this.transfersOpen.set(true);
 
-    const result = await this.transferStore.startUplaod(file, targetParentId);
+    const result = await this.transferStore.startUpload(file, targetParentId);
 
     if (result.ok) {
       this.driveStore.reloadIfCurrent(targetParentId);
