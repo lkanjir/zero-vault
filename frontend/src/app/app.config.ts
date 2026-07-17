@@ -26,7 +26,7 @@ import {
   LucideX,
   provideLucideIcons,
 } from '@lucide/angular';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
 import { AuthService } from './auth/auth-service';
 import { authInterceptor } from './auth/auth-interceptor';
 
@@ -35,7 +35,7 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     provideAppInitializer(() => inject(AuthService).initialize()),
     provideRouter(routes),
-    provideHttpClient(withInterceptors([authInterceptor])),
+    provideHttpClient(withXhr(), withInterceptors([authInterceptor])),
     provideLucideIcons(
       LucideSearch,
       LucidePlus,

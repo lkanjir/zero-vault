@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpEvent } from '@angular/common/http';
 import { inject, Inject, Injectable, Service } from '@angular/core';
 import {
   FileUploadRequest,
@@ -16,14 +16,16 @@ export class FileService {
     return this.http.post<UploadIntentResponse>('/api/uploads/presign', request);
   }
 
-  uploadFile(request: FileUploadRequest): Observable<void> {
+  uploadFile(request: FileUploadRequest): Observable<HttpEvent<void>> {
     return this.http.put<void>(request.url, request.file, {
       headers: request.headers,
+      observe: 'events',
+      reportUploadProgress: true,
     });
   }
 
-  completeRequest(fileId: string): Observable<UploadCompleteResponse> {
-    const encoded = encodeURIComponent(fileId);
+  completeRequest(uploadId: string): Observable<UploadCompleteResponse> {
+    const encoded = encodeURIComponent(uploadId);
     return this.http.post<UploadCompleteResponse>(`/api/uploads/${encoded}/complete`, null);
   }
 }

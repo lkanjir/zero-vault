@@ -8,7 +8,7 @@
         (uploadFileRequested)="fileInput.click()"
       />
 
-      <input type="file" #fileInput hidden single (change)="onFileChanged($event)" />
+      <input type="file" #fileInput hidden (change)="onFileChanged($event)" />
     </header>
 
     <main class="min-h-0 flex-1 overflow-y-auto">
@@ -27,6 +27,8 @@
     <app-transfer-panel
       [open]="transfersOpen()"
       (dismissed)="closeTransfers()"
+      [transfers]="transferStore.transfers()"
+      (removeRequested)="transferStore.remove($event)"
     ></app-transfer-panel>
   </div>
 </div>

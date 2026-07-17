@@ -6,6 +6,7 @@ import { Dialog, DialogModule } from '@angular/cdk/dialog';
 import { CreateFolderDialog } from '../../features/drive/create-folder-dialog/create-folder-dialog';
 import { DriveStore } from '../../features/drive/drive-store';
 import { TransferPanel } from '../../features/drive/transfer-panel/transfer-panel';
+import { TransferStore } from '../../features/drive/transfers/transfer-store';
 
 @Component({
   selector: 'app-app-shell',
@@ -14,7 +15,10 @@ import { TransferPanel } from '../../features/drive/transfer-panel/transfer-pane
 })
 export class AppShell {
   private readonly dialog = inject(Dialog);
-  private readonly store = inject(DriveStore);
+  private readonly driveStore = inject(DriveStore);
+  readonly transferStore = inject(TransferStore);
+
+  readonly transfersOpen = signal(false);
 
   openCreateFolderDialog(): void {
     this.dialog.open(CreateFolderDialog, {
@@ -25,16 +29,22 @@ export class AppShell {
     });
   }
 
-  async onFileChanged(event: Event) {
+  async onFileChanged(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
     const file = input.files?.item(0);
 
-    if (file) {
-      await this.store.uploadFile(file);
+    input.value = '';
+    if (!file) return;
+
+    const targetParentId = this.driveStore.parentId();
+    this.transfersOpen.set(true);
+
+    const result = await this.transferStore.startUplaod(file, targetParentId);
+
+    if (result.ok) {
+      this.driveStore.reloadIfCurrent(targetParentId);
     }
   }
-
-  readonly transfersOpen = signal(false);
 
   toggleTransfers() {
     this.transfersOpen.update((curr) => !curr);
