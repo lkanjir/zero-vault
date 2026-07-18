@@ -1,4 +1,4 @@
-export type UploadIntentStatus = 'pending' | 'completed' | 'expired' | 'rejected';
+export type UploadIntentStatus = 'pending' | 'completed' | 'expired';
 
 export type UploadIntent = {
   id?: number;

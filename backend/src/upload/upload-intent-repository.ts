@@ -1,5 +1,4 @@
-import type { FileStatus } from '../files/file.js';
-import type { UploadIntent, UploadIntentStatus } from './upload-intent.js';
+import type { UploadIntent } from './upload-intent.js';
 
 export type CompleteVerifiedUploadCommand = {
   userId: number;
@@ -13,13 +12,12 @@ export type CompletedUploadFile = {
   name: string;
   contentType: string;
   sizeBytes: number;
-  status: FileStatus;
+  updatedAt: Date;
 };
 
 export type CompletedVerifiedUploadResult =
   | { kind: 'completed'; file: CompletedUploadFile }
   | { kind: 'not_found' }
-  | { kind: 'not_pending'; status: UploadIntentStatus }
   | { kind: 'expired' };
 
 export type SaveUploadIntentCommand = Omit<UploadIntent, 'id' | 'targetParentId'> & {

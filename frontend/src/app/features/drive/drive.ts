@@ -5,7 +5,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { finalize, single } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { EntryItem } from './entry-item/entry-item';
-import { File } from './dto/file';
+import { FileEntry } from './dto/file';
 import { Folder } from './dto/folder';
 import { CdkContextMenuTrigger, CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
 import { Icon } from '../../shared/icon/icon';
@@ -28,19 +28,19 @@ export class Drive implements OnInit {
     this.store.reload();
   }
 
-  download(selectedEntry: Folder | File) {
+  download(selectedEntry: Folder | FileEntry) {
     throw new Error('Method not implemented.');
   }
 
-  rename(selectedEntry: Folder | File) {
+  rename(selectedEntry: Folder | FileEntry) {
     throw new Error('Method not implemented.');
   }
 
-  move(selectedEntry: Folder | File) {
+  move(selectedEntry: Folder | FileEntry) {
     throw new Error('Method not implemented.');
   }
 
-  delete(selectedEntry: Folder | File) {
+  delete(selectedEntry: Folder | FileEntry) {
     throw new Error('Method not implemented.');
   }
 }

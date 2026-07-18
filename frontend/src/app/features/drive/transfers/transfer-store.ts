@@ -1,12 +1,13 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { FileService } from '../file-service';
 import { TransferFailure, UploadTransfer } from './transfer';
-import { FileUploadRequest, UploadCompleteResponse, UploadIntentRequest } from '../dto/upload';
+import { FileUploadRequest, UploadIntentRequest } from '../dto/upload';
 import { Result } from '../../../shared/result';
 import { firstValueFrom, lastValueFrom, tap } from 'rxjs';
 import { HttpEventType } from '@angular/common/http';
 import { apiErrorMessage, toApiError } from '../../../shared/api-error';
 import { calcualteSha256 } from '../../../shared/util/sha256';
+import { FileEntry } from '../dto/file';
 
 type FailureContext = 'preparing' | 'presigning' | 'uploading' | 'finalizing';
 
@@ -24,7 +25,7 @@ export class TransferStore {
   async startUpload(
     file: File,
     targetParentId: string | null,
-  ): Promise<Result<UploadCompleteResponse, TransferFailure>> {
+  ): Promise<Result<FileEntry, TransferFailure>> {
     const transferId = crypto.randomUUID();
     const contentType = file.type.trim() || 'application/octet-stream';
 

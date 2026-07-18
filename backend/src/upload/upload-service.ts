@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { CompletedUpload, UploadResponse } from './dto.js';
+import type { UploadResponse } from './dto.js';
 import type { UploadRequestBody } from './validation-schemas.js';
 import type { UploadIntent } from './upload-intent.js';
 import type { ObjectMetadata, ObjectStorage } from '../storage/object-storage.js';
@@ -82,7 +82,7 @@ export class UploadService {
     return response;
   }
 
-  async completeUpload(user: User, uploadId: string): Promise<CompletedUpload> {
+  async completeUpload(user: User, uploadId: string): Promise<CompletedUploadFile> {
     const intent = await this.getUploadIntent(user.id, uploadId);
 
     if (this.shouldVerifyUploadedObject(intent)) {
@@ -96,7 +96,7 @@ export class UploadService {
       completedAt: new Date(),
     });
 
-    return this.mapCompletionResult(intent.uploadId, result);
+    return this.mapCompletionResult(result);
   }
 
   private async getUploadIntent(userId: number, uploadId: string): Promise<UploadIntent> {
@@ -121,31 +121,14 @@ export class UploadService {
     assertContentTypeMatches(intent, object);
   }
 
-  private mapCompletionResult(
-    uploadId: string,
-    result: CompletedVerifiedUploadResult,
-  ): CompletedUpload {
+  private mapCompletionResult(result: CompletedVerifiedUploadResult): CompletedUploadFile {
     switch (result.kind) {
       case 'completed':
-        return this.toResponse(uploadId, result.file);
+        return result.file;
       case 'not_found':
         throw new NotFoundError('Upload intent does not exist');
-      case 'not_pending':
-        throw new ConflictError('Upload intent is not pending');
       case 'expired':
         throw new ConflictError('Upload intent expired');
     }
-  }
-
-  private toResponse(uploadId: string, file: CompletedUploadFile): CompletedUpload {
-    return {
-      entryId: file.entryId,
-      uploadId: uploadId,
-      fileId: file.publicId,
-      fileName: file.name,
-      contentType: file.contentType,
-      sizeBytes: file.sizeBytes,
-      fileStatus: file.status,
-    };
   }
 }

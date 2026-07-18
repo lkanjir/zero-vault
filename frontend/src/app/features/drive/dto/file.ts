@@ -1,4 +1,4 @@
-export type File = {
+export type FileEntry = {
   kind: 'file';
   id: string;
   name: string;

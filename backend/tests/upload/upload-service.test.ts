@@ -143,7 +143,6 @@ describe('UploadService', () => {
       fileName: completedFile.name,
       contentType: completedFile.contentType,
       sizeBytes: completedFile.sizeBytes,
-      fileStatus: completedFile.status,
     });
     expect(storage.headObject).toHaveBeenCalledExactlyOnceWith('quarantine', intent.objectKey);
     expect(repo.completeVerifiedUpload).toHaveBeenCalledOnce();
@@ -157,14 +156,13 @@ describe('UploadService', () => {
 
   it('returns an already completed upload without reading object storage', async () => {
     const intent = makeCompletedIntent();
-    const completedFile = makeCompletedFile({ status: 'available' });
+    const completedFile = makeCompletedFile();
 
     repo.findByUserAndUploadId.mockResolvedValue(intent);
     repo.completeVerifiedUpload.mockResolvedValue(completed(completedFile));
 
-    const result = await service.completeUpload(USER, intent.uploadId);
+    await service.completeUpload(USER, intent.uploadId);
 
-    expect(result.fileStatus).toBe('available');
     expect(storage.headObject).not.toHaveBeenCalled();
     expect(repo.completeVerifiedUpload).toHaveBeenCalledOnce();
     const [completeCommand] = repo.completeVerifiedUpload.mock.lastCall!;
@@ -228,18 +226,6 @@ describe('UploadService', () => {
     expect(repo.completeVerifiedUpload).toHaveBeenCalledOnce();
   });
 
-  it('does not report success if completion loses a DB race', async () => {
-    const intent = makePendingIntent();
-
-    repo.findByUserAndUploadId.mockResolvedValue(intent);
-    storage.headObject.mockResolvedValue(makeObjectMetadata(intent));
-    repo.completeVerifiedUpload.mockResolvedValue({ kind: 'not_pending', status: 'rejected' });
-
-    await expect(service.completeUpload(USER, intent.uploadId)).rejects.toThrow(
-      new ConflictError('Upload intent is not pending'),
-    );
-  });
-
   it('does not allow another user to complete the upload', async () => {
     repo.findByUserAndUploadId.mockResolvedValue(null);
 
@@ -301,7 +287,7 @@ function makeCompletedFile(overrides: Partial<CompletedUploadFile> = {}): Comple
     name: 'document.txt',
     contentType: 'text/plain',
     sizeBytes: 12,
-    status: 'quarantined',
+    updatedAt: new Date(),
     ...overrides,
   };
 }

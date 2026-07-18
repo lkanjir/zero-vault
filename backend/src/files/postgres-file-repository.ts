@@ -31,7 +31,6 @@ export class PostgresFileRepository implements FileRepository {
         and(
           eq(entries.publicId, fileId),
           eq(entries.ownerId, ownerId),
-          eq(files.status, 'available'),
           eq(entries.kind, 'file'),
           isNull(entries.deletedAt),
         ),

@@ -16,12 +16,9 @@ export const uploadIntentStatus = pgEnum('upload_intent_status', [
   'pending',
   'completed',
   'expired',
-  'rejected',
 ]);
 
 export const entryKind = pgEnum('entry_kind', ['file', 'folder']);
-
-export const fileStatus = pgEnum('file_status', ['available', 'rejected']);
 
 export const uploadIntents = pgTable(
   'upload_intents',
@@ -175,11 +172,6 @@ export const files = pgTable(
     contentType: text('content_type').default('application/octet-stream').notNull(),
     sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
     sha256: text('sha256').notNull(),
-    status: fileStatus('status').notNull(),
-    statusChangedAt: timestamp('status_changed_at', { withTimezone: true, mode: 'date' })
-      .notNull()
-      .defaultNow(),
-    availableAt: timestamp('available_at', { withTimezone: true, mode: 'date' }),
   },
   (table) => [
     unique('files_object_key_key').on(table.objectKey),
@@ -190,19 +182,5 @@ export const files = pgTable(
     ),
     check('files_size_check', sql`${table.sizeBytes} > 0`),
     check('files_sha256_check', sql`${table.sha256} ~ '^[0-9a-f]{64}$'`),
-    check(
-      'files_available_state_check',
-      sql`
-      (
-        ${table.status} = 'available' 
-        and ${table.availableAt} is not null
-      ) 
-        or 
-      (
-        ${table.status} <> 'available' 
-        and ${table.availableAt} is null
-      )`,
-    ),
-    index('files_status_changed_at_idx').on(table.status, table.statusChangedAt),
   ],
 );

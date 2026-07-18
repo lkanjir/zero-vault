@@ -104,8 +104,6 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         };
       case 'expired':
         return { kind: 'expired' };
-      case 'rejected':
-        return { kind: 'not_pending', status: intent.status };
       case 'pending':
         return this.completePendingIntent(tx, intent, command);
     }
@@ -122,7 +120,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         name: entries.name,
         contentType: files.contentType,
         sizeBytes: files.sizeBytes,
-        status: files.status,
+        updatedAt: entries.updatedAt,
       })
       .from(uploadIntents)
       .innerJoin(entries, eq(uploadIntents.fileId, entries.id))
@@ -153,7 +151,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       throw new Error('Greška kod kreiranja zapisa');
     }
 
-    const file = await this.createFileForIntent(tx, entry.id, intent, command.completedAt);
+    const file = await this.createFileForIntent(tx, entry.id, intent);
 
     if (!file) {
       throw new Error('Greška kod kreiranja datoteke');
@@ -167,7 +165,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       name: entry.name,
       contentType: file.contentType,
       sizeBytes: file.sizeBytes,
-      status: file.status,
+      updatedAt: entry.updatedAt,
     };
 
     return { kind: 'completed', file: completedFile };
@@ -185,7 +183,6 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     tx: Transaction,
     entryId: number,
     intent: UploadIntentRow,
-    completedAt: Date,
   ): Promise<FileRow | null> {
     const [file] = await tx
       .insert(files)
@@ -195,9 +192,6 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         contentType: intent.contentType,
         sizeBytes: intent.expectedSizeBytes,
         sha256: intent.expectedSha256,
-        status: 'available',
-        availableAt: completedAt,
-        statusChangedAt: completedAt,
       })
       .returning();
 
