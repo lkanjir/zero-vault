@@ -1,0 +1,81 @@
+services:
+  keycloak-db:
+    image: postgres:18
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${KEYCLOAK_DB_NAME:-keycloak}
+      POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+
+    networks:
+      - keycloak-internal
+
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  keycloak:
+    build:
+      context: .
+      dockerfile: Containerfile
+      args:
+        KEYCLOAK_VERSION: ${KEYCLOAK_VERSION:-26.7.0}
+
+    restart: unless-stopped
+
+    command:
+      - start
+      - --optimized
+
+    networks:
+      - keycloak-internal
+
+    expose:
+      - "8080"
+
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/${KEYCLOAK_DB_NAME:-keycloak}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL}
+      KC_HOSTNAME_STRICT: "true"
+
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_PROXY_TRUSTED_ADDRESSES: ${DOKPLOY_PROXY_TRUSTED_ADDRESSES}
+
+      KC_HTTP_MANAGEMENT_SCHEME: http
+      KC_SERVER_ASYNC_BOOTSTRAP: "false"
+
+      KC_LOG_LEVEL: INFO
+      KC_SHUTDOWN_DELAY: 10s
+
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+
+    stop_grace_period: 30s
+
+volumes:
+  keycloak_db_data:
+
+networks:
+  keycloak-internal:
+    driver: bridge
+    internal: true
