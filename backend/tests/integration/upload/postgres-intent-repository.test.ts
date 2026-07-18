@@ -183,6 +183,43 @@ describe('PostgresIntentRepository duplicate names', () => {
     ]);
   });
 
+  it('returns the same file when an upload is completed more than once', async () => {
+    const userId = await createUser();
+    const intent = makeIntent(userId, 'report.pdf');
+    await repository.save(intent);
+
+    const firstResult = await repository.completeVerifiedUpload({
+      userId,
+      uploadId: intent.uploadId,
+      completedAt: new Date(),
+    });
+    const secondResult = await repository.completeVerifiedUpload({
+      userId,
+      uploadId: intent.uploadId,
+      completedAt: new Date(),
+    });
+
+    if (firstResult.kind !== 'completed' || secondResult.kind !== 'completed') {
+      throw new Error('Expected both completion attempts to return the completed file');
+    }
+
+    expect(secondResult.file).toStrictEqual(firstResult.file);
+
+    const storedEntries = await database.select().from(entries).where(eq(entries.ownerId, userId));
+    const storedFiles = await database.select().from(files);
+    const [storedIntent] = await database
+      .select()
+      .from(uploadIntents)
+      .where(eq(uploadIntents.uploadId, intent.uploadId));
+
+    expect(storedEntries).toHaveLength(1);
+    expect(storedFiles).toHaveLength(1);
+    expect(storedIntent).toMatchObject({
+      status: 'completed',
+      fileId: storedEntries[0]?.id,
+    });
+  });
+
   async function createUser(): Promise<number> {
     const [user] = await database
       .insert(users)

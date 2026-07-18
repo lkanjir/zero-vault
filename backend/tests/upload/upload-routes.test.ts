@@ -3,6 +3,7 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import type { AuthenticatedPrincipal } from '../../src/auth/authenticated-principal.js';
+import type { FileResponse } from '../../src/files/dto.js';
 import { DuplicateEntryNameError } from '../../src/shared/errors/duplicate-entry-name-error.js';
 import { errorHandler } from '../../src/shared/validation/error-handler.js';
 import type { User } from '../../src/user/user.js';
@@ -13,6 +14,15 @@ import type { UploadService } from '../../src/upload/upload-service.js';
 
 const UPLOAD_ID = '00000000-0000-4000-8000-000000000001';
 const EXPECTED_SHA256 = 'a'.repeat(64);
+
+const COMPLETED_FILE: FileResponse = {
+  kind: 'file',
+  id: '20000000-0000-4000-8000-000000000001',
+  name: 'document.txt',
+  contentType: 'text/plain',
+  sizeBytes: 12,
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
 
 const PRINCIPAL: AuthenticatedPrincipal = {
   issuer: process.env['OIDC_ISSUER']!,
@@ -30,7 +40,7 @@ const USER: User = {
   updatedAt: new Date('2026-01-01T00:00:00Z'),
 };
 
-describe('upload routes duplicate-name contract', () => {
+describe('upload routes contract', () => {
   let userService: MockProxy<UserService>;
   let uploadService: MockProxy<UploadService>;
   let completeUploadUseCase: MockProxy<CompleteUploadUseCase>;
@@ -74,6 +84,18 @@ describe('upload routes duplicate-name contract', () => {
       error: 'Entry with this name already exists in this folder',
       code: 'duplicate_entry_name',
     });
+  });
+
+  it('returns the completed upload using the FileResponse contract', async () => {
+    completeUploadUseCase.execute.mockResolvedValue(COMPLETED_FILE);
+
+    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+      .post(`/uploads/${UPLOAD_ID}/complete`)
+      .send();
+
+    expect(response.status).toBe(200);
+    expect(response.body).toStrictEqual(COMPLETED_FILE);
+    expect(completeUploadUseCase.execute).toHaveBeenCalledExactlyOnceWith(USER, UPLOAD_ID);
   });
 });
 

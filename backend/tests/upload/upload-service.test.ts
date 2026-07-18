@@ -136,15 +136,8 @@ describe('UploadService', () => {
 
     const result = await service.completeUpload(USER, intent.uploadId);
 
-    expect(result).toStrictEqual({
-      entryId: completedFile.entryId,
-      uploadId: intent.uploadId,
-      fileId: completedFile.publicId,
-      fileName: completedFile.name,
-      contentType: completedFile.contentType,
-      sizeBytes: completedFile.sizeBytes,
-    });
-    expect(storage.headObject).toHaveBeenCalledExactlyOnceWith('quarantine', intent.objectKey);
+    expect(result).toStrictEqual(completedFile);
+    expect(storage.headObject).toHaveBeenCalledExactlyOnceWith(intent.objectKey);
     expect(repo.completeVerifiedUpload).toHaveBeenCalledOnce();
     const [completeCommand] = repo.completeVerifiedUpload.mock.lastCall!;
     expect(completeCommand).toMatchObject({
@@ -161,8 +154,9 @@ describe('UploadService', () => {
     repo.findByUserAndUploadId.mockResolvedValue(intent);
     repo.completeVerifiedUpload.mockResolvedValue(completed(completedFile));
 
-    await service.completeUpload(USER, intent.uploadId);
+    const result = await service.completeUpload(USER, intent.uploadId);
 
+    expect(result).toStrictEqual(completedFile);
     expect(storage.headObject).not.toHaveBeenCalled();
     expect(repo.completeVerifiedUpload).toHaveBeenCalledOnce();
     const [completeCommand] = repo.completeVerifiedUpload.mock.lastCall!;
@@ -222,7 +216,7 @@ describe('UploadService', () => {
       new ConflictError('Upload intent expired'),
     );
 
-    expect(storage.headObject).toHaveBeenCalledExactlyOnceWith('quarantine', intent.objectKey);
+    expect(storage.headObject).toHaveBeenCalledExactlyOnceWith(intent.objectKey);
     expect(repo.completeVerifiedUpload).toHaveBeenCalledOnce();
   });
 

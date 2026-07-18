@@ -4,7 +4,7 @@ import { app } from '../../src/app.js';
 
 describe('upload authentication', () => {
   it('upload route requires authentication', async () => {
-    const response = await request(app).post('/uploads/presign');
+    const response = await request(app).post('/api/uploads/presign');
 
     const body = response.body as { error: string; code: string };
 
