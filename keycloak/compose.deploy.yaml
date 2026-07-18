@@ -74,6 +74,7 @@ services:
 
 volumes:
   keycloak_db_data:
+    name: ${KEYCLOAK_DB_VOLUME_NAME}
 
 networks:
   keycloak-internal:
