@@ -31,6 +31,13 @@ export class UploadService {
   ) {}
 
   async createUpload(user: User, requestBody: UploadRequestBody): Promise<UploadResponse> {
+    const parentFolderId = requestBody.parentFolderId ?? null;
+    await this.intentRepo.assertUploadTargetAvailable({
+      userId: user.id,
+      parentFolderId,
+      fileName: requestBody.fileName,
+    });
+
     const objectId = randomUUID();
     const objectKey = `users/${user.publicId}/objects/${objectId}`;
     const contentType = normalizedContentType(requestBody.contentType);
@@ -59,7 +66,7 @@ export class UploadService {
 
     await this.intentRepo.save({
       ...intent,
-      parentFolderId: requestBody.parentFolderId ?? null,
+      parentFolderId,
     });
 
     const response: UploadResponse = {

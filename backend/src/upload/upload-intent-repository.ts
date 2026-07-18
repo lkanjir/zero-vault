@@ -31,6 +31,12 @@ export type ExpiredIntent = {
   objectKey: string;
 };
 
+export type AssertUploadTargetAvailableCommand = {
+  userId: number;
+  parentFolderId: string | null;
+  fileName: string;
+};
+
 export interface UploadIntentRepository {
   findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null>;
   save(intent: SaveUploadIntentCommand): Promise<void>;
@@ -38,4 +44,5 @@ export interface UploadIntentRepository {
     command: CompleteVerifiedUploadCommand,
   ): Promise<CompletedVerifiedUploadResult>;
   markExpiredIntents(limit: number): Promise<ExpiredIntent[]>;
+  assertUploadTargetAvailable(command: AssertUploadTargetAvailableCommand): Promise<void>;
 }

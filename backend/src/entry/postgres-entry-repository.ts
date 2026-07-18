@@ -27,8 +27,7 @@ import type * as schema from '../db/schema.js';
 import type { Entry } from './entry.js';
 import { ConflictError } from '../shared/errors/conflict-error.js';
 import { resolveParentIdInTransaction } from './resolve-parent-id-in-transaction.js';
-import { isUniqueViolation } from '../db/postgres-error.js';
-import { DuplicateEntryNameError } from '../shared/errors/duplicate-entry-name-error.js';
+import { mapEntryDatabaseError } from './map-entry-db-error.js';
 
 type QueryDbRow = {
   entryId: number;
@@ -103,16 +102,8 @@ export class PostgresEntryRepository implements EntryRepository {
 
       return folder;
     } catch (error) {
-      throw this.mapToDatabaseError(error);
+      throw mapEntryDatabaseError(error);
     }
-  }
-
-  private mapToDatabaseError(error: unknown): Error {
-    if (isUniqueViolation(error, 'entries_owner_parent_name_active_key')) {
-      return new DuplicateEntryNameError();
-    }
-
-    return error instanceof Error ? error : new Error('Unknown database error');
   }
 
   async updateEntry(command: UpdateEntryCommand): Promise<ListedEntry> {
@@ -153,13 +144,13 @@ export class PostgresEntryRepository implements EntryRepository {
           .returning();
 
         if (!updatedEntry) {
-          throw new Error('Failed to update file / folder');
+          throw new Error('Greška kod ažuriranja datoteke / direktorija');
         }
 
         return this.toListedEntryInTransaction(tx, updatedEntry);
       });
     } catch (error) {
-      throw this.mapToDatabaseError(error);
+      throw mapEntryDatabaseError(error);
     }
   }
 

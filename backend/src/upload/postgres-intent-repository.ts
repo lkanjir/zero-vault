@@ -1,4 +1,5 @@
 import type {
+  AssertUploadTargetAvailableCommand,
   CompletedUploadFile,
   CompletedVerifiedUploadResult,
   CompleteVerifiedUploadCommand,
@@ -9,11 +10,13 @@ import type {
 import type { UploadIntent } from './upload-intent.js';
 import { db } from '../db/db-client.js';
 import { entries, files, uploadIntents } from '../db/schema.js';
-import { and, eq, sql, type ExtractTablesWithRelations } from 'drizzle-orm';
+import { and, eq, isNull, sql, type ExtractTablesWithRelations } from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
 import type * as schema from '../db/schema.js';
 import { resolveParentIdInTransaction } from '../entry/resolve-parent-id-in-transaction.js';
+import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
+import { DuplicateEntryNameError } from '../shared/errors/duplicate-entry-name-error.js';
 
 type Transaction = PgTransaction<
   NodePgQueryResultHKT,
@@ -54,15 +57,19 @@ export class PostgresIntentRepository implements UploadIntentRepository {
   async completeVerifiedUpload(
     command: CompleteVerifiedUploadCommand,
   ): Promise<CompletedVerifiedUploadResult> {
-    return db.transaction(async (tx) => {
-      const intent = await this.findIntentForCompletion(tx, command);
+    try {
+      return await db.transaction(async (tx) => {
+        const intent = await this.findIntentForCompletion(tx, command);
 
-      if (!intent) {
-        return { kind: 'not_found' };
-      }
+        if (!intent) {
+          return { kind: 'not_found' };
+        }
 
-      return this.completeLockedIntent(tx, intent, command);
-    });
+        return this.completeLockedIntent(tx, intent, command);
+      });
+    } catch (error) {
+      throw mapEntryDatabaseError(error);
+    }
   }
 
   private async findIntentForCompletion(
@@ -143,13 +150,13 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     const entry = await this.createEntryForIntent(tx, command.userId, intent);
 
     if (!entry) {
-      throw new Error('Failed to create entry');
+      throw new Error('Greška kod kreiranja zapisa');
     }
 
     const file = await this.createFileForIntent(tx, entry.id, intent, command.completedAt);
 
     if (!file) {
-      throw new Error('Failed to create file');
+      throw new Error('Greška kod kreiranja datoteke');
     }
 
     await this.markIntentCompleted(tx, intent.id, file.entryId, command.completedAt);
@@ -282,7 +289,38 @@ export class PostgresIntentRepository implements UploadIntentRepository {
 
     const result = await db.execute<ExpiredIntent>(updateStatement);
 
-
     return result.rows.map((row) => ({ id: row.id, objectKey: row.objectKey }));
+  }
+
+  async assertUploadTargetAvailable(command: AssertUploadTargetAvailableCommand): Promise<void> {
+    await db.transaction(async (tx) => {
+      const targetParentDbId = await resolveParentIdInTransaction(
+        tx,
+        command.userId,
+        command.parentFolderId,
+      );
+
+      const parentCondition =
+        targetParentDbId === null
+          ? isNull(entries.parentId)
+          : eq(entries.parentId, targetParentDbId);
+
+      const [existingEntry] = await tx
+        .select({ id: entries.id })
+        .from(entries)
+        .where(
+          and(
+            eq(entries.ownerId, command.userId),
+            parentCondition,
+            isNull(entries.deletedAt),
+            sql`lower(${entries.name}) = lower(${command.fileName})`,
+          ),
+        )
+        .limit(1);
+
+      if (existingEntry) {
+        throw new DuplicateEntryNameError();
+      }
+    });
   }
 }
