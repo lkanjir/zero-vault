@@ -7,6 +7,8 @@
 # Docs
 *.pdf
 *.md
+!backend-review-*.md
+!frontend-review-*.md
 
 # Deps
 node_modules/
