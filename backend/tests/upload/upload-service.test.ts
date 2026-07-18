@@ -11,6 +11,7 @@ import type { ObjectMetadata, ObjectStorage } from '../../src/storage/object-sto
 import { ConflictError } from '../../src/shared/errors/conflict-error.js';
 import { NotFoundError } from '../../src/shared/errors/not-found-error.js';
 import type { User } from '../../src/user/user.js';
+import { DuplicateEntryNameError } from '../../src/shared/errors/duplicate-entry-name-error.js';
 
 const EXPECTED_SHA256 = 'a'.repeat(64);
 const EXPECTED_SHA256_BASE64 = 'qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo=';
@@ -100,6 +101,29 @@ describe('UploadService', () => {
     expect(repo.save.mock.lastCall![0]).toMatchObject({
       parentFolderId: null,
     });
+  });
+
+  it('does not presign or save an upload when the target name already exists', async () => {
+    const parentFolderId = '0e3a99c9-efc6-4302-8e50-02df497bab88';
+    repo.assertUploadTargetAvailable.mockRejectedValue(new DuplicateEntryNameError());
+
+    await expect(
+      service.createUpload(USER, {
+        fileName: 'document.txt',
+        contentType: 'text/plain',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+        parentFolderId,
+      }),
+    ).rejects.toBeInstanceOf(DuplicateEntryNameError);
+
+    expect(repo.assertUploadTargetAvailable).toHaveBeenCalledExactlyOnceWith({
+      userId: USER.id,
+      parentFolderId,
+      fileName: 'document.txt',
+    });
+    expect(storage.createPresignedUploadUrl).not.toHaveBeenCalled();
+    expect(repo.save).not.toHaveBeenCalled();
   });
 
   it('verifies the uploaded object and completes a pending upload', async () => {

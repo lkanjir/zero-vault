@@ -1,16 +1,27 @@
-type PostgresError = {
-  code?: string;
-  constraint?: string;
+import { DrizzleQueryError } from 'drizzle-orm';
+
+type PostgresError = Error & {
+  code: string;
+  constraint: string | undefined;
 };
 
 export function isUniqueViolation(error: unknown, constraintName: string): boolean {
-  if (!isPostgresError(error)) {
-    return false;
-  }
+  const postgresError = unwrapPostgresError(error);
 
-  return error.code === '23505' && error.constraint === constraintName;
+  return postgresError?.code === '23505' && postgresError.constraint === constraintName;
+}
+
+function unwrapPostgresError(error: unknown): PostgresError | null {
+  const candidate = error instanceof DrizzleQueryError ? error.cause : error;
+  return isPostgresError(candidate) ? candidate : null;
 }
 
 function isPostgresError(error: unknown): error is PostgresError {
-  return typeof error === 'object' && error !== null && 'code' in error;
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    typeof error.code === 'string' &&
+    'constraint' in error &&
+    (error.constraint === undefined || typeof error.constraint === 'string')
+  );
 }

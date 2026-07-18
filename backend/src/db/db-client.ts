@@ -5,3 +5,8 @@ import * as schema from './schema.js';
 
 const pool = new Pool({ connectionString: config.db.connectionString });
 export const db = drizzle({ client: pool, schema });
+export type Database = typeof db;
+
+export async function closeDatabase(): Promise<void> {
+  await pool.end();
+}
