@@ -114,14 +114,21 @@ export class S3ObjectStorage implements ObjectStorage {
   async createPresignedDownloadUrl(params: SignedDownloadUrlParams): Promise<string> {
     const contentDisposition = this.getDisposition(params.fileName);
 
-    const command = new GetObjectCommand({
-      Bucket: config.s3.bucket,
-      Key: params.objectKey,
-      ResponseContentType: params.contentType,
-      ResponseContentDisposition: contentDisposition,
-    });
+    const context = {
+      operation: 'delete_objects',
+      objectKey: params.objectKey,
+    } as const satisfies StorageErrorContext;
 
-    return getSignedUrl(this.client, command, { expiresIn: params.expiresInSeconds });
+    return this.executeStorageOperation(context, async () => {
+      const command = new GetObjectCommand({
+        Bucket: config.s3.bucket,
+        Key: params.objectKey,
+        ResponseContentType: params.contentType,
+        ResponseContentDisposition: contentDisposition,
+      });
+
+      return getSignedUrl(this.client, command, { expiresIn: params.expiresInSeconds });
+    });
   }
 
   private mapToMetadata(
@@ -155,19 +162,26 @@ export class S3ObjectStorage implements ObjectStorage {
   async deleteObjects(objectKeys: string[]): Promise<string[]> {
     if (objectKeys.length === 0) return [];
 
-    const command = new DeleteObjectsCommand({
-      Bucket: config.s3.bucket,
-      Delete: {
-        Objects: objectKeys.map((key) => ({
-          Key: key,
-        })),
-        Quiet: true,
-      },
-    });
+    const context = {
+      operation: 'delete_objects',
+      objectsCount: objectKeys.length,
+    } as const satisfies StorageErrorContext;
 
-    const result = await this.client.send(command);
-    return (result.Errors ?? []).flatMap((error) => {
-      return error.Key ? [error.Key] : [];
+    return this.executeStorageOperation(context, async () => {
+      const command = new DeleteObjectsCommand({
+        Bucket: config.s3.bucket,
+        Delete: {
+          Objects: objectKeys.map((key) => ({
+            Key: key,
+          })),
+          Quiet: true,
+        },
+      });
+
+      const result = await this.client.send(command);
+      return (result.Errors ?? []).flatMap((error) => {
+        return error.Key ? [error.Key] : [];
+      });
     });
   }
 }

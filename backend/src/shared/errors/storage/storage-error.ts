@@ -8,6 +8,7 @@ export type StorageOperation =
 export type StorageErrorContext = Readonly<{
   operation: StorageOperation;
   objectKey?: string;
+  objectsCount?: number;
 }>;
 
 export abstract class StorageError extends Error {
