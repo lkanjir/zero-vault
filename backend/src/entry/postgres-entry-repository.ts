@@ -18,16 +18,15 @@ import {
 } from 'drizzle-orm';
 import { entries, files } from '../db/schema.js';
 import { db } from '../db/db-client.js';
-import { NotFoundError } from '../shared/errors/not-found-error.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
 import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 import type * as schema from '../db/schema.js';
 import type { Entry } from './entry.js';
-import { ConflictError } from '../shared/errors/conflict-error.js';
 import { resolveParentIdInTransaction } from './resolve-parent-id-in-transaction.js';
 import { mapEntryDatabaseError } from './map-entry-db-error.js';
+import { AppError } from '../shared/errors/api/app-error.js';
 
 type QueryDbRow = {
   entryId: number;
@@ -205,7 +204,7 @@ export class PostgresEntryRepository implements EntryRepository {
   ) {
     if (nextParentId === null) return;
     if (folderId === nextParentId) {
-      throw new ConflictError('Folder cannot be moved into itself');
+      throw new AppError('move_would_create_cycle');
     }
 
     const result = await tx.execute<{ id: number }>(sql`
@@ -227,7 +226,7 @@ export class PostgresEntryRepository implements EntryRepository {
       limit 1`);
 
     if (result.rows.length > 0) {
-      throw new ConflictError('Folder cannot be moved into its descendant');
+      throw new AppError('move_would_create_cycle');
     }
   }
 
@@ -250,7 +249,7 @@ export class PostgresEntryRepository implements EntryRepository {
       .limit(1);
 
     if (!entry) {
-      throw new NotFoundError('Entry not found');
+      throw new AppError('entry_not_found');
     }
 
     return entry;
@@ -275,7 +274,7 @@ export class PostgresEntryRepository implements EntryRepository {
       .limit(1);
 
     if (!parent) {
-      throw new NotFoundError('Folder not found');
+      throw new AppError('folder_not_found');
     }
 
     return parent.id;

@@ -3,7 +3,7 @@ import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 import type * as schema from '../db/schema.js';
 import { entries } from '../db/schema.js';
-import { NotFoundError } from '../shared/errors/not-found-error.js';
+import { AppError } from '../shared/errors/api/app-error.js';
 
 export async function resolveParentIdInTransaction(
   tx: PgTransaction<NodePgQueryResultHKT, typeof schema, ExtractTablesWithRelations<typeof schema>>,
@@ -28,7 +28,7 @@ export async function resolveParentIdInTransaction(
     .limit(1);
 
   if (!parent) {
-    throw new NotFoundError('Folder not found');
+    throw new AppError('folder_not_found');
   }
 
   return parent.id;

@@ -3,7 +3,6 @@ import type { UploadResponse } from './dto.js';
 import type { UploadRequestBody } from './validation-schemas.js';
 import type { UploadIntent } from './upload-intent.js';
 import type { ObjectMetadata, ObjectStorage } from '../storage/object-storage.js';
-import { ConflictError } from '../shared/errors/conflict-error.js';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
 import type {
   CompletedUploadFile,
@@ -11,7 +10,6 @@ import type {
   UploadIntentRepository,
 } from './upload-intent-repository.js';
 import type { User } from '../user/user.js';
-import { NotFoundError } from '../shared/errors/not-found-error.js';
 import {
   assertChecksumExists,
   assertChecksumMatches,
@@ -20,6 +18,7 @@ import {
   assertSizeMatches,
 } from './metadata-assertions.js';
 import { sha256HexToBase64 } from '../shared/utils/sha256-convert.js';
+import { AppError } from '../shared/errors/api/app-error.js';
 
 export class UploadService {
   private readonly EXPIRES_IN_SECONDS = 60;
@@ -103,7 +102,7 @@ export class UploadService {
     const intent = await this.intentRepo.findByUserAndUploadId(userId, uploadId);
 
     if (!intent) {
-      throw new NotFoundError("Upload intent doesn't exist");
+      throw new AppError('upload_not_found');
     }
 
     return intent;
@@ -126,9 +125,9 @@ export class UploadService {
       case 'completed':
         return result.file;
       case 'not_found':
-        throw new NotFoundError('Upload intent does not exist');
+        throw new AppError('upload_not_found');
       case 'expired':
-        throw new ConflictError('Upload intent expired');
+        throw new AppError('upload_expired');
     }
   }
 }

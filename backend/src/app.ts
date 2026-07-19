@@ -1,15 +1,17 @@
 import express from 'express';
-import { errorHandler } from './shared/validation/error-handler.js';
 import { requireAuth } from './auth/auth-middleware.js';
 import { createCompositionRoot } from './composition-root.js';
 import { createUploadRouter } from './upload/upload-routes.js';
 import { createFilesRouter } from './files/files-routes.js';
 import { createEntryRouter } from './entry/entry-routes.js';
 import { createFolderRouter } from './folder/folder-routes.js';
+import { requestContext } from './shared/http/request-context.js';
+import { errorHandler } from './shared/http/error-handler.js';
 
 export const app = express();
 const composition = createCompositionRoot();
 
+app.use(requestContext);
 app.use(express.json({ limit: '16kb' }));
 
 app.use('/api/uploads', requireAuth, createUploadRouter(composition));

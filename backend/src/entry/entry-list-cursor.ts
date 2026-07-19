@@ -1,5 +1,5 @@
 import z from 'zod';
-import { BadRequestError } from '../shared/errors/bad-request-error.js';
+import { AppError } from '../shared/errors/api/app-error.js';
 
 const entryListCursorSchema = z.object({
   v: z.literal(1),
@@ -17,9 +17,15 @@ export function encodeCursor(cursor: EntryListCursor): string {
 
 export function decodeCursor(value: string): EntryListCursor {
   try {
-    const cursor = JSON.parse(Buffer.from(value, 'base64url').toString('utf-8')) as unknown;
+    const decoded = Buffer.from(value, 'base64url').toString('utf-8');
+    const cursor: unknown = JSON.parse(decoded);
+
     return entryListCursorSchema.parse(cursor);
   } catch {
-    throw new BadRequestError('Invalid cursor');
+    throw new AppError('invalid_cursor', {
+      context: {
+        cursorLength: value.length,
+      },
+    });
   }
 }

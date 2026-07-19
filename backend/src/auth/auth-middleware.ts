@@ -1,12 +1,12 @@
 import type { RequestHandler } from 'express';
 import { verifyAccessToken } from './access-token-verifier.js';
-import { AuthenticationRequiredError } from '../shared/errors/authentication-required-error.js';
+import { AppError } from '../shared/errors/api/app-error.js';
 
 export const requireAuth: RequestHandler = async (req, _res, next) => {
   const token = extractJWT(req.get('Authorization'));
 
   if (!token) {
-    throw new AuthenticationRequiredError();
+    throw new AppError('authentication_required');
   }
 
   req.principal = await verifyAccessToken(token);

@@ -1,10 +1,9 @@
 import * as jose from 'jose';
 import { config } from '../config.js';
-import { InvalidAccessTokenError } from '../shared/errors/invalid-access-token-error.js';
 import type { AuthenticatedPrincipal } from './authenticated-principal.js';
 import { JOSEError, JWKSTimeout } from 'jose/errors';
 import type { JWTPayload } from 'jose';
-import { AuthenticationUnavailableError } from '../shared/errors/authentication-unavailable-error.js';
+import { AppError } from '../shared/errors/api/app-error.js';
 
 const jwks = jose.createRemoteJWKSet(
   new URL(`${config.oidc.issuer}/protocol/openid-connect/certs`),
@@ -14,7 +13,7 @@ export async function verifyAccessToken(token: string): Promise<AuthenticatedPri
   const payload = await verifyJwt(token);
 
   if (typeof payload.iss !== 'string' || typeof payload.sub !== 'string') {
-    throw new InvalidAccessTokenError();
+    throw new AppError('invalid_access_token');
   }
 
   const username = payload['preferred_username'];
@@ -49,10 +48,10 @@ async function verifyJwt(token: string): Promise<JWTPayload> {
 
 function mapToError(error: unknown): Error {
   if (error instanceof JWKSTimeout) {
-    return new AuthenticationUnavailableError();
+    return new AppError('authentication_service_unavailable');
   }
   if (error instanceof JOSEError) {
-    return new InvalidAccessTokenError();
+    return new AppError('authentication_service_unavailable');
   }
 
   return error instanceof Error ? error : new Error('Unknown token verification error');

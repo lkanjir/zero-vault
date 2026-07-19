@@ -16,7 +16,7 @@ import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
 import type * as schema from '../db/schema.js';
 import { resolveParentIdInTransaction } from '../entry/resolve-parent-id-in-transaction.js';
 import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
-import { DuplicateEntryNameError } from '../shared/errors/duplicate-entry-name-error.js';
+import { AppError } from '../shared/errors/api/app-error.js';
 
 type Transaction = PgTransaction<
   NodePgQueryResultHKT,
@@ -313,7 +313,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         .limit(1);
 
       if (existingEntry) {
-        throw new DuplicateEntryNameError();
+        throw new AppError('duplicate_entry_name');
       }
     });
   }

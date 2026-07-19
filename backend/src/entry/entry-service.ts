@@ -1,10 +1,9 @@
 import type { User } from '../user/user.js';
 import { decodeCursor, encodeCursor } from './entry-list-cursor.js';
 import type { EntryRepository, ListedEntry } from './entry-repository.js';
-import { BadRequestError } from '../shared/errors/bad-request-error.js';
 import type { EntryResponse, EntryListResponse } from './dto.js';
 import type { EntriesListRequest, EntryUpdateRequest } from './validation-schemas.js';
-import { NotFoundError } from '../shared/errors/not-found-error.js';
+import { AppError } from '../shared/errors/api/app-error.js';
 
 export class EntryService {
   constructor(private readonly entryRepository: EntryRepository) {}
@@ -13,7 +12,12 @@ export class EntryService {
     const cursor = request.cursor ? decodeCursor(request.cursor) : null;
 
     if (cursor && cursor.parentId !== request.parentId) {
-      throw new BadRequestError('Cursor does not belong to this folder');
+      throw new AppError('cursor_parent_mismatch', {
+        context: {
+          cursorParentId: cursor.parentId,
+          requestedParentId: request.parentId,
+        },
+      });
     }
 
     const entries = await this.entryRepository.getEntries({
@@ -56,7 +60,7 @@ export class EntryService {
     });
 
     if (!updatedEntry) {
-      throw new NotFoundError('File / folder not found');
+      throw new AppError('entry_not_found');
     }
 
     return this.toResponseItem(updatedEntry);

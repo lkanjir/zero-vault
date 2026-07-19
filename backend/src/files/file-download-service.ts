@@ -1,8 +1,8 @@
+import { AppError } from '../shared/errors/api/app-error.js';
 import type { ObjectStorage } from '../storage/object-storage.js';
 import type { User } from '../user/user.js';
 import type { FileDownloadResponse } from './dto.js';
 import type { FileRepository } from './file-repository.js';
-import { NotFoundError } from '../shared/errors/not-found-error.js';
 
 export class FileDownloadService {
   private readonly EXPIRES_IN_SECONDS = 60;
@@ -16,7 +16,7 @@ export class FileDownloadService {
     const file = await this.repo.findAvailableFileByPublicIdForOwner(fileId, user.id);
 
     if (!file) {
-      throw new NotFoundError('File not found');
+      throw new AppError('file_not_found');
     }
 
     const downloadUrl = await this.storage.createPresignedDownloadUrl({

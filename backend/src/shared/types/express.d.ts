@@ -3,6 +3,7 @@ import type { AuthenticatedPrincipal } from '../../auth/authenticated-principal.
 declare global {
   namespace Express {
     interface Request {
+      id: string;
       principal?: AuthenticatedPrincipal;
     }
   }

@@ -1,5 +1,10 @@
-import type { RequestHandler, Request, Response, NextFunction } from 'express';
+import { type RequestHandler, type Request, type Response, type NextFunction } from 'express';
 import z from 'zod';
+import { AppError } from '../errors/api/app-error.js';
+import type { ErrorCode } from '../errors/api/error-catalog.js';
+import { formatValidationError } from './format-validation-error.js';
+
+z.config(z.locales.hr());
 
 type RequestSchemas = {
   params?: z.ZodType;
@@ -10,6 +15,14 @@ type RequestSchemas = {
 type InferRequest<Schemas extends RequestSchemas> = {
   [Key in keyof Schemas]: Schemas[Key] extends z.ZodType ? z.output<Schemas[Key]> : never;
 };
+
+type RequestLocation = 'body' | 'params' | 'query';
+
+const validationErrorCode = {
+  body: 'invalid_request_body',
+  params: 'invalid_request_params',
+  query: 'invalid_request_query',
+} as const satisfies Record<RequestLocation, ErrorCode>;
 
 export function validateRequest<Schemas extends RequestSchemas>(
   schemas: Schemas,
@@ -25,11 +38,12 @@ export function validateRequest<Schemas extends RequestSchemas>(
       const result = schema.safeParse(req[location]);
 
       if (!result.success) {
-        res.status(400).json({
-          error: `Invalid request ${location}`,
-          code: `invalid_request_${location}`,
-          details: z.flattenError(result.error),
-        });
+        next(
+          new AppError(validationErrorCode[location], {
+            details: formatValidationError(result.error),
+          }),
+        );
+
         return;
       }
 

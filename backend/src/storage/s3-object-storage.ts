@@ -18,8 +18,10 @@ import type {
 } from './object-storage.js';
 import { headSchema } from './head-schema.js';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
-import { NotFoundError } from '../shared/errors/not-found-error.js';
 import { sha256Base64ToHex, sha256HexToBase64 } from '../shared/utils/sha256-convert.js';
+import { StorageError, type StorageErrorContext } from '../shared/errors/storage/storage-error.js';
+import { StorageUnavailableError } from '../shared/errors/storage/storage-unavailable-error.js';
+import { StorageObjectNotFoundError } from '../shared/errors/storage/storage-object-not-found-error.js';
 
 export class S3ObjectStorage implements ObjectStorage {
   private readonly client = new S3Client({
@@ -33,45 +35,80 @@ export class S3ObjectStorage implements ObjectStorage {
     requestChecksumCalculation: 'WHEN_REQUIRED',
   });
 
-  async createPresignedUploadUrl(params: SignedUploadUrlParams): Promise<string> {
-    const hashBase64 = sha256HexToBase64(params.sha256Hex);
-    const command = new PutObjectCommand({
-      Bucket: config.s3.bucket,
-      Key: params.objectKey,
-      ContentType: params.contentType,
-      ChecksumSHA256: hashBase64,
-      ChecksumAlgorithm: 'SHA256',
-    });
+  private async executeStorageOperation<T>(
+    context: StorageErrorContext,
+    operation: () => Promise<T>,
+  ) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (error instanceof StorageError) {
+        throw error;
+      }
 
-    return getSignedUrl(this.client, command, { expiresIn: params.expiresInSeconds });
+      if (context.operation === 'head_object' && this.isObjectNotFoundError(error)) {
+        throw new StorageObjectNotFoundError(context, { cause: error });
+      }
+
+      throw new StorageUnavailableError(context, { cause: error });
+    }
+  }
+
+  private isObjectNotFoundError(error: unknown): boolean {
+    return (
+      error instanceof S3ServiceException &&
+      (error.name === 'NotFound' || error.$metadata.httpStatusCode === 404)
+    );
+  }
+
+  async createPresignedUploadUrl(params: SignedUploadUrlParams): Promise<string> {
+    const context = {
+      operation: 'create_upload_url',
+      objectKey: params.objectKey,
+    } as const satisfies StorageErrorContext;
+
+    return this.executeStorageOperation(context, async () => {
+      const hashBase64 = sha256HexToBase64(params.sha256Hex);
+      const command = new PutObjectCommand({
+        Bucket: config.s3.bucket,
+        Key: params.objectKey,
+        ContentType: params.contentType,
+        ChecksumSHA256: hashBase64,
+        ChecksumAlgorithm: 'SHA256',
+      });
+
+      return getSignedUrl(this.client, command, { expiresIn: params.expiresInSeconds });
+    });
   }
 
   async headObject(objectKey: string): Promise<ObjectMetadata> {
+    const context = {
+      operation: 'head_object',
+      objectKey,
+    } as const satisfies StorageErrorContext;
+
     const command = new HeadObjectCommand({
       Bucket: config.s3.bucket,
       Key: objectKey,
       ChecksumMode: 'ENABLED',
     });
 
-    try {
+    return this.executeStorageOperation(context, async () => {
       const response = await this.client.send(command);
-      return this.mapToMetadata(objectKey, response);
-    } catch (error) {
-      if (
-        error instanceof S3ServiceException &&
-        (error.name === 'NotFound' || error.$metadata.httpStatusCode === 404)
-      ) {
-        throw new NotFoundError('Upload object not found');
-      }
-
-      throw error;
-    }
+      return this.mapToMetadata(objectKey, context, response);
+    });
   }
 
   async deleteObject(objectKey: string): Promise<void> {
-    const command = new DeleteObjectCommand({ Bucket: config.s3.bucket, Key: objectKey });
+    const context = {
+      operation: 'delete_object',
+      objectKey,
+    } as const satisfies StorageErrorContext;
 
-    await this.client.send(command);
+    await this.executeStorageOperation(context, async () => {
+      const command = new DeleteObjectCommand({ Bucket: config.s3.bucket, Key: objectKey });
+      await this.client.send(command);
+    });
   }
 
   async createPresignedDownloadUrl(params: SignedDownloadUrlParams): Promise<string> {
@@ -87,10 +124,14 @@ export class S3ObjectStorage implements ObjectStorage {
     return getSignedUrl(this.client, command, { expiresIn: params.expiresInSeconds });
   }
 
-  private mapToMetadata(key: string, response: HeadObjectCommandOutput): ObjectMetadata {
+  private mapToMetadata(
+    objectKey: string,
+    context: StorageErrorContext,
+    response: HeadObjectCommandOutput,
+  ): ObjectMetadata {
     const result = headSchema.safeParse(response);
     if (!result.success) {
-      throw new Error('Invalid object metadata response', { cause: result.error });
+      throw new StorageUnavailableError(context, { cause: result.error });
     }
 
     const contentType = normalizedContentType(result.data.ContentType);
@@ -99,7 +140,7 @@ export class S3ObjectStorage implements ObjectStorage {
       : null;
 
     return {
-      objectKey: key,
+      objectKey,
       sizeBytes: result.data.ContentLength,
       contentType: contentType,
       sha256Hex,
