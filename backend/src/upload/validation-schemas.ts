@@ -15,7 +15,7 @@ export const uploadRequestSchema = z.object({
     .min(1)
     .max(500)
     .refine((value) => !/[\\/]+/.test(value), {
-      message: 'File name must not contain path separators',
+      message: 'Naziv datoteke ne smije sadržavati znak / ili \\',
     }),
   contentType: z.string().trim().min(1).max(255),
   size: z.number().int().positive().max(SINGLE_PART_MAX_BYTES),

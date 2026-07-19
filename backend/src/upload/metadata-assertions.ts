@@ -6,6 +6,7 @@ export function assertObjectKeyMatches(intent: UploadIntent, object: ObjectMetad
   if (object.objectKey !== intent.objectKey) {
     throw new AppError('internal_server_error', {
       context: {
+        uploadId: intent.uploadId,
         expectedObjectKey: intent.objectKey,
         actualObjectKey: object.objectKey,
       },
@@ -47,7 +48,7 @@ export function assertSizeMatches(intent: UploadIntent, object: ObjectMetadata) 
         uploadId: intent.uploadId,
         objectKey: intent.objectKey,
         objectSize: object.sizeBytes,
-        intentSize: object.sizeBytes,
+        intentSize: intent.expectedSizeBytes,
       },
     });
   }

@@ -1,6 +1,6 @@
 export class AuthProviderUnavailableError extends Error {
   constructor(options?: ErrorOptions) {
-    super('OICD provider nije dostupan', options);
+    super('OIDC provider is unavailable', options);
     this.name = new.target.name;
   }
 }

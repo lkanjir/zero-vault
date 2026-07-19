@@ -4,8 +4,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import type { AuthenticatedPrincipal } from '../../src/auth/authenticated-principal.js';
 import type { FileResponse } from '../../src/files/dto.js';
-import { DuplicateEntryNameError } from '../../src/shared/errors/duplicate-entry-name-error.js';
-import { errorHandler } from '../../src/shared/validation/error-handler.js';
+import { AppError } from '../../src/shared/errors/api/app-error.js';
+import { errorCatalog, type ErrorCode } from '../../src/shared/errors/api/error-catalog.js';
+import type { ErrorResponse } from '../../src/shared/errors/api/error-response.js';
+import { errorHandler } from '../../src/shared/http/error-handler.js';
+import { requestContext } from '../../src/shared/http/request-context.js';
 import type { User } from '../../src/user/user.js';
 import type { UserService } from '../../src/user/user-service.js';
 import type { CompleteUploadUseCase } from '../../src/upload/complete-upload-use-case.js';
@@ -53,7 +56,7 @@ describe('upload routes contract', () => {
   });
 
   it('returns duplicate_entry_name when presign precheck finds an existing sibling', async () => {
-    uploadService.createUpload.mockRejectedValue(new DuplicateEntryNameError());
+    uploadService.createUpload.mockRejectedValue(new AppError('duplicate_entry_name'));
 
     const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
       .post('/uploads/presign')
@@ -65,25 +68,51 @@ describe('upload routes contract', () => {
         sha256: EXPECTED_SHA256,
       });
 
-    expect(response.status).toBe(409);
-    expect(response.body).toStrictEqual({
-      error: 'Entry with this name already exists in this folder',
-      code: 'duplicate_entry_name',
-    });
+    expectErrorResponse(response, 'duplicate_entry_name');
   });
 
   it('returns duplicate_entry_name when completion loses a database race', async () => {
-    completeUploadUseCase.execute.mockRejectedValue(new DuplicateEntryNameError());
+    completeUploadUseCase.execute.mockRejectedValue(new AppError('duplicate_entry_name'));
 
     const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
       .post(`/uploads/${UPLOAD_ID}/complete`)
       .send();
 
-    expect(response.status).toBe(409);
-    expect(response.body).toStrictEqual({
-      error: 'Entry with this name already exists in this folder',
-      code: 'duplicate_entry_name',
-    });
+    expectErrorResponse(response, 'duplicate_entry_name');
+  });
+
+  it('returns storage_unavailable when upload presigning fails', async () => {
+    uploadService.createUpload.mockRejectedValue(new AppError('storage_unavailable'));
+
+    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+      .post('/uploads/presign')
+      .send({
+        parentFolderId: null,
+        fileName: 'document.txt',
+        contentType: 'text/plain',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+      });
+
+    expectErrorResponse(response, 'storage_unavailable');
+  });
+
+  it.each([
+    'upload_object_missing',
+    'upload_expired',
+    'upload_checksum_missing',
+    'upload_checksum_mismatch',
+    'upload_size_mismatch',
+    'upload_content_type_mismatch',
+    'storage_unavailable',
+  ] as const)('returns the %s completion error contract', async (code) => {
+    completeUploadUseCase.execute.mockRejectedValue(new AppError(code));
+
+    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+      .post(`/uploads/${UPLOAD_ID}/complete`)
+      .send();
+
+    expectErrorResponse(response, code);
   });
 
   it('returns the completed upload using the FileResponse contract', async () => {
@@ -106,6 +135,7 @@ function createTestApp(
 ) {
   const app = express();
 
+  app.use(requestContext);
   app.use(express.json());
   app.use((req, _res, next) => {
     req.principal = PRINCIPAL;
@@ -122,4 +152,16 @@ function createTestApp(
   app.use(errorHandler);
 
   return app;
+}
+
+function expectErrorResponse(response: { status: number; body: unknown }, code: ErrorCode): void {
+  const body = response.body as ErrorResponse;
+
+  expect(response.status).toBe(errorCatalog[code].status);
+  expect(body).toStrictEqual({
+    code,
+    message: errorCatalog[code].message,
+    requestId: body.requestId,
+  });
+  expect(typeof body.requestId).toBe('string');
 }

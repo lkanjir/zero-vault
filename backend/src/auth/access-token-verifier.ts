@@ -25,7 +25,12 @@ export async function verifyAccessToken(token: string): Promise<AuthenticatedPri
   const payload = await verifyJwt(token);
 
   if (typeof payload.iss !== 'string' || typeof payload.sub !== 'string') {
-    throw new AppError('invalid_access_token');
+    throw new AppError('invalid_access_token', {
+      context: {
+        hasIssuer: typeof payload.iss === 'string',
+        hasSubject: typeof payload.sub === 'string',
+      },
+    });
   }
 
   const username = payload['preferred_username'];
@@ -77,7 +82,7 @@ function mapToError(error: unknown): Error {
 
   return error instanceof Error
     ? error
-    : new Error('Neočekivana greška kod validacije tokena', { cause: error });
+    : new Error('Unexpected token verification error', { cause: error });
 }
 
 function isAuthenticationProviderFailure(error: unknown): boolean {
@@ -89,6 +94,7 @@ function isAuthenticationProviderFailure(error: unknown): boolean {
     (error instanceof JOSEError && error.constructor === JOSEError)
   );
 }
+
 function authenticationErrorContext(error: unknown): Record<string, string> {
   if (error instanceof JOSEError) {
     return {

@@ -13,5 +13,5 @@ export function mapEntryDatabaseError(error: unknown): Error {
     });
   }
 
-  return error instanceof Error ? error : new Error('Neočekivana greška', { cause: error });
+  return error instanceof Error ? error : new Error('Unexpected database error', { cause: error });
 }

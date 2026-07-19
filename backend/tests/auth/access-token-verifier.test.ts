@@ -1,9 +1,20 @@
 import * as jose from 'jose';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { verifyAccessToken } from '../../src/auth/access-token-verifier.js';
-import { InvalidAccessTokenError } from '../../src/shared/errors/invalid-access-token-error.js';
+import {
+  JOSEError,
+  JWKInvalid,
+  JWKSInvalid,
+  JWKSNoMatchingKey,
+  JWKSTimeout,
+  JWTExpired,
+  JWTInvalid,
+  JWSSignatureVerificationFailed,
+} from 'jose/errors';
+import { AuthProviderUnavailableError } from '../../src/shared/errors/auth/auth-provider-unavailable-error.js';
 
 vi.mock('jose', () => ({
+  customFetch: Symbol('customFetch'),
   createRemoteJWKSet: vi.fn(() => vi.fn()),
   jwtVerify: vi.fn(),
 }));
@@ -86,6 +97,75 @@ describe('verifyAccessToken', () => {
       key: new Uint8Array(),
     });
 
-    await expect(verifyAccessToken('random-token')).rejects.toBeInstanceOf(InvalidAccessTokenError);
+    await expect(verifyAccessToken('random-token')).rejects.toMatchObject({
+      code: 'invalid_access_token',
+      options: {
+        context: {
+          hasIssuer: 'iss' in payload && typeof payload.iss === 'string',
+          hasSubject: 'sub' in payload && typeof payload.sub === 'string',
+        },
+      },
+    });
+  });
+
+  it.each([
+    new JWTExpired('Token expired', {}, 'exp', 'check_failed'),
+    new JWTInvalid('Invalid token'),
+    new JWSSignatureVerificationFailed(),
+    new JWKSNoMatchingKey(),
+  ])('maps token verification error $code to invalid_access_token', async (error) => {
+    jwtVerifyMock.mockRejectedValueOnce(error);
+
+    await expect(verifyAccessToken('invalid-token')).rejects.toMatchObject({
+      code: 'invalid_access_token',
+      options: {
+        cause: error,
+        context: {
+          joseCode: error.code,
+        },
+      },
+    });
+  });
+
+  it.each([
+    new JWKSTimeout(),
+    new JWKInvalid('Invalid provider key'),
+    new JWKSInvalid('Invalid provider key set'),
+    new JOSEError('Invalid JWKS response'),
+  ])('maps provider error $code to authentication_service_unavailable', async (error) => {
+    jwtVerifyMock.mockRejectedValueOnce(error);
+
+    await expect(verifyAccessToken('token')).rejects.toMatchObject({
+      code: 'authentication_service_unavailable',
+      options: {
+        cause: error,
+        context: {
+          providerOperation: 'fetch_jwks',
+          joseCode: error.code,
+        },
+      },
+    });
+  });
+
+  it('maps a JWKS transport failure to authentication_service_unavailable', async () => {
+    const error = new AuthProviderUnavailableError({ cause: new Error('Network failure') });
+    jwtVerifyMock.mockRejectedValueOnce(error);
+
+    await expect(verifyAccessToken('token')).rejects.toMatchObject({
+      code: 'authentication_service_unavailable',
+      options: {
+        cause: error,
+        context: {
+          providerOperation: 'fetch_jwks',
+        },
+      },
+    });
+  });
+
+  it('preserves an unexpected verifier error for the global 500 handler', async () => {
+    const error = new Error('Unexpected verifier failure');
+    jwtVerifyMock.mockRejectedValueOnce(error);
+
+    await expect(verifyAccessToken('token')).rejects.toBe(error);
   });
 });

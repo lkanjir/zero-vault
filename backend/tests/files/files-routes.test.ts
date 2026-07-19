@@ -5,9 +5,11 @@ import { mock, type MockProxy } from 'vitest-mock-extended';
 import type { AuthenticatedPrincipal } from '../../src/auth/authenticated-principal.js';
 import type { FileDownloadService } from '../../src/files/file-download-service.js';
 import { createFilesRouter } from '../../src/files/files-routes.js';
-import { errorHandler } from '../../src/shared/validation/error-handler.js';
+import { errorHandler } from '../../src/shared/http/error-handler.js';
 import type { User } from '../../src/user/user.js';
 import type { UserService } from '../../src/user/user-service.js';
+import { requestContext } from '../../src/shared/http/request-context.js';
+import type { ErrorResponse } from '../../src/shared/errors/api/error-response.js';
 
 const FILE_ID = '20000000-0000-4000-8000-000000000001';
 const DOWNLOAD_URL = 'https://storage.example.test/download';
@@ -68,12 +70,15 @@ describe('files routes', () => {
     const response = await request(createTestApp(userService, downloadService)).post(
       '/files/not-a-uuid/download-url',
     );
+    const body = response.body as ErrorResponse;
 
     expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({
+    expect(body).toMatchObject({
       code: 'invalid_request_params',
-      error: 'Invalid request params',
+      message: 'Parametri putanje nisu ispravni.',
     });
+    expect(typeof body.requestId).toBe('string');
+    expect(Array.isArray(body.details?.issues)).toBe(true);
     expect(downloadService.createDownloadUrl).not.toHaveBeenCalled();
   });
 });
@@ -81,6 +86,7 @@ describe('files routes', () => {
 function createTestApp(userService: UserService, downloadService: FileDownloadService) {
   const app = express();
 
+  app.use(requestContext);
   app.use((req, _res, next) => {
     req.principal = PRINCIPAL;
     next();

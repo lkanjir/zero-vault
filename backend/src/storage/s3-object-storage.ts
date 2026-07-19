@@ -38,7 +38,7 @@ export class S3ObjectStorage implements ObjectStorage {
   private async executeStorageOperation<T>(
     context: StorageErrorContext,
     operation: () => Promise<T>,
-  ) {
+  ): Promise<T> {
     try {
       return await operation();
     } catch (error) {
@@ -115,7 +115,7 @@ export class S3ObjectStorage implements ObjectStorage {
     const contentDisposition = this.getDisposition(params.fileName);
 
     const context = {
-      operation: 'delete_objects',
+      operation: 'create_download_url',
       objectKey: params.objectKey,
     } as const satisfies StorageErrorContext;
 
@@ -164,7 +164,7 @@ export class S3ObjectStorage implements ObjectStorage {
 
     const context = {
       operation: 'delete_objects',
-      objectsCount: objectKeys.length,
+      objectCount: objectKeys.length,
     } as const satisfies StorageErrorContext;
 
     return this.executeStorageOperation(context, async () => {

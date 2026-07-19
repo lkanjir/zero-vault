@@ -6,7 +6,6 @@ import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { entries, files, uploadIntents, users } from '../../../src/db/schema.js';
 import type { Database } from '../../../src/db/db-client.js';
-import { DuplicateEntryNameError } from '../../../src/shared/errors/duplicate-entry-name-error.js';
 import type { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
 import type { SaveUploadIntentCommand } from '../../../src/upload/upload-intent-repository.js';
 
@@ -68,7 +67,7 @@ describe('PostgresIntentRepository duplicate names', () => {
         parentFolderId: null,
         fileName: 'report.pdf',
       }),
-    ).rejects.toBeInstanceOf(DuplicateEntryNameError);
+    ).rejects.toMatchObject({ code: 'duplicate_entry_name' });
   });
 
   it('precheck ignores a soft-deleted sibling', async () => {
@@ -91,7 +90,7 @@ describe('PostgresIntentRepository duplicate names', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('maps a completion duplicate to DuplicateEntryNameError and rolls back all changes', async () => {
+  it('maps a completion duplicate to duplicate_entry_name and rolls back all changes', async () => {
     const userId = await createUser();
 
     await database.insert(entries).values({
@@ -111,7 +110,6 @@ describe('PostgresIntentRepository duplicate names', () => {
         completedAt: new Date(),
       }),
     ).rejects.toMatchObject({
-      statusCode: 409,
       code: 'duplicate_entry_name',
     });
 
@@ -164,7 +162,6 @@ describe('PostgresIntentRepository duplicate names', () => {
     });
     expect(failedResult).toMatchObject({
       reason: {
-        statusCode: 409,
         code: 'duplicate_entry_name',
       },
     });

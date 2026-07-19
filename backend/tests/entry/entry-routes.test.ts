@@ -5,8 +5,10 @@ import { mock, type MockProxy } from 'vitest-mock-extended';
 import type { AuthenticatedPrincipal } from '../../src/auth/authenticated-principal.js';
 import { createEntryRouter } from '../../src/entry/entry-routes.js';
 import type { EntryService } from '../../src/entry/entry-service.js';
-import { ConflictError } from '../../src/shared/errors/conflict-error.js';
-import { errorHandler } from '../../src/shared/validation/error-handler.js';
+import { AppError } from '../../src/shared/errors/api/app-error.js';
+import type { ErrorResponse } from '../../src/shared/errors/api/error-response.js';
+import { errorHandler } from '../../src/shared/http/error-handler.js';
+import { requestContext } from '../../src/shared/http/request-context.js';
 import type { User } from '../../src/user/user.js';
 import type { UserService } from '../../src/user/user-service.js';
 
@@ -76,30 +78,37 @@ describe('entry routes', () => {
     const response = await request(createTestApp(userService, entryService))
       .patch(`/entries/${ENTRY_ID}`)
       .send({});
+    const body = response.body as ErrorResponse;
 
     expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({
+    expect(body).toMatchObject({
       code: 'invalid_request_body',
-      error: 'Invalid request body',
+      message: 'Podaci zahtjeva nisu ispravni.',
     });
+    expect(typeof body.requestId).toBe('string');
+    expect(Array.isArray(body.details?.issues)).toBe(true);
     expect(entryService.updateEntry).not.toHaveBeenCalled();
   });
 
   it.each([
-    ['itself', ENTRY_ID, 'Folder cannot be moved into itself'],
-    ['a descendant', DESCENDANT_FOLDER_ID, 'Folder cannot be moved into its descendant'],
-  ])('returns conflict when moving a folder into %s', async (_case, parentId, message) => {
-    entryService.updateEntry.mockRejectedValueOnce(new ConflictError(message));
+    ['itself', ENTRY_ID],
+    ['a descendant', DESCENDANT_FOLDER_ID],
+  ])('returns conflict when moving a folder into %s', async (_case, parentId) => {
+    entryService.updateEntry.mockRejectedValueOnce(new AppError('move_would_create_cycle'));
 
     const response = await request(createTestApp(userService, entryService))
       .patch(`/entries/${ENTRY_ID}`)
       .send({ parentId });
+    const body = response.body as ErrorResponse;
 
     expect(response.status).toBe(409);
-    expect(response.body).toStrictEqual({
-      code: 'conflict',
-      error: message,
+    expect(body).toStrictEqual({
+      code: 'move_would_create_cycle',
+      message:
+        'Direktorij nije moguće premjestiti u samog sebe ili neki od njegovih poddirektorija.',
+      requestId: body.requestId,
     });
+    expect(typeof body.requestId).toBe('string');
     expect(entryService.updateEntry).toHaveBeenCalledExactlyOnceWith(USER, ENTRY_ID, {
       parentId,
     });
@@ -109,6 +118,7 @@ describe('entry routes', () => {
 function createTestApp(userService: UserService, entryService: EntryService) {
   const app = express();
 
+  app.use(requestContext);
   app.use(express.json());
   app.use((req, _res, next) => {
     req.principal = PRINCIPAL;

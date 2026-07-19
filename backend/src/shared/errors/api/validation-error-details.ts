@@ -11,4 +11,3 @@ export type ValidationErrorDetails = {
 };
 
 export type ErrorDetails = ValidationErrorDetails;
- 

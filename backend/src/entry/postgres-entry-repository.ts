@@ -231,7 +231,12 @@ export class PostgresEntryRepository implements EntryRepository {
       limit 1`);
 
     if (result.rows.length > 0) {
-      throw new AppError('move_would_create_cycle');
+      throw new AppError('move_would_create_cycle', {
+        context: {
+          folderId,
+          nextParentId,
+        },
+      });
     }
   }
 
