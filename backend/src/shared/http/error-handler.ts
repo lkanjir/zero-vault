@@ -1,6 +1,7 @@
 import type { ErrorRequestHandler } from 'express';
 import { AppError } from '../errors/api/app-error.js';
 import { getErrorDefinition } from '../errors/api/error-catalog.js';
+import type { ErrorResponse } from '../errors/api/error-response.js';
 
 export const errorHandler: ErrorRequestHandler = (error: unknown, req, res, next) => {
   if (res.headersSent) {
@@ -9,19 +10,20 @@ export const errorHandler: ErrorRequestHandler = (error: unknown, req, res, next
   }
 
   const appError = normalizeError(error);
-
   const definition = getErrorDefinition(appError.code);
 
   for (const [name, value] of Object.entries(definition.headers ?? {})) {
     res.setHeader(name, value);
   }
 
-  res.status(definition.status).json({
+  const response = {
     code: appError.code,
     message: definition.message,
     requestId: req.id,
-    ...(appError.options.details ? { details: appError.options.details } : {}),
-  });
+    ...(appError.options.details !== undefined ? { details: appError.options.details } : {}),
+  } as const satisfies ErrorResponse;
+
+  res.status(definition.status).json(response);
 };
 
 function normalizeError(error: unknown): AppError {

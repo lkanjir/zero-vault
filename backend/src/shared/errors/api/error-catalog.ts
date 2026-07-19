@@ -85,7 +85,7 @@ export const errorCatalog = {
     status: 400,
     message: 'Kursor ne pripada traženom direktoriju.',
   },
-  
+
   upload_not_found: {
     status: 404,
     message: 'Prijenos nije pronađen.',
@@ -124,6 +124,11 @@ export const errorCatalog = {
   storage_unavailable: {
     status: 503,
     message: 'Spremište datoteka nije dostupno.',
+  },
+
+  route_not_found: {
+    status: 404,
+    message: 'Tražena ruta ne postoji.',
   },
 
   internal_server_error: {
