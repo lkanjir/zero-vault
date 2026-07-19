@@ -1,12 +1,24 @@
 import * as jose from 'jose';
 import { config } from '../config.js';
 import type { AuthenticatedPrincipal } from './authenticated-principal.js';
-import { JOSEError, JWKSTimeout } from 'jose/errors';
+import { JOSEError, JWKInvalid, JWKSInvalid, JWKSTimeout } from 'jose/errors';
 import type { JWTPayload } from 'jose';
 import { AppError } from '../shared/errors/api/app-error.js';
+import { AuthProviderUnavailableError } from '../shared/errors/auth/auth-provider-unavailable-error.js';
+
+const fetchJwks: jose.FetchImplementation = async (url, options) => {
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    throw new AuthProviderUnavailableError({
+      cause: error,
+    });
+  }
+};
 
 const jwks = jose.createRemoteJWKSet(
   new URL(`${config.oidc.issuer}/protocol/openid-connect/certs`),
+  { [jose.customFetch]: fetchJwks },
 );
 
 export async function verifyAccessToken(token: string): Promise<AuthenticatedPrincipal> {
@@ -47,12 +59,45 @@ async function verifyJwt(token: string): Promise<JWTPayload> {
 }
 
 function mapToError(error: unknown): Error {
-  if (error instanceof JWKSTimeout) {
-    return new AppError('authentication_service_unavailable');
-  }
-  if (error instanceof JOSEError) {
-    return new AppError('authentication_service_unavailable');
+  if (isAuthenticationProviderFailure(error)) {
+    return new AppError('authentication_service_unavailable', {
+      cause: error,
+      context: authenticationErrorContext(error),
+    });
   }
 
-  return error instanceof Error ? error : new Error('Unknown token verification error');
+  if (error instanceof JOSEError) {
+    return new AppError('invalid_access_token', {
+      cause: error,
+      context: {
+        joseCode: error.code,
+      },
+    });
+  }
+
+  return error instanceof Error
+    ? error
+    : new Error('Neočekivana greška kod validacije tokena', { cause: error });
+}
+
+function isAuthenticationProviderFailure(error: unknown): boolean {
+  return (
+    error instanceof AuthProviderUnavailableError ||
+    error instanceof JWKSTimeout ||
+    error instanceof JWKInvalid ||
+    error instanceof JWKSInvalid ||
+    (error instanceof JOSEError && error.constructor === JOSEError)
+  );
+}
+function authenticationErrorContext(error: unknown): Record<string, string> {
+  if (error instanceof JOSEError) {
+    return {
+      providerOperation: 'fetch_jwks',
+      joseCode: error.code,
+    };
+  }
+
+  return {
+    providerOperation: 'fetch_jwks',
+  };
 }
