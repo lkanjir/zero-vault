@@ -19,6 +19,8 @@ import {
 } from './metadata-assertions.js';
 import { sha256HexToBase64 } from '../shared/utils/sha256-convert.js';
 import { AppError } from '../shared/errors/api/app-error.js';
+import { StorageError } from '../shared/errors/storage/storage-error.js';
+import { StorageObjectNotFoundError } from '../shared/errors/storage/storage-object-not-found-error.js';
 
 export class UploadService {
   private readonly EXPIRES_IN_SECONDS = 60;
@@ -56,12 +58,7 @@ export class UploadService {
       finalizeDeadline: new Date(Date.now() + this.FINALIZE_DEADLINE_SECONDS * 1000),
     };
 
-    const uploadUrl = await this.storage.createPresignedUploadUrl({
-      objectKey: objectKey,
-      contentType: contentType,
-      expiresInSeconds: this.EXPIRES_IN_SECONDS,
-      sha256Hex: requestBody.sha256,
-    });
+    const uploadUrl = await this.createPresignedUploadUrl(intent);
 
     await this.intentRepo.save({
       ...intent,
@@ -81,11 +78,35 @@ export class UploadService {
     return response;
   }
 
+  private async createPresignedUploadUrl(intent: UploadIntent): Promise<string> {
+    try {
+      return await this.storage.createPresignedUploadUrl({
+        objectKey: intent.objectKey,
+        contentType: intent.contentType,
+        expiresInSeconds: this.EXPIRES_IN_SECONDS,
+        sha256Hex: intent.expectedSha256,
+      });
+    } catch (error) {
+      if (error instanceof StorageError) {
+        throw new AppError('storage_unavailable', {
+          cause: error,
+          context: {
+            uploadId: intent.uploadId,
+            objectKey: intent.objectKey,
+            storageOperation: error.context.operation,
+          },
+        });
+      }
+
+      throw error;
+    }
+  }
+
   async completeUpload(user: User, uploadId: string): Promise<CompletedUploadFile> {
     const intent = await this.getUploadIntent(user.id, uploadId);
 
     if (this.shouldVerifyUploadedObject(intent)) {
-      const uploadedObject = await this.storage.headObject(intent.objectKey);
+      const uploadedObject = await this.getUploadedObject(intent);
       this.verifyUpload(intent, uploadedObject);
     }
 
@@ -96,6 +117,36 @@ export class UploadService {
     });
 
     return this.mapCompletionResult(result);
+  }
+
+  private async getUploadedObject(intent: UploadIntent): Promise<ObjectMetadata> {
+    try {
+      return await this.storage.headObject(intent.objectKey);
+    } catch (error) {
+      if (error instanceof StorageObjectNotFoundError) {
+        throw new AppError('upload_object_missing', {
+          cause: error,
+          context: {
+            uploadId: intent.uploadId,
+            objectKey: intent.objectKey,
+            storageOperation: error.context.operation,
+          },
+        });
+      }
+
+      if (error instanceof StorageError) {
+        throw new AppError('storage_unavailable', {
+          cause: error,
+          context: {
+            uploadId: intent.uploadId,
+            objectKey: intent.objectKey,
+            storageOperation: error.context.operation,
+          },
+        });
+      }
+
+      throw error;
+    }
   }
 
   private async getUploadIntent(userId: number, uploadId: string): Promise<UploadIntent> {
