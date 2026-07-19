@@ -9,6 +9,7 @@ import { provideRouter } from '@angular/router';
 import { routes } from './app.routes';
 import {
   LucideArrowUpDown,
+  LucideChevronRight,
   LucideCloud,
   LucideDownload,
   LucideFileText,
@@ -55,6 +56,7 @@ export const appConfig: ApplicationConfig = {
       LucideArrowUpDown,
       LucideX,
       LucideFolder,
+      LucideChevronRight,
     ),
   ],
 };

@@ -5,13 +5,13 @@ import { FolderEntry } from './dto/folder';
 import { CdkContextMenuTrigger, CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
 import { Icon } from '../../shared/icon/icon';
 import { DriveStore } from './drive-store';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map, Observable } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 @Component({
   selector: 'app-drive',
-  imports: [EntryItem, CdkMenu, CdkMenuItem, CdkContextMenuTrigger, Icon],
+  imports: [EntryItem, CdkMenu, CdkMenuItem, CdkContextMenuTrigger, Icon, RouterLink],
   templateUrl: './drive.html',
 })
 export class Drive implements OnInit {
