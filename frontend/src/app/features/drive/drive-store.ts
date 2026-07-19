@@ -7,11 +7,14 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ApiError, apiErrorMessage, toApiError } from '../../shared/api-error';
 import { Result } from '../../shared/result';
 import { Folder } from './dto/folder';
+import { FileService } from './file-service';
+import { FileEntry } from './dto/file';
 
 @Injectable({ providedIn: 'root' })
 export class DriveStore {
   private readonly entryService = inject(EntryService);
   private readonly folderService = inject(FolderService);
+  private readonly fileService = inject(FileService);
 
   private readonly _parentId = signal<string | null>(null);
   private readonly _entries = signal<EntryList['items']>([]);
@@ -78,4 +81,8 @@ export class DriveStore {
 
     return result;
   }
+
+  // async download(entry: Folder | FileEntry): Promise<string> {
+  //   const result = await firstValueFrom(this.fileService.getDownloadUrl(entry.id).pipe());
+  // }
 }

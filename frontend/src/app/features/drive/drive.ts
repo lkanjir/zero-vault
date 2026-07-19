@@ -29,7 +29,7 @@ export class Drive implements OnInit {
   }
 
   download(selectedEntry: Folder | FileEntry) {
-    throw new Error('Method not implemented.');
+    // this.store.download(selectedEntry);
   }
 
   rename(selectedEntry: Folder | FileEntry) {
