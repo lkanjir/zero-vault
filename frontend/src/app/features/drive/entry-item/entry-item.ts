@@ -1,6 +1,6 @@
 import { Component, computed, input } from '@angular/core';
 import { Icon } from '../../../shared/icon/icon';
-import { Folder } from '../dto/folder';
+import { FolderEntry } from '../dto/folder';
 import type { FileEntry } from '../dto/file';
 import { FileSizePipe } from '../../../shared/pipes/file-size-pipe';
 import { DatePipe } from '@angular/common';
@@ -15,5 +15,5 @@ import { DatePipe } from '@angular/common';
   },
 })
 export class EntryItem {
-  readonly entry = input.required<Folder | FileEntry>();
+  readonly entry = input.required<FolderEntry | FileEntry>();
 }

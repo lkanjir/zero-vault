@@ -6,7 +6,7 @@ import { EntryService } from './entry-service';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiError, apiErrorMessage, toApiError } from '../../shared/api-error';
 import { Result } from '../../shared/result';
-import { Folder } from './dto/folder';
+import { FolderEntry } from './dto/folder';
 import { FileService } from './file-service';
 import { FileEntry } from './dto/file';
 
@@ -65,12 +65,12 @@ export class DriveStore {
     }
   }
 
-  async createFolder(name: string): Promise<Result<Folder, ApiError>> {
+  async createFolder(name: string): Promise<Result<FolderEntry, ApiError>> {
     const result = await firstValueFrom(
       this.folderService.createFolder({ name: name, parentId: this._parentId() }).pipe(
-        map((folder): Result<Folder, ApiError> => ({ ok: true, value: folder })),
+        map((folder): Result<FolderEntry, ApiError> => ({ ok: true, value: folder })),
         catchError((error) =>
-          of<Result<Folder, ApiError>>({ ok: false, error: toApiError(error) }),
+          of<Result<FolderEntry, ApiError>>({ ok: false, error: toApiError(error) }),
         ),
       ),
     );

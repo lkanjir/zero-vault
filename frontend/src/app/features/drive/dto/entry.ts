@@ -1,7 +1,7 @@
 import { CursorPage } from '../../../shared/cursor';
-import { Folder } from './folder';
+import { FolderEntry } from './folder';
 import { FileEntry } from './file';
 
-export type EntryList = CursorPage<Folder | FileEntry> & {
+export type EntryList = CursorPage<FolderEntry | FileEntry> & {
   parentId: string | null;
 };

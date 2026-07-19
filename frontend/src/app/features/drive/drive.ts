@@ -1,12 +1,7 @@
 import { Component, DestroyRef, inject, OnInit, Signal, signal } from '@angular/core';
-import { EntryService } from './entry-service';
-import { EntryList } from './dto/entry';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { finalize, single } from 'rxjs';
-import { HttpErrorResponse } from '@angular/common/http';
 import { EntryItem } from './entry-item/entry-item';
 import { FileEntry } from './dto/file';
-import { Folder } from './dto/folder';
+import { FolderEntry } from './dto/folder';
 import { CdkContextMenuTrigger, CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
 import { Icon } from '../../shared/icon/icon';
 import { DriveStore } from './drive-store';
@@ -15,7 +10,6 @@ import { DriveStore } from './drive-store';
   selector: 'app-drive',
   imports: [EntryItem, CdkMenu, CdkMenuItem, CdkContextMenuTrigger, Icon],
   templateUrl: './drive.html',
-  styleUrl: './drive.css',
 })
 export class Drive implements OnInit {
   readonly store = inject(DriveStore);
@@ -28,19 +22,19 @@ export class Drive implements OnInit {
     this.store.reload();
   }
 
-  download(selectedEntry: Folder | FileEntry) {
+  download(selectedEntry: FolderEntry | FileEntry) {
     // this.store.download(selectedEntry);
   }
 
-  rename(selectedEntry: Folder | FileEntry) {
+  rename(selectedEntry: FolderEntry | FileEntry) {
     throw new Error('Method not implemented.');
   }
 
-  move(selectedEntry: Folder | FileEntry) {
+  move(selectedEntry: FolderEntry | FileEntry) {
     throw new Error('Method not implemented.');
   }
 
-  delete(selectedEntry: Folder | FileEntry) {
+  delete(selectedEntry: FolderEntry | FileEntry) {
     throw new Error('Method not implemented.');
   }
 }

@@ -1,4 +1,4 @@
-export type Folder = {
+export type FolderEntry = {
   kind: 'folder';
   id: string;
   name: string;
