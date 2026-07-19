@@ -80,7 +80,7 @@ export class DriveStore {
     const targetParentId = this._parentId();
 
     const result = await firstValueFrom(
-      this.folderService.createFolder({ name: name, parentId: this._parentId() }).pipe(
+      this.folderService.createFolder({ name: name, parentId: targetParentId }).pipe(
         map((folder): Result<FolderEntry, ApiError> => ({ ok: true, value: folder })),
         catchError((error) =>
           of<Result<FolderEntry, ApiError>>({ ok: false, error: toApiError(error) }),

@@ -7,7 +7,6 @@ import { RouterLink } from '@angular/router';
   selector: 'app-sidebar-item',
   imports: [Icon, RouterLink],
   templateUrl: './sidebar-item.html',
-  styleUrl: './sidebar-item.css',
 })
 export class SidebarItem {
   readonly sidebarOpen = input.required<boolean>();

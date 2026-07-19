@@ -19,7 +19,6 @@ import { apiErrorMessage } from '../../../shared/api-error';
   selector: 'app-create-folder-dialog',
   imports: [FormField, FormRoot],
   templateUrl: './create-folder-dialog.html',
-  styleUrl: './create-folder-dialog.css',
 })
 export class CreateFolderDialog {
   private readonly store = inject(DriveStore);
