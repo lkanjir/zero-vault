@@ -15,6 +15,7 @@ export const appIconNames = [
   'folder-open',
   'arrow-up-down',
   'x',
+  'folder',
 ] as const;
 
 export type AppIconName = (typeof appIconNames)[number];

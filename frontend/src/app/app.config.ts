@@ -12,6 +12,7 @@ import {
   LucideCloud,
   LucideDownload,
   LucideFileText,
+  LucideFolder,
   LucideFolderOpen,
   LucideFolderUp,
   LucideMove,
@@ -53,6 +54,7 @@ export const appConfig: ApplicationConfig = {
       LucideFolderOpen,
       LucideArrowUpDown,
       LucideX,
+      LucideFolder,
     ),
   ],
 };
