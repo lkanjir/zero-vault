@@ -21,8 +21,9 @@ export function decodeCursor(value: string): EntryListCursor {
     const cursor: unknown = JSON.parse(decoded);
 
     return entryListCursorSchema.parse(cursor);
-  } catch {
+  } catch (error) {
     throw new AppError('invalid_cursor', {
+      cause: error,
       context: {
         cursorLength: value.length,
       },

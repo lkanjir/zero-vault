@@ -204,7 +204,12 @@ export class PostgresEntryRepository implements EntryRepository {
   ) {
     if (nextParentId === null) return;
     if (folderId === nextParentId) {
-      throw new AppError('move_would_create_cycle');
+      throw new AppError('move_would_create_cycle', {
+        context: {
+          folderId,
+          nextParentId,
+        },
+      });
     }
 
     const result = await tx.execute<{ id: number }>(sql`

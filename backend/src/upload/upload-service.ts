@@ -165,7 +165,7 @@ export class UploadService {
 
   private verifyUpload(intent: UploadIntent, object: ObjectMetadata): void {
     assertObjectKeyMatches(intent, object);
-    assertChecksumExists(object);
+    assertChecksumExists(intent, object);
     assertChecksumMatches(intent, object);
     assertSizeMatches(intent, object);
     assertContentTypeMatches(intent, object);

@@ -5,8 +5,13 @@ const ACTIVE_SIBLING_NAME_CONSTRAINT = 'entries_owner_parent_name_active_key';
 
 export function mapEntryDatabaseError(error: unknown): Error {
   if (isUniqueViolation(error, ACTIVE_SIBLING_NAME_CONSTRAINT)) {
-    return new AppError('duplicate_entry_name');
+    return new AppError('duplicate_entry_name', {
+      cause: error,
+      context: {
+        constraint: ACTIVE_SIBLING_NAME_CONSTRAINT,
+      },
+    });
   }
 
-  return error instanceof Error ? error : new Error('Neočekivana greška');
+  return error instanceof Error ? error : new Error('Neočekivana greška', { cause: error });
 }

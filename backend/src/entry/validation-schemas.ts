@@ -23,7 +23,7 @@ export const entryNameSchema = z
   .min(1)
   .max(500)
   .refine((value) => !/[\\/]+/.test(value), {
-    message: 'File / folder name must not contain path separators',
+    message: 'Naziv datoteke ili direktorija ne smije sadržavati znak / ili \\',
   });
 
 export const updateEntryBodySchema = z
@@ -32,7 +32,7 @@ export const updateEntryBodySchema = z
     parentId: z.uuid().nullable().optional(),
   })
   .refine((body) => body.name !== undefined || body.parentId !== undefined, {
-    message: 'Specify at least one filed, name or parentId',
+    message: 'Potrebno je definirati barem jedno polje, name ili parentId',
   });
 
 export type EntryUpdateRequest = z.infer<typeof updateEntryBodySchema>;
