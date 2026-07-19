@@ -4,12 +4,12 @@ import { FolderEntry } from '../dto/folder';
 import type { FileEntry } from '../dto/file';
 import { FileSizePipe } from '../../../shared/pipes/file-size-pipe';
 import { DatePipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
 
 @Component({
   selector: 'tr[app-entry-item]',
-  imports: [Icon, FileSizePipe, DatePipe],
+  imports: [Icon, FileSizePipe, DatePipe, RouterLink],
   templateUrl: './entry-item.html',
-  styleUrl: './entry-item.css',
   host: {
     class: 'hover:bg-surface-hover',
   },

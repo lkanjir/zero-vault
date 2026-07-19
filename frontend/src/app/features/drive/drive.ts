@@ -5,6 +5,9 @@ import { FolderEntry } from './dto/folder';
 import { CdkContextMenuTrigger, CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
 import { Icon } from '../../shared/icon/icon';
 import { DriveStore } from './drive-store';
+import { ActivatedRoute } from '@angular/router';
+import { distinctUntilChanged, map, Observable } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 @Component({
   selector: 'app-drive',
@@ -13,9 +16,17 @@ import { DriveStore } from './drive-store';
 })
 export class Drive implements OnInit {
   readonly store = inject(DriveStore);
+  readonly route = inject(ActivatedRoute);
+  readonly destroyRef = inject(DestroyRef);
 
   ngOnInit(): void {
-    this.store.loadFolder(null);
+    this.route.paramMap
+      .pipe(
+        map((params) => params.get('folderId')),
+        distinctUntilChanged(),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((folderId) => this.store.loadFolder(folderId));
   }
 
   retry() {
