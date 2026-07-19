@@ -4,12 +4,11 @@ import type { CursorPage } from '../shared/types/cursor-page.js';
 
 export type EntryResponse = FolderResponse | FileResponse;
 
-export type FolderContext = {
+export type FolderPathItem = {
   id: string;
   name: string;
-  parentId: string | null;
 };
 
 export type EntryListResponse = CursorPage<EntryResponse> & {
-  currentFolder: FolderContext | null;
+  path: FolderPathItem[];
 };

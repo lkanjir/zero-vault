@@ -1,5 +1,6 @@
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
+import type { FolderPathItem } from './dto.js';
 
 export type ListedEntry =
   | {
@@ -26,11 +27,12 @@ export type EntryListRecord = {
 
 export type EntryListing = {
   entries: EntryListRecord[];
-  currentFolder: {
-    id: string;
-    name: string;
-    parentId: string | null;
-  } | null;
+  path: FolderPathItem[];
+};
+
+export type ResolvedFolderPath = {
+  dbId: number;
+  path: FolderPathItem[];
 };
 
 export type EntriesQuery = {
@@ -51,13 +53,6 @@ export type UpdateEntryCommand = {
   entryId: string;
   parentId?: string | null;
   name?: string;
-};
-
-export type ResolvedFolderContext = {
-  dbId: number;
-  id: string;
-  name: string;
-  parentId: string | null;
 };
 
 export interface EntryRepository {

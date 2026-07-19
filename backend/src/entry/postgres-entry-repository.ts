@@ -5,7 +5,7 @@ import type {
   EntryListRecord,
   EntryRepository,
   ListedEntry,
-  ResolvedFolderContext,
+  ResolvedFolderPath,
   UpdateEntryCommand,
 } from './entry-repository.js';
 import {
@@ -23,7 +23,7 @@ import { db } from '../db/db-client.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
 import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
-import { alias, type PgTransaction } from 'drizzle-orm/pg-core';
+import { type PgTransaction } from 'drizzle-orm/pg-core';
 import type * as schema from '../db/schema.js';
 import type { Entry } from './entry.js';
 import { resolveParentIdInTransaction } from './resolve-parent-id-in-transaction.js';
@@ -46,12 +46,14 @@ export class PostgresEntryRepository implements EntryRepository {
   readonly sortNameExpression = sql<string>`lower(${entries.name})`;
 
   async getEntries(query: EntriesQuery): Promise<EntryListing> {
-    const currentFolder = await this.resolveFolderContext(query.ownerId, query.parentId);
+    const resolvedFolder = await this.resolveFolderPath(query.ownerId, query.parentId);
     const filter = this.createFilter(query.cursor);
 
     const condition: SQL[] = [
       eq(entries.ownerId, query.ownerId),
-      currentFolder === null ? isNull(entries.parentId) : eq(entries.parentId, currentFolder.dbId),
+      resolvedFolder === null
+        ? isNull(entries.parentId)
+        : eq(entries.parentId, resolvedFolder.dbId),
       isNull(entries.deletedAt),
     ];
 
@@ -78,15 +80,12 @@ export class PostgresEntryRepository implements EntryRepository {
 
     return {
       entries: rows.map(toEntryListRecord),
-      currentFolder:
-        currentFolder == null
-          ? null
-          : { id: currentFolder.id, name: currentFolder.name, parentId: currentFolder.parentId },
+      path: resolvedFolder?.path ?? [],
     };
   }
 
   async createFolder(command: CreateFolderCommand): Promise<Folder> {
-    const targetParentFolder = await this.resolveFolderContext(command.ownerId, command.parentId);
+    const targetParentFolder = await this.resolveFolderPath(command.ownerId, command.parentId);
     const folder = await this.insertFolder(
       command.ownerId,
       command.name,
@@ -277,44 +276,88 @@ export class PostgresEntryRepository implements EntryRepository {
     return entry;
   }
 
-  private async resolveFolderContext(
+  private async resolveFolderPath(
     ownerId: number,
     folderId: string | null,
-  ): Promise<ResolvedFolderContext | null> {
+  ): Promise<ResolvedFolderPath | null> {
     if (!folderId) {
       return null;
     }
 
-    const parentFolder = alias(entries, 'parent_folder');
+    type FolderPathRow = {
+      dbId: string;
+      id: string;
+      name: string;
+      parentDbId: string | null;
+      depth: number;
+    };
 
-    const [result] = await db
-      .select({
-        currentFolderDbId: entries.id,
-        currentFolderPublicId: entries.publicId,
-        currentFolderName: entries.name,
-        parentFolderPublicId: parentFolder.publicId,
-      })
-      .from(entries)
-      .leftJoin(parentFolder, eq(entries.parentId, parentFolder.id))
-      .where(
-        and(
-          eq(entries.publicId, folderId),
-          eq(entries.ownerId, ownerId),
-          eq(entries.kind, 'folder'),
-          isNull(entries.deletedAt),
-        ),
+    const result = await db.execute<FolderPathRow>(sql`
+       WITH RECURSIVE folder_path AS (
+        SELECT
+          current_folder.id,
+          current_folder.public_id,
+          current_folder.name,
+          current_folder.parent_id,
+          0 AS depth,
+          ARRAY[current_folder.id] AS visited_ids
+        FROM entries current_folder
+        WHERE current_folder.public_id = ${folderId}
+          AND current_folder.owner_id = ${ownerId}
+          AND current_folder.kind = 'folder'
+          AND current_folder.deleted_at IS null
+
+        UNION ALL
+
+        SELECT
+          parent_folder.id,
+          parent_folder.public_id,
+          parent_folder.name,
+          parent_folder.parent_id,
+          folder_path.depth + 1,
+          folder_path.visited_ids || parent_folder.id
+        FROM entries parent_folder
+        JOIN folder_path
+          ON parent_folder.id = folder_path.parent_id
+        WHERE parent_folder.owner_id = ${ownerId}
+          AND parent_folder.kind = 'folder'
+          AND parent_folder.deleted_at IS null
+          AND NOT (parent_folder.id = ANY(folder_path.visited_ids))
       )
-      .limit(1);
+      SELECT
+        id::text AS "dbId",
+        public_id AS "id",
+        name,
+        parent_id::text AS "parentDbId",
+        depth
+      FROM folder_path
+      ORDER BY depth DESC
+      `);
 
-    if (!result) {
+    if (result.rows.length === 0) {
       throw new AppError('folder_not_found');
     }
 
+    const rootMostFolder = result.rows[0];
+    const currentFolder = result.rows.at(-1);
+
+    if (!rootMostFolder || !currentFolder) {
+      throw new AppError('folder_not_found');
+    }
+
+    if (rootMostFolder.parentDbId !== null) {
+      throw new AppError('folder_not_found');
+    }
+
+    const currentFolderDbId = Number(currentFolder.dbId);
+
+    if (!Number.isSafeInteger(currentFolderDbId)) {
+      throw new Error('Folder database ID is not a safe integer');
+    }
+
     return {
-      dbId: result.currentFolderDbId,
-      id: result.currentFolderPublicId,
-      name: result.currentFolderName,
-      parentId: result.parentFolderPublicId,
+      dbId: currentFolderDbId,
+      path: result.rows.map((folder) => ({ id: folder.id, name: folder.name })),
     };
   }
 

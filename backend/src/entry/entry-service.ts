@@ -37,8 +37,8 @@ export class EntryService {
         : null;
 
     return {
-      currentFolder: entriesResult.currentFolder,
       items: pageEntries.map((row) => this.toResponseItem(row.entry)),
+      path: entriesResult.path,
       page: {
         hasMore: hasMore,
         limit: request.limit,
