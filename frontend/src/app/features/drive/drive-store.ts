@@ -9,6 +9,7 @@ import { Result } from '../../shared/result';
 import { FolderEntry } from './dto/folder';
 import { FileService } from './file-service';
 import { FileEntry } from './dto/file';
+import { C } from '@angular/cdk/keycodes';
 
 @Injectable({ providedIn: 'root' })
 export class DriveStore {
@@ -16,6 +17,7 @@ export class DriveStore {
   private readonly folderService = inject(FolderService);
   private readonly fileService = inject(FileService);
 
+  private readonly _currentFolder = signal<EntryList['currentFolder']>(null);
   private readonly _parentId = signal<string | null>(null);
   private readonly _entries = signal<EntryList['items']>([]);
   private readonly _loading = signal(false);
@@ -23,6 +25,7 @@ export class DriveStore {
   private readonly _nextCursor = signal<string | null>(null);
   private readonly _hasMore = signal(false);
 
+  readonly currentFolder = this._currentFolder.asReadonly();
   readonly parentId = this._parentId.asReadonly();
   readonly entries = this._entries.asReadonly();
   readonly loading = this._loading.asReadonly();
@@ -34,6 +37,15 @@ export class DriveStore {
   loadFolder(parentId: string | null): void {
     this.loadSubscription?.unsubscribe();
 
+    const folderChanged = this._currentFolder() !== parentId;
+
+    if (folderChanged) {
+      this._currentFolder.set(null);
+      this._entries.set([]);
+      this._nextCursor.set(null);
+      this._hasMore.set(false);
+    }
+
     this._loading.set(true);
     this._parentId.set(parentId);
     this._error.set(null);
@@ -43,6 +55,7 @@ export class DriveStore {
       .pipe(finalize(() => this._loading.set(false)))
       .subscribe({
         next: (response) => {
+          this._currentFolder.set(response.currentFolder);
           this._entries.set(response.items);
           this._nextCursor.set(response.page.nextCursor);
           this._hasMore.set(response.page.hasMore);
@@ -66,6 +79,8 @@ export class DriveStore {
   }
 
   async createFolder(name: string): Promise<Result<FolderEntry, ApiError>> {
+    const targetParentId = this._parentId();
+
     const result = await firstValueFrom(
       this.folderService.createFolder({ name: name, parentId: this._parentId() }).pipe(
         map((folder): Result<FolderEntry, ApiError> => ({ ok: true, value: folder })),
@@ -75,7 +90,7 @@ export class DriveStore {
       ),
     );
 
-    if (result.ok) {
+    if (result.ok && this._parentId() === targetParentId) {
       this._entries.update((current) => [result.value, ...current]);
     }
 
