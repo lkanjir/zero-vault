@@ -20,15 +20,15 @@ export class EntryService {
       });
     }
 
-    const entries = await this.entryRepository.getEntries({
+    const entriesResult = await this.entryRepository.getEntries({
       cursor: cursor,
       limit: request.limit + 1,
       ownerId: user.id,
       parentId: request.parentId,
     });
 
-    const pageEntries = entries.slice(0, request.limit);
-    const hasMore = entries.length > request.limit;
+    const pageEntries = entriesResult.entries.slice(0, request.limit);
+    const hasMore = entriesResult.entries.length > request.limit;
     const lastEntry = pageEntries.at(-1);
 
     const nextCursor =
@@ -37,13 +37,13 @@ export class EntryService {
         : null;
 
     return {
+      currentFolder: entriesResult.currentFolder,
       items: pageEntries.map((row) => this.toResponseItem(row.entry)),
       page: {
         hasMore: hasMore,
         limit: request.limit,
         nextCursor: nextCursor,
       },
-      parentId: request.parentId,
     };
   }
 

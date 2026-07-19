@@ -24,6 +24,15 @@ export type EntryListRecord = {
   cursor: EntryCursorPosition;
 };
 
+export type EntryListing = {
+  entries: EntryListRecord[];
+  currentFolder: {
+    id: string;
+    name: string;
+    parentId: string | null;
+  } | null;
+};
+
 export type EntriesQuery = {
   ownerId: number;
   parentId: string | null;
@@ -44,8 +53,15 @@ export type UpdateEntryCommand = {
   name?: string;
 };
 
+export type ResolvedFolderContext = {
+  dbId: number;
+  id: string;
+  name: string;
+  parentId: string | null;
+};
+
 export interface EntryRepository {
-  getEntries(query: EntriesQuery): Promise<EntryListRecord[]>;
+  getEntries(query: EntriesQuery): Promise<EntryListing>;
   createFolder(command: CreateFolderCommand): Promise<Folder>;
   updateEntry(command: UpdateEntryCommand): Promise<ListedEntry>;
 }

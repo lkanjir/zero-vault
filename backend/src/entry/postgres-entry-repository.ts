@@ -1,9 +1,11 @@
 import type {
   CreateFolderCommand,
   EntriesQuery,
+  EntryListing,
   EntryListRecord,
   EntryRepository,
   ListedEntry,
+  ResolvedFolderContext,
   UpdateEntryCommand,
 } from './entry-repository.js';
 import {
@@ -21,7 +23,7 @@ import { db } from '../db/db-client.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
 import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
-import type { PgTransaction } from 'drizzle-orm/pg-core';
+import { alias, type PgTransaction } from 'drizzle-orm/pg-core';
 import type * as schema from '../db/schema.js';
 import type { Entry } from './entry.js';
 import { resolveParentIdInTransaction } from './resolve-parent-id-in-transaction.js';
@@ -43,13 +45,13 @@ export class PostgresEntryRepository implements EntryRepository {
   readonly kindRankExpression = sql<number>`case when ${entries.kind} = 'folder' then 0 else 1 end`;
   readonly sortNameExpression = sql<string>`lower(${entries.name})`;
 
-  async getEntries(query: EntriesQuery): Promise<EntryListRecord[]> {
-    const parentDbId = await this.resolveParentId(query.ownerId, query.parentId);
+  async getEntries(query: EntriesQuery): Promise<EntryListing> {
+    const currentFolder = await this.resolveFolderContext(query.ownerId, query.parentId);
     const filter = this.createFilter(query.cursor);
 
     const condition: SQL[] = [
       eq(entries.ownerId, query.ownerId),
-      parentDbId === null ? isNull(entries.parentId) : eq(entries.parentId, parentDbId),
+      currentFolder === null ? isNull(entries.parentId) : eq(entries.parentId, currentFolder.dbId),
       isNull(entries.deletedAt),
     ];
 
@@ -74,12 +76,22 @@ export class PostgresEntryRepository implements EntryRepository {
       .orderBy(this.kindRankExpression, this.sortNameExpression, entries.id)
       .limit(query.limit);
 
-    return rows.map(toEntryListRecord);
+    return {
+      entries: rows.map(toEntryListRecord),
+      currentFolder:
+        currentFolder == null
+          ? null
+          : { id: currentFolder.id, name: currentFolder.name, parentId: currentFolder.parentId },
+    };
   }
 
   async createFolder(command: CreateFolderCommand): Promise<Folder> {
-    const parentDbId = await this.resolveParentId(command.ownerId, command.parentId);
-    const folder = await this.insertFolder(command.ownerId, command.name, parentDbId);
+    const targetParentFolder = await this.resolveFolderContext(command.ownerId, command.parentId);
+    const folder = await this.insertFolder(
+      command.ownerId,
+      command.name,
+      targetParentFolder?.dbId ?? null,
+    );
     return this.toFolder(folder);
   }
 
@@ -265,17 +277,28 @@ export class PostgresEntryRepository implements EntryRepository {
     return entry;
   }
 
-  private async resolveParentId(ownerId: number, parentId: string | null): Promise<number | null> {
-    if (!parentId) {
+  private async resolveFolderContext(
+    ownerId: number,
+    folderId: string | null,
+  ): Promise<ResolvedFolderContext | null> {
+    if (!folderId) {
       return null;
     }
 
-    const [parent] = await db
-      .select({ id: entries.id })
+    const parentFolder = alias(entries, 'parent_folder');
+
+    const [result] = await db
+      .select({
+        currentFolderDbId: entries.id,
+        currentFolderPublicId: entries.publicId,
+        currentFolderName: entries.name,
+        parentFolderPublicId: parentFolder.publicId,
+      })
       .from(entries)
+      .leftJoin(parentFolder, eq(entries.parentId, parentFolder.id))
       .where(
         and(
-          eq(entries.publicId, parentId),
+          eq(entries.publicId, folderId),
           eq(entries.ownerId, ownerId),
           eq(entries.kind, 'folder'),
           isNull(entries.deletedAt),
@@ -283,11 +306,16 @@ export class PostgresEntryRepository implements EntryRepository {
       )
       .limit(1);
 
-    if (!parent) {
+    if (!result) {
       throw new AppError('folder_not_found');
     }
 
-    return parent.id;
+    return {
+      dbId: result.currentFolderDbId,
+      id: result.currentFolderPublicId,
+      name: result.currentFolderName,
+      parentId: result.parentFolderPublicId,
+    };
   }
 
   private createFilter(cursor: EntryListCursor | null): SQL | undefined {
