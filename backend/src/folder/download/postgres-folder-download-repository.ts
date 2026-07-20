@@ -49,6 +49,19 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
     });
   }
 
+  async findByOwnerAndDownloadId(
+    ownerId: number,
+    downloadId: string,
+  ): Promise<FolderDownload | null> {
+    const [row] = await db
+      .select()
+      .from(folderDownloads)
+      .where(and(eq(folderDownloads.downloadId, downloadId), eq(folderDownloads.ownerId, ownerId)))
+      .limit(1);
+
+    return row ? this.toDomain(row) : null;
+  }
+
   private toDomain(row: typeof folderDownloads.$inferSelect): FolderDownload {
     return {
       id: row.id,

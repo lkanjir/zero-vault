@@ -4,7 +4,10 @@ import { requirePrincipal } from '../auth/require-principal.js';
 import type { FolderService } from '../folder/folder-service.js';
 import { createFolderBodySchema } from './validation-schemas.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
-import { createFolderDownloadParamsSchema } from './download/validation-schemas.js';
+import {
+  createFolderDownloadParamsSchema,
+  folderDownloadIdParamsSchema,
+} from './download/validation-schemas.js';
 import type { FolderDownloadService } from './download/folder-download-service.js';
 
 export type FolderRouterDeps = {
@@ -40,6 +43,18 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
       );
 
       res.status(202).json(result);
+    }),
+  );
+
+  router.get(
+    '/downloads/:downloadId',
+    validateRequest({ params: folderDownloadIdParamsSchema }, async (req, res, validated) => {
+      const principal = requirePrincipal(req);
+      const user = await deps.userService.resolveUser(principal);
+
+      const result = await deps.folderDownloadService.getStatus(user, validated.params.downloadId);
+
+      res.status(200).json(result);
     }),
   );
 

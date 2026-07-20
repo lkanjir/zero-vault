@@ -10,4 +10,5 @@ export type CreateFolderDownloadCommand = {
 
 export interface FolderDownloadRepository {
   create(command: CreateFolderDownloadCommand): Promise<FolderDownload>;
+  findByOwnerAndDownloadId(ownerId: number, downloadId: string): Promise<FolderDownload | null>;
 }

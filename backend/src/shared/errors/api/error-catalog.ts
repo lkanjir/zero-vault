@@ -61,6 +61,11 @@ export const errorCatalog = {
     message: 'Direktorij nije pronađen.',
   },
 
+  folder_download_not_found: {
+    status: 404,
+    message: 'Za dani direktorij nije traženo preuzimanje.',
+  },
+
   file_not_found: {
     status: 404,
     message: 'Datoteka nije pronađena.',
