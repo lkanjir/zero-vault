@@ -42,7 +42,7 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
         .returning();
 
       if (!download) {
-        throw new Error('Failed to  create folder download');
+        throw new Error('Failed to create folder download');
       }
 
       return this.toDomain(download);

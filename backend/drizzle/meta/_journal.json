@@ -29,6 +29,13 @@
       "when": 1784398100566,
       "tag": "0003_chunky_living_tribunal",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784562035240,
+      "tag": "0004_bizarre_oracle",
+      "breakpoints": true
     }
   ]
 }
