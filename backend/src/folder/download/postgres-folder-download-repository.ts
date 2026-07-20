@@ -5,12 +5,20 @@ import type {
   ClaimNextFolderDownloadCommand,
   CreateFolderDownloadCommand,
   FolderDownloadRepository,
+  GetFolderArchiveManifestCommand,
   MarkFolderDownloadFailedCommand,
   MarkFolderDownloadReadyCommand,
   RenewFolderDownloadLeaseCommand,
 } from './folder-download-repository.js';
-import type { FolderDownload } from './folder-download.js';
+import type { FolderArchiveEntry, FolderDownload } from './folder-download.js';
 import { AppError } from '../../shared/errors/api/app-error.js';
+
+type FolderArchiveManifestRow = {
+  kind: 'folder' | 'file';
+  pathParts: string[];
+  objectKey: string | null;
+  sizeBytes: string | null;
+};
 
 export class PostgresFolderDownloadRepository implements FolderDownloadRepository {
   async create(command: CreateFolderDownloadCommand): Promise<FolderDownload> {
@@ -154,6 +162,75 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
       .returning({ id: folderDownloads.id });
 
     return updated !== undefined;
+  }
+
+  async getArchiveManifest(
+    command: GetFolderArchiveManifestCommand,
+  ): Promise<FolderArchiveEntry[]> {
+    const result = await db.execute<FolderArchiveManifestRow>(sql`
+      WITH RECURSIVE folder_tree AS (
+        SELECT
+          root.id,
+          root.kind,
+          ARRAY[${command.rootFolderName}]::text[] AS path_parts,
+          ARRAY[root.id]::bigint[] AS visited_ids
+        FROM entries root
+        WHERE root.id = ${command.rootFolderId}
+          AND root.owner_id = ${command.ownerId}
+          AND root.kind = 'folder'
+          AND root.deleted_at IS NULL
+
+        UNION ALL
+
+        SELECT
+          child.id,
+          child.kind,
+          parent.path_parts || ARRAY[child.name]::text[],
+          parent.visited_ids || ARRAY[child.id]::bigint[]
+        FROM entries child
+        JOIN folder_tree parent
+          ON child.parent_id = parent.id
+          AND parent.kind = 'folder'
+        WHERE child.owner_id = ${command.ownerId}
+          AND child.deleted_at IS NULL
+          AND NOT (child.id = ANY(parent.visited_ids))
+      )
+      SELECT
+        tree.kind,
+        tree.path_parts AS "pathParts",
+        file.object_key as "objectKey",
+        file.size_bytes::text as "sizeBytes"
+      FROM folder_tree tree
+      LEFT JOIN files file
+        ON file.entry_id = tree.id
+      ORDER BY tree.path_parts, tree.id
+      `);
+
+    return result.rows.map((row) => {
+      if (row.kind === 'folder') {
+        return {
+          kind: 'folder',
+          pathParts: row.pathParts,
+        };
+      }
+
+      if (row.objectKey === null || row.sizeBytes === null) {
+        throw new Error('Archive file is missing metadata');
+      }
+
+      const sizeBytes = Number(row.sizeBytes);
+
+      if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) {
+        throw new Error('Archive file has invalid size');
+      }
+
+      return {
+        kind: 'file',
+        pathParts: row.pathParts,
+        objectKey: row.objectKey,
+        sizeBytes,
+      };
+    });
   }
 
   private activeAttemptCondition(id: number, attemptCount: number) {

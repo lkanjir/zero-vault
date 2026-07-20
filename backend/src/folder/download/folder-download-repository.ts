@@ -1,4 +1,4 @@
-import type { FolderDownload } from './folder-download.js';
+import type { FolderArchiveEntry, FolderDownload } from './folder-download.js';
 
 export type CreateFolderDownloadCommand = {
   downloadId: string;
@@ -35,6 +35,12 @@ export type MarkFolderDownloadFailedCommand = {
   finishedAt: Date;
 };
 
+export type GetFolderArchiveManifestCommand = {
+  ownerId: number;
+  rootFolderId: number;
+  rootFolderName: string;
+};
+
 export interface FolderDownloadRepository {
   create(command: CreateFolderDownloadCommand): Promise<FolderDownload>;
   findByOwnerAndDownloadId(ownerId: number, downloadId: string): Promise<FolderDownload | null>;
@@ -42,4 +48,5 @@ export interface FolderDownloadRepository {
   renewLease(command: RenewFolderDownloadLeaseCommand): Promise<boolean>;
   markReady(command: MarkFolderDownloadReadyCommand): Promise<boolean>;
   markFailed(command: MarkFolderDownloadFailedCommand): Promise<boolean>;
+  getArchiveManifest(command: GetFolderArchiveManifestCommand): Promise<FolderArchiveEntry[]>;
 }

@@ -17,3 +17,15 @@ export type FolderDownload = {
   leaseExpiresAt: Date | null;
   expiresAt: Date | null;
 };
+
+export type FolderArchiveEntry =
+  | {
+      kind: 'folder';
+      pathParts: string[];
+    }
+  | {
+      kind: 'file';
+      pathParts: string[];
+      objectKey: string;
+      sizeBytes: number;
+    };
