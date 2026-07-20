@@ -9,6 +9,7 @@ import {
   timestamp,
   pgEnum,
   foreignKey,
+  integer,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -182,5 +183,57 @@ export const files = pgTable(
     ),
     check('files_size_check', sql`${table.sizeBytes} > 0`),
     check('files_sha256_check', sql`${table.sha256} ~ '^[0-9a-f]{64}$'`),
+  ],
+);
+
+export const folderDownloadStatus = pgEnum('folder_download_status', [
+  'queued',
+  'processing',
+  'ready',
+  'failed',
+  'expired',
+]);
+
+export const folderDownloads = pgTable(
+  'folder_downloads',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    downloadId: uuid('download_id').notNull(),
+    ownerId: bigint('owner_id', { mode: 'number' }).notNull(),
+    folderId: bigint('folder_id', { mode: 'number' }).notNull(),
+    folderName: text('folder_name').notNull(),
+    archiveObjectKey: text('archive_object_key').notNull(),
+    status: folderDownloadStatus('status').default('queued').notNull(),
+    attemptCount: integer('attempt_count').default(0).notNull(),
+    archiveSizeBytes: bigint('archive_size_bytes', { mode: 'number' }),
+    failureCode: text('failure_code'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true, mode: 'date' }),
+    finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' }),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true, mode: 'date' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
+  },
+  (table) => [
+    unique('folder_downloads_download_id_key').on(table.downloadId),
+    unique('folder_downloads_archive_object_key_key').on(table.archiveObjectKey),
+    index('folder_downloads_queued_created_at_idx')
+      .on(table.createdAt)
+      .where(sql`${table.status} = 'queued'`),
+    index('folder_downloads_processing_lease_idx')
+      .on(table.leaseExpiresAt)
+      .where(sql`${table.status} = 'processing'`),
+    index('folder_downloads_ready_expires_at_idx')
+      .on(table.expiresAt)
+      .where(sql`${table.status} = 'ready'`),
+    foreignKey({
+      name: 'folder_downloads_owner_fk',
+      columns: [table.ownerId],
+      foreignColumns: [users.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'folder_downloads_folder_owner_fk',
+      columns: [table.folderId, table.ownerId],
+      foreignColumns: [entries.id, entries.ownerId],
+    }).onDelete('restrict'),
   ],
 );
