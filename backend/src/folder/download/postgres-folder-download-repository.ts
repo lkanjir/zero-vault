@@ -5,6 +5,9 @@ import type {
   ClaimNextFolderDownloadCommand,
   CreateFolderDownloadCommand,
   FolderDownloadRepository,
+  MarkFolderDownloadFailedCommand,
+  MarkFolderDownloadReadyCommand,
+  RenewFolderDownloadLeaseCommand,
 } from './folder-download-repository.js';
 import type { FolderDownload } from './folder-download.js';
 import { AppError } from '../../shared/errors/api/app-error.js';
@@ -106,6 +109,59 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
 
       return this.toDomain(claimed);
     });
+  }
+
+  async renewLease(command: RenewFolderDownloadLeaseCommand): Promise<boolean> {
+    const [updated] = await db
+      .update(folderDownloads)
+      .set({ leaseExpiresAt: command.leaseExpiresAt })
+      .where(this.activeAttemptCondition(command.id, command.attemptCount))
+      .returning({ id: folderDownloads.id });
+
+    return updated !== undefined;
+  }
+
+  async markReady(command: MarkFolderDownloadReadyCommand): Promise<boolean> {
+    const [updated] = await db
+      .update(folderDownloads)
+      .set({
+        status: 'ready',
+        archiveObjectKey: command.archiveObjectKey,
+        archiveSizeBytes: command.archiveSizeBytes,
+        finishedAt: command.finishedAt,
+        expiresAt: command.expiresAt,
+        leaseExpiresAt: null,
+        failureCode: null,
+      })
+      .where(this.activeAttemptCondition(command.id, command.attemptCount))
+      .returning({ id: folderDownloads.id });
+
+    return updated !== undefined;
+  }
+
+  async markFailed(command: MarkFolderDownloadFailedCommand): Promise<boolean> {
+    const [updated] = await db
+      .update(folderDownloads)
+      .set({
+        status: 'failed',
+        failureCode: command.failureCode,
+        finishedAt: command.finishedAt,
+        leaseExpiresAt: null,
+        archiveSizeBytes: null,
+        expiresAt: null,
+      })
+      .where(this.activeAttemptCondition(command.id, command.attemptCount))
+      .returning({ id: folderDownloads.id });
+
+    return updated !== undefined;
+  }
+
+  private activeAttemptCondition(id: number, attemptCount: number) {
+    return and(
+      eq(folderDownloads.id, id),
+      eq(folderDownloads.status, 'processing'),
+      eq(folderDownloads.attemptCount, attemptCount),
+    );
   }
 
   private toDomain(row: typeof folderDownloads.$inferSelect): FolderDownload {
