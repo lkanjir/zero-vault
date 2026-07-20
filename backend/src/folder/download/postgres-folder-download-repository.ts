@@ -1,7 +1,8 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, lte, or, sql } from 'drizzle-orm';
 import { db } from '../../db/db-client.js';
 import { entries, folderDownloads } from '../../db/schema.js';
 import type {
+  ClaimNextFolderDownloadCommand,
   CreateFolderDownloadCommand,
   FolderDownloadRepository,
 } from './folder-download-repository.js';
@@ -60,6 +61,51 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
       .limit(1);
 
     return row ? this.toDomain(row) : null;
+  }
+
+  async claimNext(command: ClaimNextFolderDownloadCommand): Promise<FolderDownload | null> {
+    return db.transaction(async (tx) => {
+      const [candidate] = await tx
+        .select({ id: folderDownloads.id })
+        .from(folderDownloads)
+        .where(
+          or(
+            eq(folderDownloads.status, 'queued'),
+            and(
+              eq(folderDownloads.status, 'processing'),
+              or(
+                isNull(folderDownloads.leaseExpiresAt),
+                lte(folderDownloads.leaseExpiresAt, command.claimedAt),
+              ),
+            ),
+          ),
+        )
+        .orderBy(folderDownloads.createdAt, folderDownloads.id)
+        .for('update', { skipLocked: true })
+        .limit(1);
+
+      if (!candidate) {
+        return null;
+      }
+
+      const [claimed] = await tx
+        .update(folderDownloads)
+        .set({
+          status: 'processing',
+          startedAt: command.claimedAt,
+          leaseExpiresAt: command.leaseExpiresAt,
+          attemptCount: sql`${folderDownloads.attemptCount} + 1`,
+          failureCode: null,
+        })
+        .where(eq(folderDownloads.id, candidate.id))
+        .returning();
+
+      if (!claimed) {
+        throw new Error('Failed to claim folder');
+      }
+
+      return this.toDomain(claimed);
+    });
   }
 
   private toDomain(row: typeof folderDownloads.$inferSelect): FolderDownload {

@@ -16,6 +16,8 @@ export type FolderRouterDeps = {
   folderDownloadService: FolderDownloadService;
 };
 
+const INITIAL_POLLING_INTERVAL_SECONDS = 2;
+
 export function createFolderRouter(deps: FolderRouterDeps): Router {
   const router = express.Router();
 
@@ -42,6 +44,8 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
         validated.params.folderId,
       );
 
+      res.location(`/api/folders/downloads/${result.downloadId}`);
+      res.setHeader('Retry-After', INITIAL_POLLING_INTERVAL_SECONDS.toString());
       res.status(202).json(result);
     }),
   );
@@ -53,6 +57,11 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
       const user = await deps.userService.resolveUser(principal);
 
       const result = await deps.folderDownloadService.getStatus(user, validated.params.downloadId);
+
+      res.setHeader('Cache-Control', 'no-store');
+      if (result.status === 'queued' || result.status === 'processing') {
+        res.setHeader('Retry-After', INITIAL_POLLING_INTERVAL_SECONDS.toString());
+      }
 
       res.status(200).json(result);
     }),
