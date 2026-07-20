@@ -2,6 +2,8 @@ export type StorageOperation =
   | 'create_upload_url'
   | 'create_download_url'
   | 'head_object'
+  | 'get_object_stream'
+  | 'upload_object_stream'
   | 'delete_object'
   | 'delete_objects';
 
