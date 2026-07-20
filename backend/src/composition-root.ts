@@ -10,6 +10,8 @@ import { UploadService } from './upload/upload-service.js';
 import { PostgresUserRepository } from './user/postgres-user-repository.js';
 import { UserService } from './user/user-service.js';
 import { UploadCleanupService } from './upload/upload-cleanup-service.js';
+import { FolderDownloadService } from './folder/download/folder-download-service.js';
+import { PostgresFolderDownloadRepository } from './folder/download/postgres-folder-download-repository.js';
 
 export function createCompositionRoot() {
   const storage = new S3ObjectStorage();
@@ -26,7 +28,10 @@ export function createCompositionRoot() {
 
   const entryRepository = new PostgresEntryRepository();
   const entryService = new EntryService(entryRepository);
+
   const folderService = new FolderService(entryRepository);
+  const folderDownloadRepository = new PostgresFolderDownloadRepository();
+  const folderDownloadService = new FolderDownloadService(folderDownloadRepository);
 
   const completeUploadUseCase = new CompleteUploadUseCase(uploadService);
 
@@ -38,5 +43,6 @@ export function createCompositionRoot() {
     downloadService,
     entryService,
     folderService,
+    folderDownloadService,
   };
 }
