@@ -33,7 +33,7 @@ export function createCompositionRoot() {
 
   const folderService = new FolderService(entryRepository);
   const folderDownloadRepository = new PostgresFolderDownloadRepository();
-  const folderDownloadService = new FolderDownloadService(folderDownloadRepository);
+  const folderDownloadService = new FolderDownloadService(folderDownloadRepository, storage);
   const folderArchiver = new StreamingFolderArchiver(storage);
   const folderDownloadProcessor = new FolderDownloadProcessor(
     folderDownloadRepository,

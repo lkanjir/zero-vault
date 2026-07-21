@@ -11,5 +11,11 @@ export type FolderDownloadStatusBase = {
 
 export type FolderDownloadStatusResponse =
   | (FolderDownloadStatusBase & { status: 'queued' | 'processing' })
-  | (FolderDownloadStatusBase & { status: 'ready'; sizeBytes: number; expiresAt: string })
+  | (FolderDownloadStatusBase & {
+      status: 'ready';
+      sizeBytes: number;
+      expiresAt: string;
+      downloadUrl: string;
+      expiresInSeconds: number;
+    })
   | (FolderDownloadStatusBase & { status: 'failed' | 'expired' });

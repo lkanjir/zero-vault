@@ -5,7 +5,7 @@ import type {
   CreateFolderArchiveResult,
   FolderArchiver,
 } from './folder-archiver.js';
-import type { Readable } from 'node:stream';
+import { PassThrough, type Readable } from 'node:stream';
 
 export class StreamingFolderArchiver implements FolderArchiver {
   constructor(private readonly storage: ObjectStorage) {}
@@ -15,12 +15,14 @@ export class StreamingFolderArchiver implements FolderArchiver {
       throw new Error('Folder archive manifest is empty');
     }
 
+    const uploadBody = new PassThrough();
     const archive = new ZipArchive({ forceZip64: true, store: true });
+    archive.pipe(uploadBody);
 
     const uploadPromise = this.storage.uploadObjectStream({
       objectKey: command.archiveObjectKey,
       contentType: 'application/zip',
-      body: archive,
+      body: uploadBody,
     });
 
     uploadPromise.catch((error) => archive.destroy(this.toError(error)));
@@ -47,7 +49,11 @@ export class StreamingFolderArchiver implements FolderArchiver {
         sizeBytes: archive.pointer(),
       };
     } catch (error) {
-      archive.destroy(this.toError(error));
+      const normalizedError = this.toError(error);
+
+      archive.destroy(normalizedError);
+      uploadBody.destroy(normalizedError);
+
       await uploadPromise.catch(() => undefined);
       throw error;
     }
