@@ -9,6 +9,8 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { apiErrorMessage } from '../../shared/api-error';
+import { Dialog } from '@angular/cdk/dialog';
+import { RenameDialogData, RenameEntryDialog } from './rename-entry-dialog/rename-entry-dialog';
 
 @Component({
   selector: 'app-drive',
@@ -20,6 +22,7 @@ export class Drive implements OnInit {
   readonly route = inject(ActivatedRoute);
   readonly destroyRef = inject(DestroyRef);
   readonly document = inject(DOCUMENT);
+  readonly dialog = inject(Dialog);
 
   private readonly _downloadEntryIds = signal<ReadonlySet<string>>(new Set());
   private readonly _downloadError = signal<string | null>(null);
@@ -87,7 +90,15 @@ export class Drive implements OnInit {
   }
 
   rename(selectedEntry: FolderEntry | FileEntry) {
-    throw new Error('Method not implemented.');
+    this.dialog.open(RenameEntryDialog, {
+      data: {
+        entry: selectedEntry,
+      },
+      width: 'calc(100vw-2rem)',
+      maxWidth: '28rem',
+      autoFocus: 'first-tabbable',
+      restoreFocus: true,
+    });
   }
 
   move(selectedEntry: FolderEntry | FileEntry) {

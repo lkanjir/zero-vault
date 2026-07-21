@@ -1,0 +1,50 @@
+<div class="w-md max-w-[90vw] rounded-lg bg-background p-6 shadow-xl">
+  <form [formRoot]="renameForm">
+    <h2 id="rename-entry-dialog-title" class="mb-4 text-lg font-bold">
+      {{ data.entry.kind === 'folder' ? 'Preimenuj direktorij' : 'Preimenuj datoteku' }}
+    </h2>
+
+    <label for="rename-entry-name" class="mb-2 block text-sm font-medium"> Novi naziv </label>
+
+    <input
+      id="rename-entry-name"
+      type="text"
+      [formField]="renameForm.name"
+      class="w-full rounded-md border border-border px-2 py-1 text-lg"
+    />
+
+    @if (renameForm.name().touched() && renameForm.name().invalid()) {
+      <ul id="rename-entry-name-errors" class="pt-2 text-sm text-danger">
+        @for (error of renameForm.name().errors(); track error) {
+          <li>{{ error.message }}</li>
+        }
+      </ul>
+    }
+
+    @if (renameForm().errors().length > 0) {
+      <ul role="alert" class="pt-2 text-sm text-danger">
+        @for (error of renameForm().errors(); track error) {
+          <li>{{ error.message }}</li>
+        }
+      </ul>
+    }
+
+    <div class="mt-5 flex justify-end gap-3">
+      <button
+        type="button"
+        class="h-10 rounded-md border border-border bg-background px-3 font-semibold"
+        (click)="closeDialog()"
+      >
+        Odustani
+      </button>
+
+      <button
+        type="submit"
+        [disabled]="renameForm().submitting()"
+        class="h-10 rounded-md bg-foreground px-3 text-sm font-semibold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {{ renameForm().submitting() ? 'Preimenovanje...' : 'Preimenuj' }}
+      </button>
+    </div>
+  </form>
+</div>

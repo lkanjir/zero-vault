@@ -1,6 +1,6 @@
 import { inject, Injectable, signal } from '@angular/core';
 import { FolderService } from './folder-service';
-import { EntryList } from './dto/entry';
+import { EntryList, EntryResponse } from './dto/entry';
 import {
   catchError,
   exhaustMap,
@@ -163,5 +163,27 @@ export class DriveStore {
         ),
       ),
     );
+  }
+
+  async renameEntry(entryId: string, name: string): Promise<Result<EntryResponse, ApiError>> {
+    const result = await firstValueFrom(
+      this.entryService.updateEntry(entryId, { name }).pipe(
+        map((updatedEntry): Result<EntryResponse, ApiError> => ({
+          ok: true,
+          value: updatedEntry,
+        })),
+        catchError((error) =>
+          of<Result<EntryResponse, ApiError>>({ ok: false, error: toApiError(error) }),
+        ),
+      ),
+    );
+
+    if (result.ok) {
+      this._entries.update((current) =>
+        current.map((entry) => (entry.id === result.value.id ? result.value : entry)),
+      );
+    }
+
+    return result;
   }
 }
