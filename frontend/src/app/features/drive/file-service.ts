@@ -1,7 +1,7 @@
 import { HttpClient, HttpEvent } from '@angular/common/http';
-import { inject, Inject, Injectable, Service } from '@angular/core';
+import { inject, Injectable } from '@angular/core';
 import { FileUploadRequest, UploadIntentRequest, UploadIntentResponse } from './dto/upload';
-import { Observable, ObservableLike } from 'rxjs';
+import { Observable } from 'rxjs';
 import { FileDownloadResponse, FileEntry } from './dto/file';
 
 @Injectable({ providedIn: 'root' })

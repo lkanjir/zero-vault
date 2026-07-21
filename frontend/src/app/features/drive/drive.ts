@@ -1,12 +1,12 @@
-import { Component, DestroyRef, inject, OnInit, Signal, signal } from '@angular/core';
+import { Component, DestroyRef, DOCUMENT, inject, OnInit } from '@angular/core';
 import { EntryItem } from './entry-item/entry-item';
 import { FileEntry } from './dto/file';
 import { FolderEntry } from './dto/folder';
-import { CdkContextMenuTrigger, CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
+import { CdkContextMenuTrigger, CdkMenu, CdkMenuItem } from '@angular/cdk/menu';
 import { Icon } from '../../shared/icon/icon';
 import { DriveStore } from './drive-store';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { distinctUntilChanged, map, Observable } from 'rxjs';
+import { distinctUntilChanged, map } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 @Component({
@@ -18,6 +18,7 @@ export class Drive implements OnInit {
   readonly store = inject(DriveStore);
   readonly route = inject(ActivatedRoute);
   readonly destroyRef = inject(DestroyRef);
+  readonly document = inject(DOCUMENT);
 
   ngOnInit(): void {
     this.route.paramMap
@@ -33,8 +34,25 @@ export class Drive implements OnInit {
     this.store.reload();
   }
 
-  download(selectedEntry: FolderEntry | FileEntry) {
-    // this.store.download(selectedEntry);
+  async download(selectedEntry: FolderEntry | FileEntry) {
+    if (selectedEntry.kind !== 'file') {
+      return;
+    }
+
+    const result = await this.store.getFileDownloadUrl(selectedEntry.id);
+
+    if (!result.ok) {
+      console.error('File download failed', result.error);
+      return;
+    }
+
+    const link = this.document.createElement('a');
+    link.href = result.value;
+    link.style.display = 'none';
+
+    this.document.body.append(link);
+    link.click();
+    link.remove();
   }
 
   rename(selectedEntry: FolderEntry | FileEntry) {

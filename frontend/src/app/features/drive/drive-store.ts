@@ -95,7 +95,17 @@ export class DriveStore {
     return result;
   }
 
-  // async download(entry: Folder | FileEntry): Promise<string> {
-  //   const result = await firstValueFrom(this.fileService.getDownloadUrl(entry.id).pipe());
-  // }
+  async getFileDownloadUrl(fileId: string): Promise<Result<string, ApiError>> {
+    return firstValueFrom(
+      this.fileService.getDownloadUrl(fileId).pipe(
+        map((response): Result<string, ApiError> => ({
+          ok: true,
+          value: response.downloadUrl,
+        })),
+        catchError((error) =>
+          of<Result<string, ApiError>>({ ok: false, error: toApiError(error) }),
+        ),
+      ),
+    );
+  }
 }
