@@ -1,13 +1,33 @@
 import { inject, Injectable, signal } from '@angular/core';
 import { FolderService } from './folder-service';
 import { EntryList } from './dto/entry';
-import { catchError, finalize, firstValueFrom, map, of, Subscription } from 'rxjs';
+import {
+  catchError,
+  exhaustMap,
+  filter,
+  finalize,
+  firstValueFrom,
+  map,
+  of,
+  Subscription,
+  switchMap,
+  take,
+  timer,
+} from 'rxjs';
 import { EntryService } from './entry-service';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiError, apiErrorMessage, toApiError } from '../../shared/api-error';
 import { Result } from '../../shared/result';
 import { FolderEntry } from './dto/folder';
 import { FileService } from './file-service';
+import { FolderDownloadStatusResponse } from './dto/folder-download';
+
+const DOWNLOAD_POLL_INTERVAL_MS = 2000;
+
+type TerminalFolderDownloadStatus = Exclude<
+  FolderDownloadStatusResponse,
+  { status: 'queued' | 'processing' }
+>;
 
 @Injectable({ providedIn: 'root' })
 export class DriveStore {
@@ -102,6 +122,42 @@ export class DriveStore {
           ok: true,
           value: response.downloadUrl,
         })),
+        catchError((error) =>
+          of<Result<string, ApiError>>({ ok: false, error: toApiError(error) }),
+        ),
+      ),
+    );
+  }
+
+  async getFolderDownloadUrl(folderId: string): Promise<Result<string, ApiError>> {
+    return firstValueFrom(
+      this.folderService.createDownload(folderId).pipe(
+        switchMap(({ downloadId }) =>
+          timer(0, DOWNLOAD_POLL_INTERVAL_MS).pipe(
+            exhaustMap(() => this.folderService.getDownloadStatus(downloadId)),
+            filter(
+              (status): status is TerminalFolderDownloadStatus =>
+                status.status !== 'queued' && status.status !== 'processing',
+            ),
+            take(1),
+            map((status): Result<string, ApiError> => {
+              if (status.status === 'ready') {
+                return {
+                  ok: true,
+                  value: status.downloadUrl,
+                };
+              }
+
+              return {
+                ok: false,
+                error: {
+                  status: -1,
+                  code: `folder_download_${status.status}`,
+                },
+              };
+            }),
+          ),
+        ),
         catchError((error) =>
           of<Result<string, ApiError>>({ ok: false, error: toApiError(error) }),
         ),

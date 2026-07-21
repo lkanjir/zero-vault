@@ -34,15 +34,14 @@ export class Drive implements OnInit {
     this.store.reload();
   }
 
-  async download(selectedEntry: FolderEntry | FileEntry) {
-    if (selectedEntry.kind !== 'file') {
-      return;
-    }
-
-    const result = await this.store.getFileDownloadUrl(selectedEntry.id);
+  async download(selectedEntry: FolderEntry | FileEntry): Promise<void> {
+    const result =
+      selectedEntry.kind === 'file'
+        ? await this.store.getFileDownloadUrl(selectedEntry.id)
+        : await this.store.getFolderDownloadUrl(selectedEntry.id);
 
     if (!result.ok) {
-      console.error('File download failed', result.error);
+      console.error('Download failed', result.error);
       return;
     }
 
