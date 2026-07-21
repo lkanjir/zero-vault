@@ -1,4 +1,4 @@
-import { Component, DestroyRef, DOCUMENT, inject, OnInit } from '@angular/core';
+import { Component, DestroyRef, DOCUMENT, inject, OnInit, signal } from '@angular/core';
 import { EntryItem } from './entry-item/entry-item';
 import { FileEntry } from './dto/file';
 import { FolderEntry } from './dto/folder';
@@ -8,6 +8,7 @@ import { DriveStore } from './drive-store';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { apiErrorMessage } from '../../shared/api-error';
 
 @Component({
   selector: 'app-drive',
@@ -20,6 +21,12 @@ export class Drive implements OnInit {
   readonly destroyRef = inject(DestroyRef);
   readonly document = inject(DOCUMENT);
 
+  private readonly _downloadEntryIds = signal<ReadonlySet<string>>(new Set());
+  private readonly _downloadError = signal<string | null>(null);
+
+  readonly downloadEntryIds = this._downloadEntryIds.asReadonly();
+  readonly downloadError = this._downloadError.asReadonly();
+
   ngOnInit(): void {
     this.route.paramMap
       .pipe(
@@ -30,28 +37,53 @@ export class Drive implements OnInit {
       .subscribe((folderId) => this.store.loadFolder(folderId));
   }
 
-  retry() {
+  retry(): void {
     this.store.reload();
   }
 
   async download(selectedEntry: FolderEntry | FileEntry): Promise<void> {
-    const result =
-      selectedEntry.kind === 'file'
-        ? await this.store.getFileDownloadUrl(selectedEntry.id)
-        : await this.store.getFolderDownloadUrl(selectedEntry.id);
-
-    if (!result.ok) {
-      console.error('Download failed', result.error);
+    if (this.isDownloading(selectedEntry.id)) {
       return;
     }
 
-    const link = this.document.createElement('a');
-    link.href = result.value;
-    link.style.display = 'none';
+    this._downloadError.set(null);
+    this._downloadEntryIds.update((current) => {
+      const next = new Set(current);
+      next.add(selectedEntry.id);
+      return next;
+    });
 
-    this.document.body.append(link);
-    link.click();
-    link.remove();
+    try {
+      const result =
+        selectedEntry.kind === 'file'
+          ? await this.store.getFileDownloadUrl(selectedEntry.id)
+          : await this.store.getFolderDownloadUrl(selectedEntry.id);
+
+      if (!result.ok) {
+        this._downloadError.set(apiErrorMessage(result.error, 'Preuzimanje nije uspjelo.'));
+        return;
+      }
+
+      const link = this.document.createElement('a');
+      link.href = result.value;
+      link.style.display = 'none';
+
+      this.document.body.append(link);
+      link.click();
+      link.remove();
+    } catch {
+      this._downloadError.set('Preuzimanje nije uspjelo.');
+    } finally {
+      this._downloadEntryIds.update((current) => {
+        const next = new Set(current);
+        next.delete(selectedEntry.id);
+        return next;
+      });
+    }
+  }
+
+  isDownloading(entryId: string): boolean {
+    return this._downloadEntryIds().has(entryId);
   }
 
   rename(selectedEntry: FolderEntry | FileEntry) {

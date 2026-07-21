@@ -38,6 +38,16 @@
     </ol>
   </nav>
 
+  @if (downloadError()) {
+    <p class="mb-4 px-4 text-sm text-danger">
+      {{ downloadError() }}
+    </p>
+  }
+
+  @if (downloadEntryIds().size > 0) {
+    <p role="status" class="mb-4 px-4 text-sm text-foreground-muted">Pripremanje preuzimanja…</p>
+  }
+
   <table class="w-full table-auto text-left">
     <thead class="border-b border-border text-sm text-foreground-muted">
       <tr>
@@ -79,8 +89,9 @@
               <button
                 cdkMenuItem
                 type="button"
-                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
+                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
                 (cdkMenuItemTriggered)="download(entry)"
+                [disabled]="isDownloading(entry.id)"
               >
                 <app-icon [name]="'download'" [size]="16" />
                 <span>Preuzmi</span>
