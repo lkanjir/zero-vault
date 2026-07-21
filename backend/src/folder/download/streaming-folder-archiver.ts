@@ -14,7 +14,7 @@ export class StreamingFolderArchiver implements FolderArchiver {
     if (command.entries.length === 0) {
       throw new Error('Folder archive manifest is empty');
     }
-    
+
     const archive = new ZipArchive({ forceZip64: true, store: true });
 
     const uploadPromise = this.storage.uploadObjectStream({

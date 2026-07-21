@@ -12,6 +12,8 @@ import { UserService } from './user/user-service.js';
 import { UploadCleanupService } from './upload/upload-cleanup-service.js';
 import { FolderDownloadService } from './folder/download/folder-download-service.js';
 import { PostgresFolderDownloadRepository } from './folder/download/postgres-folder-download-repository.js';
+import { StreamingFolderArchiver } from './folder/download/streaming-folder-archiver.js';
+import { FolderDownloadProcessor } from './folder/download/folder-download-processor.js';
 
 export function createCompositionRoot() {
   const storage = new S3ObjectStorage();
@@ -32,6 +34,11 @@ export function createCompositionRoot() {
   const folderService = new FolderService(entryRepository);
   const folderDownloadRepository = new PostgresFolderDownloadRepository();
   const folderDownloadService = new FolderDownloadService(folderDownloadRepository);
+  const folderArchiver = new StreamingFolderArchiver(storage);
+  const folderDownloadProcessor = new FolderDownloadProcessor(
+    folderDownloadRepository,
+    folderArchiver,
+  );
 
   const completeUploadUseCase = new CompleteUploadUseCase(uploadService);
 
@@ -44,5 +51,6 @@ export function createCompositionRoot() {
     entryService,
     folderService,
     folderDownloadService,
+    folderDownloadProcessor,
   };
 }
