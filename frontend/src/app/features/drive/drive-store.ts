@@ -19,8 +19,8 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ApiError, apiErrorMessage, toApiError } from '../../shared/api-error';
 import { Result } from '../../shared/result';
 import { FolderEntry } from './dto/folder';
-import { FileService } from './file-service';
 import { FolderDownloadStatusResponse } from './dto/folder-download';
+import { FileApi } from './api/file-api';
 
 const DOWNLOAD_POLL_INTERVAL_MS = 2000;
 
@@ -31,9 +31,10 @@ type TerminalFolderDownloadStatus = Exclude<
 
 @Injectable({ providedIn: 'root' })
 export class DriveStore {
+  private readonly fileApi = inject(FileApi);
+
   private readonly entryService = inject(EntryService);
   private readonly folderService = inject(FolderService);
-  private readonly fileService = inject(FileService);
 
   private readonly _path = signal<EntryList['path']>([]);
   private readonly _parentId = signal<string | null>(null);
@@ -117,7 +118,7 @@ export class DriveStore {
 
   async getFileDownloadUrl(fileId: string): Promise<Result<string, ApiError>> {
     return firstValueFrom(
-      this.fileService.getDownloadUrl(fileId).pipe(
+      this.fileApi.getDownloadUrl(fileId).pipe(
         map((response): Result<string, ApiError> => ({
           ok: true,
           value: response.downloadUrl,

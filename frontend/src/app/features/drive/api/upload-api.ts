@@ -1,18 +1,18 @@
 import { HttpClient, HttpEvent } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
-import { FileUploadRequest, UploadIntentRequest, UploadIntentResponse } from './dto/upload';
+import { FileUploadRequest, UploadIntentRequest, UploadIntentResponse } from '../dto/upload';
 import { Observable } from 'rxjs';
-import { FileDownloadResponse, FileEntry } from './dto/file';
+import { FileEntry } from '../dto/file';
 
 @Injectable({ providedIn: 'root' })
-export class FileService {
+export class UploadApi {
   private readonly http = inject(HttpClient);
 
-  getPresignedUrl(request: UploadIntentRequest): Observable<UploadIntentResponse> {
+  createIntent(request: UploadIntentRequest): Observable<UploadIntentResponse> {
     return this.http.post<UploadIntentResponse>('/api/uploads/presign', request);
   }
 
-  uploadFile(request: FileUploadRequest): Observable<HttpEvent<void>> {
+  upload(request: FileUploadRequest): Observable<HttpEvent<void>> {
     return this.http.put<void>(request.url, request.file, {
       headers: request.headers,
       observe: 'events',
@@ -20,13 +20,8 @@ export class FileService {
     });
   }
 
-  completeRequest(uploadId: string): Observable<FileEntry> {
+  complete(uploadId: string): Observable<FileEntry> {
     const encoded = encodeURIComponent(uploadId);
     return this.http.post<FileEntry>(`/api/uploads/${encoded}/complete`, null);
-  }
-
-  getDownloadUrl(fileId: string): Observable<FileDownloadResponse> {
-    const encoded = encodeURIComponent(fileId);
-    return this.http.post<FileDownloadResponse>(`/api/files/${encoded}/download-url`, null);
   }
 }

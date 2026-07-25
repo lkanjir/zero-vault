@@ -1,5 +1,4 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
-import { FileService } from '../file-service';
 import { TransferFailure, UploadTransfer } from './transfer';
 import { FileUploadRequest, UploadIntentRequest } from '../dto/upload';
 import { Result } from '../../../shared/result';
@@ -8,12 +7,13 @@ import { HttpEventType } from '@angular/common/http';
 import { apiErrorMessage, toApiError } from '../../../shared/api-error';
 import { calcualteSha256 } from '../../../shared/util/sha256';
 import { FileEntry } from '../dto/file';
+import { UploadApi } from '../api/upload-api';
 
 type FailureContext = 'preparing' | 'presigning' | 'uploading' | 'finalizing';
 
 @Injectable({ providedIn: 'root' })
 export class TransferStore {
-  private readonly fileService = inject(FileService);
+  private readonly uploadApi = inject(UploadApi);
 
   private readonly _transfers = signal<UploadTransfer[]>([]);
 
@@ -58,7 +58,7 @@ export class TransferStore {
         parentFolderId: targetParentId,
       };
 
-      const intent = await firstValueFrom(this.fileService.getPresignedUrl(intentRequest));
+      const intent = await firstValueFrom(this.uploadApi.createIntent(intentRequest));
 
       this.patch(transferId, { uploadId: intent.uploadId, phase: 'uploading', progress: 0 });
       failureContext = 'uploading';
@@ -75,7 +75,7 @@ export class TransferStore {
       const uploadStartedAt = performance.now();
 
       await lastValueFrom(
-        this.fileService.uploadFile(uploadRequest).pipe(
+        this.uploadApi.upload(uploadRequest).pipe(
           tap((event) => {
             if (event.type !== HttpEventType.UploadProgress) return;
 
@@ -97,7 +97,7 @@ export class TransferStore {
         bytesPerSecond: null,
       });
 
-      const completed = await firstValueFrom(this.fileService.completeRequest(intent.uploadId));
+      const completed = await firstValueFrom(this.uploadApi.complete(intent.uploadId));
       this.patch(transferId, { phase: 'completed', bytesPerSecond: null, progress: 100 });
       return { ok: true, value: completed };
     } catch (error) {
