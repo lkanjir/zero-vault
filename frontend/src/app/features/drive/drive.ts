@@ -94,7 +94,7 @@ export class Drive implements OnInit {
       data: {
         entry: selectedEntry,
       },
-      width: 'calc(100vw-2rem)',
+      width: 'calc(100vw - 2rem)',
       maxWidth: '28rem',
       autoFocus: 'first-tabbable',
       restoreFocus: true,

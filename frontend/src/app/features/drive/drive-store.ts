@@ -186,4 +186,35 @@ export class DriveStore {
 
     return result;
   }
+
+  async moveEntry(
+    entryId: string,
+    targetParentId: string | null,
+  ): Promise<Result<EntryResponse, ApiError>> {
+    const sourceParentId = this._parentId();
+
+    const result = await firstValueFrom(
+      this.entryService.updateEntry(entryId, { parentId: targetParentId }).pipe(
+        map((updatedEntry): Result<EntryResponse, ApiError> => ({
+          ok: true,
+          value: updatedEntry,
+        })),
+        catchError((error) =>
+          of<Result<EntryResponse, ApiError>>({ ok: false, error: toApiError(error) }),
+        ),
+      ),
+    );
+
+    if (result.ok && this._parentId() === sourceParentId) {
+      if (targetParentId === sourceParentId) {
+        this._entries.update((current) =>
+          current.map((entry) => (entry.id === result.value.id ? result.value : entry)),
+        );
+      } else {
+        this._entries.update((current) => current.filter((entry) => entry.id !== result.value.id));
+      }
+    }
+
+    return result;
+  }
 }
