@@ -1,13 +1,13 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
-import { TransferFailure, UploadTransfer } from './transfer';
-import { FileUploadRequest, UploadIntentRequest } from '../dto/upload';
 import { Result } from '../../../shared/result';
 import { firstValueFrom, lastValueFrom, tap } from 'rxjs';
 import { HttpEventType } from '@angular/common/http';
 import { apiErrorMessage, toApiError } from '../../../shared/api-error';
 import { calcualteSha256 } from '../../../shared/util/sha256';
-import { UploadApi } from '../api/upload-api';
 import { FileEntry } from '../../../data-access/entries/entry-models';
+import { UploadApi } from '../data-access/upload-api';
+import { TransferFailure, UploadTransfer } from './transfer-models';
+import { FileUploadRequest, UploadIntentRequest } from '../data-access/upload-models';
 
 type FailureContext = 'preparing' | 'presigning' | 'uploading' | 'finalizing';
 
