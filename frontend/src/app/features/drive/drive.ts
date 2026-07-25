@@ -10,6 +10,7 @@ import { apiErrorMessage } from '../../shared/api-error';
 import { Dialog } from '@angular/cdk/dialog';
 import { RenameEntryDialog } from './rename-entry-dialog/rename-entry-dialog';
 import { FileEntry, FolderEntry } from '../../data-access/entries/entry-models';
+import { EntryDownloadService } from './actions/download/entry-download-service';
 
 @Component({
   selector: 'app-drive',
@@ -18,6 +19,8 @@ import { FileEntry, FolderEntry } from '../../data-access/entries/entry-models';
 })
 export class Drive implements OnInit {
   readonly store = inject(DriveStore);
+  readonly entryDownloadService = inject(EntryDownloadService);
+
   readonly route = inject(ActivatedRoute);
   readonly destroyRef = inject(DestroyRef);
   readonly document = inject(DOCUMENT);
@@ -56,11 +59,7 @@ export class Drive implements OnInit {
     });
 
     try {
-      const result =
-        selectedEntry.kind === 'file'
-          ? await this.store.getFileDownloadUrl(selectedEntry.id)
-          : await this.store.getFolderDownloadUrl(selectedEntry.id);
-
+      const result = await this.entryDownloadService.prepareDownload(selectedEntry);
       if (!result.ok) {
         this._downloadError.set(apiErrorMessage(result.error, 'Preuzimanje nije uspjelo.'));
         return;
