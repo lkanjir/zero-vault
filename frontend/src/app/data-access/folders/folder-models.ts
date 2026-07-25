@@ -1,3 +1,8 @@
+export type CreateFolderRequest = {
+  name: string;
+  parentId: string | null;
+};
+
 export type CreateFolderDownloadResponse = {
   downloadId: string;
   fileName: string;

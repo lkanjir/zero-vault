@@ -1,12 +1,15 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
-import { CreateFolderRequest } from './create-folder-request';
-import { CreateFolderDownloadResponse, FolderDownloadStatusResponse } from './dto/folder-download';
-import { FolderEntry } from '../../data-access/entries/entry-models';
+import {
+  CreateFolderDownloadResponse,
+  CreateFolderRequest,
+  FolderDownloadStatusResponse,
+} from './folder-models';
+import { FolderEntry } from '../entries/entry-models';
 
 @Injectable({ providedIn: 'root' })
-export class FolderService {
+export class FolderApi {
   private readonly http = inject(HttpClient);
 
   createFolder(request: CreateFolderRequest): Observable<FolderEntry> {

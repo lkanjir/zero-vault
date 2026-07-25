@@ -1,5 +1,4 @@
 import { inject, Injectable, signal } from '@angular/core';
-import { FolderService } from './folder-service';
 import {
   catchError,
   exhaustMap,
@@ -13,13 +12,14 @@ import {
   take,
   timer,
 } from 'rxjs';
-import { EntryService } from './entry-service';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiError, apiErrorMessage, toApiError } from '../../shared/api-error';
 import { Result } from '../../shared/result';
-import { FolderDownloadStatusResponse } from './dto/folder-download';
 import { FileApi } from '../../data-access/files/file-api';
 import { EntryList, EntryResponse, FolderEntry } from '../../data-access/entries/entry-models';
+import { FolderDownloadStatusResponse } from '../../data-access/folders/folder-models';
+import { EntryApi } from '../../data-access/entries/entry-api';
+import { FolderApi } from '../../data-access/folders/folder-api';
 
 const DOWNLOAD_POLL_INTERVAL_MS = 2000;
 
@@ -32,8 +32,8 @@ type TerminalFolderDownloadStatus = Exclude<
 export class DriveStore {
   private readonly fileApi = inject(FileApi);
 
-  private readonly entryService = inject(EntryService);
-  private readonly folderService = inject(FolderService);
+  private readonly entryApi = inject(EntryApi);
+  private readonly folderApi = inject(FolderApi);
 
   private readonly _path = signal<EntryList['path']>([]);
   private readonly _parentId = signal<string | null>(null);
@@ -68,7 +68,7 @@ export class DriveStore {
     this._parentId.set(parentId);
     this._error.set(null);
 
-    this.loadSubscription = this.entryService
+    this.loadSubscription = this.entryApi
       .getEntries({ parentId: parentId, cursor: null, limit: 50 })
       .pipe(finalize(() => this._loading.set(false)))
       .subscribe({
@@ -100,7 +100,7 @@ export class DriveStore {
     const targetParentId = this._parentId();
 
     const result = await firstValueFrom(
-      this.folderService.createFolder({ name: name, parentId: targetParentId }).pipe(
+      this.folderApi.createFolder({ name: name, parentId: targetParentId }).pipe(
         map((folder): Result<FolderEntry, ApiError> => ({ ok: true, value: folder })),
         catchError((error) =>
           of<Result<FolderEntry, ApiError>>({ ok: false, error: toApiError(error) }),
@@ -131,10 +131,10 @@ export class DriveStore {
 
   async getFolderDownloadUrl(folderId: string): Promise<Result<string, ApiError>> {
     return firstValueFrom(
-      this.folderService.createDownload(folderId).pipe(
+      this.folderApi.createDownload(folderId).pipe(
         switchMap(({ downloadId }) =>
           timer(0, DOWNLOAD_POLL_INTERVAL_MS).pipe(
-            exhaustMap(() => this.folderService.getDownloadStatus(downloadId)),
+            exhaustMap(() => this.folderApi.getDownloadStatus(downloadId)),
             filter(
               (status): status is TerminalFolderDownloadStatus =>
                 status.status !== 'queued' && status.status !== 'processing',
@@ -167,7 +167,7 @@ export class DriveStore {
 
   async renameEntry(entryId: string, name: string): Promise<Result<EntryResponse, ApiError>> {
     const result = await firstValueFrom(
-      this.entryService.updateEntry(entryId, { name }).pipe(
+      this.entryApi.updateEntry(entryId, { name }).pipe(
         map((updatedEntry): Result<EntryResponse, ApiError> => ({
           ok: true,
           value: updatedEntry,
@@ -194,7 +194,7 @@ export class DriveStore {
     const sourceParentId = this._parentId();
 
     const result = await firstValueFrom(
-      this.entryService.updateEntry(entryId, { parentId: targetParentId }).pipe(
+      this.entryApi.updateEntry(entryId, { parentId: targetParentId }).pipe(
         map((updatedEntry): Result<EntryResponse, ApiError> => ({
           ok: true,
           value: updatedEntry,

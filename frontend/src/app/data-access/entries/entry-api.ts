@@ -1,17 +1,12 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
-import { EntryRequestParams } from './entry-request-params';
-import {
-  EntryList,
-  EntryResponse,
-  EntryUpdateRequest,
-} from '../../data-access/entries/entry-models';
+import { EntryList, EntryRequestParams, EntryResponse, EntryUpdateRequest } from './entry-models';
 
 @Injectable({
   providedIn: 'root',
 })
-export class EntryService {
+export class EntryApi {
   private readonly http = inject(HttpClient);
 
   getEntries(params: EntryRequestParams): Observable<EntryList> {

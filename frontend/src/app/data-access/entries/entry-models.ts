@@ -28,3 +28,9 @@ export type EntryList = CursorPage<EntryResponse> & {
 };
 
 export type EntryUpdateRequest = { name: string } | { parentId: string | null };
+
+export type EntryRequestParams = {
+  parentId: string | null;
+  cursor: string | null;
+  limit: number;
+};
