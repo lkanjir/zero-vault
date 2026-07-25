@@ -1,4 +1,5 @@
 import {
+  AfterViewInit,
   Component,
   DestroyRef,
   DOCUMENT,
@@ -28,6 +29,8 @@ import { DatePipe } from '@angular/common';
 import { FileSizePipe } from '../../shared/pipes/file-size-pipe';
 import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
 
+const LOAD_MORE_THRESHOLD = 10;
+
 @Component({
   selector: 'app-drive',
   imports: [
@@ -43,7 +46,7 @@ import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrollin
   ],
   templateUrl: './drive.html',
 })
-export class Drive implements OnInit {
+export class Drive implements OnInit, AfterViewInit {
   readonly store = inject(DriveStore);
   readonly entryDownloadService = inject(EntryDownloadService);
 
@@ -73,6 +76,28 @@ export class Drive implements OnInit {
         this.viewport()?.scrollToIndex(0);
         this.store.loadFolder(folderId);
       });
+  }
+
+  ngAfterViewInit(): void {
+    const viewport = this.viewport();
+
+    if (!viewport) {
+      return;
+    }
+
+    viewport.renderedRangeStream.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ end }) => {
+      const loadedCount = this.store.entries().length;
+
+      if (loadedCount === 0) {
+        return;
+      }
+
+      const remainingCount = loadedCount - end;
+
+      if (remainingCount <= LOAD_MORE_THRESHOLD) {
+        this.store.loadMore();
+      }
+    });
   }
 
   retry(): void {
