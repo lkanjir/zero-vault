@@ -31,17 +31,19 @@ export class AppShell {
 
   async onFileChanged(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
-    const file = input.files?.item(0);
+    const files = Array.from(input.files ?? []);
 
     input.value = '';
-    if (!file) return;
+    if (files.length === 0) {
+      return;
+    }
 
     const targetParentId = this.driveStore.parentId();
     this.transfersOpen.set(true);
 
-    const result = await this.transferStore.startUpload(file, targetParentId);
+    const result = await this.transferStore.startUploads(files, targetParentId);
 
-    if (result.ok) {
+    if (result.some((result) => result.ok)) {
       this.driveStore.reloadIfCurrent(targetParentId);
     }
   }

@@ -39,7 +39,7 @@ import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrollin
     CdkTableModule,
     DatePipe,
     FileSizePipe,
-    ScrollingModule
+    ScrollingModule,
   ],
   templateUrl: './drive.html',
 })
@@ -58,9 +58,9 @@ export class Drive implements OnInit {
   readonly downloadEntryIds = this._downloadEntryIds.asReadonly();
   readonly downloadError = this._downloadError.asReadonly();
   readonly displayedColumns = ['name', 'size', 'updatedAt'];
-  
+
   readonly trackEntry: TrackByFunction<EntryResponse> = (_index, entry) => entry.id;
-  readonly viewport = viewChild(CdkVirtualScrollViewport); 
+  readonly viewport = viewChild(CdkVirtualScrollViewport);
 
   ngOnInit(): void {
     this.route.paramMap

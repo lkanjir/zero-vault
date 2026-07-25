@@ -1,6 +1,6 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { Result } from '../../../shared/result';
-import { firstValueFrom, lastValueFrom, tap } from 'rxjs';
+import { firstValueFrom, from, lastValueFrom, mergeMap, tap, toArray } from 'rxjs';
 import { HttpEventType } from '@angular/common/http';
 import { apiErrorMessage, toApiError } from '../../../shared/api-error';
 import { calcualteSha256 } from '../../../shared/util/sha256';
@@ -10,6 +10,8 @@ import { TransferFailure, UploadTransfer } from './transfer-models';
 import { FileUploadRequest, UploadIntentRequest } from '../data-access/upload-models';
 
 type FailureContext = 'preparing' | 'presigning' | 'uploading' | 'finalizing';
+
+const MAX_CONCURRENT_UPLOADS = 3;
 
 @Injectable({ providedIn: 'root' })
 export class TransferStore {
@@ -107,6 +109,18 @@ export class TransferStore {
 
       return { ok: false, error: failure };
     }
+  }
+
+  async startUploads(
+    files: readonly File[],
+    targetParentId: string | null,
+  ): Promise<Result<FileEntry, TransferFailure>[]> {
+    return lastValueFrom(
+      from(files).pipe(
+        mergeMap((file) => this.startUpload(file, targetParentId), MAX_CONCURRENT_UPLOADS),
+        toArray(),
+      ),
+    );
   }
 
   remove(transferId: string): void {

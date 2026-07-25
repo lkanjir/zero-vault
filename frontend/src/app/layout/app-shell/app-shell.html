@@ -11,7 +11,7 @@
         (uploadFileRequested)="fileInput.click()"
       />
 
-      <input type="file" #fileInput hidden (change)="onFileChanged($event)" />
+      <input type="file" #fileInput hidden (change)="onFileChanged($event)" multiple />
     </header>
 
     <main class="min-h-0 flex-1 overflow-hidden">
