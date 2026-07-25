@@ -5,6 +5,8 @@ import { apiErrorMessage, toApiError } from '../../../shared/api-error';
 import { EntryList } from '../../../data-access/entries/entry-models';
 import { EntryApi } from '../../../data-access/entries/entry-api';
 
+const ENTRY_PAGE_SIZE = 50;
+
 @Injectable({ providedIn: 'root' })
 export class DriveStore {
   private readonly entryApi = inject(EntryApi);
@@ -16,6 +18,8 @@ export class DriveStore {
   private readonly _error = signal<string | null>(null);
   private readonly _nextCursor = signal<string | null>(null);
   private readonly _hasMore = signal(false);
+  private readonly _loadingMore = signal(false);
+  private readonly _loadMoreError = signal<string | null>(null);
 
   readonly path = this._path.asReadonly();
   readonly parentId = this._parentId.asReadonly();
@@ -24,26 +28,30 @@ export class DriveStore {
   readonly error = this._error.asReadonly();
   readonly nextCursor = this._nextCursor.asReadonly();
   readonly hasMore = this._hasMore.asReadonly();
+  readonly loadingMore = this._loadingMore.asReadonly();
+  readonly loadMoreError = this._loadMoreError.asReadonly();
 
   private loadSubscription?: Subscription;
+  private loadMoreSubscription?: Subscription;
+
   loadFolder(parentId: string | null): void {
     this.loadSubscription?.unsubscribe();
+    this.loadMoreSubscription?.unsubscribe();
 
     const folderChanged = this._parentId() !== parentId;
 
     if (folderChanged) {
       this._path.set([]);
       this._entries.set([]);
-      this._nextCursor.set(null);
-      this._hasMore.set(false);
     }
 
+    this.resetPagination();
     this._loading.set(true);
     this._parentId.set(parentId);
     this._error.set(null);
 
     this.loadSubscription = this.entryApi
-      .getEntries({ parentId: parentId, cursor: null, limit: 50 })
+      .getEntries({ parentId: parentId, cursor: null, limit: ENTRY_PAGE_SIZE })
       .pipe(finalize(() => this._loading.set(false)))
       .subscribe({
         next: (response) => {
@@ -68,5 +76,70 @@ export class DriveStore {
     if (this._parentId() === parentId) {
       this.reload();
     }
+  }
+
+  loadMore(): void {
+    if (this._loading() || this._loadingMore() || !this._hasMore()) {
+      return;
+    }
+
+    const parentId = this._parentId();
+    const cursor = this._nextCursor();
+
+    if (cursor === null) {
+      return;
+    }
+
+    this._loadingMore.set(true);
+    this._loadMoreError.set(null);
+
+    this.loadMoreSubscription = this.entryApi
+      .getEntries({
+        parentId,
+        cursor,
+        limit: ENTRY_PAGE_SIZE,
+      })
+      .pipe(finalize(() => this._loadingMore.set(false)))
+      .subscribe({
+        next: (response) => {
+          if (this._parentId() !== parentId || this._nextCursor() !== cursor) {
+            return;
+          }
+
+          this._entries.update((current) => {
+            const existingIds = new Set(current.map((entry) => entry.id));
+
+            const newEntries = response.items.filter((entry) => {
+              if (existingIds.has(entry.id)) {
+                return false;
+              }
+
+              existingIds.add(entry.id);
+              return true;
+            });
+
+            return [...current, ...newEntries];
+          });
+
+          this._nextCursor.set(response.page.nextCursor);
+          this._hasMore.set(response.page.hasMore);
+        },
+        error: (error: HttpErrorResponse) => {
+          if (this._parentId() !== parentId || this._nextCursor() !== cursor) {
+            return;
+          }
+
+          this._loadMoreError.set(
+            apiErrorMessage(toApiError(error), 'Ostale datoteke ne mogu se učitati'),
+          );
+        },
+      });
+  }
+
+  private resetPagination(): void {
+    this._nextCursor.set(null);
+    this._hasMore.set(false);
+    this._loadingMore.set(false);
+    this._loadMoreError.set(null);
   }
 }
