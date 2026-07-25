@@ -1,6 +1,5 @@
 import { inject, Injectable, signal } from '@angular/core';
 import { FolderService } from './folder-service';
-import { EntryList, EntryResponse } from './dto/entry';
 import {
   catchError,
   exhaustMap,
@@ -18,9 +17,9 @@ import { EntryService } from './entry-service';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiError, apiErrorMessage, toApiError } from '../../shared/api-error';
 import { Result } from '../../shared/result';
-import { FolderEntry } from './dto/folder';
 import { FolderDownloadStatusResponse } from './dto/folder-download';
-import { FileApi } from './api/file-api';
+import { FileApi } from '../../data-access/files/file-api';
+import { EntryList, EntryResponse, FolderEntry } from '../../data-access/entries/entry-models';
 
 const DOWNLOAD_POLL_INTERVAL_MS = 2000;
 

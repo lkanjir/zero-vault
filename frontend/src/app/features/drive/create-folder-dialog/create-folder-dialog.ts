@@ -7,10 +7,7 @@ import {
   FormField,
   FormRoot,
   maxLength,
-  minLength,
   pattern,
-  required,
-  submit,
   validate,
 } from '@angular/forms/signals';
 import { apiErrorMessage } from '../../../shared/api-error';

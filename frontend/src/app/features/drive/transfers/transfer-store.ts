@@ -6,8 +6,8 @@ import { firstValueFrom, lastValueFrom, tap } from 'rxjs';
 import { HttpEventType } from '@angular/common/http';
 import { apiErrorMessage, toApiError } from '../../../shared/api-error';
 import { calcualteSha256 } from '../../../shared/util/sha256';
-import { FileEntry } from '../dto/file';
 import { UploadApi } from '../api/upload-api';
+import { FileEntry } from '../../../data-access/entries/entry-models';
 
 type FailureContext = 'preparing' | 'presigning' | 'uploading' | 'finalizing';
 

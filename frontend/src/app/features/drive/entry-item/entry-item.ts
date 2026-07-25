@@ -1,10 +1,9 @@
 import { Component, computed, input } from '@angular/core';
 import { Icon } from '../../../shared/icon/icon';
-import { FolderEntry } from '../dto/folder';
-import type { FileEntry } from '../dto/file';
 import { FileSizePipe } from '../../../shared/pipes/file-size-pipe';
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { FileEntry, FolderEntry } from '../../../data-access/entries/entry-models';
 
 @Component({
   selector: 'tr[app-entry-item]',

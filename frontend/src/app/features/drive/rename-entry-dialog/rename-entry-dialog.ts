@@ -1,9 +1,9 @@
 import { Component, inject, signal } from '@angular/core';
-import { EntryResponse } from '../dto/entry';
 import { form, FormField, FormRoot, maxLength, pattern, validate } from '@angular/forms/signals';
 import { DriveStore } from '../drive-store';
 import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
 import { apiErrorMessage } from '../../../shared/api-error';
+import { EntryResponse } from '../../../data-access/entries/entry-models';
 
 export type RenameDialogData = {
   entry: EntryResponse;

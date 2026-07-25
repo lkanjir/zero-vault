@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
-import { FileDownloadResponse } from '../dto/file';
 import { Observable } from 'rxjs';
+import { FileDownloadResponse } from './file-models';
 
 @Injectable({ providedIn: 'root' })
 export class FileApi {

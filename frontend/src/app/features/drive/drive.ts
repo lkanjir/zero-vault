@@ -1,7 +1,5 @@
 import { Component, DestroyRef, DOCUMENT, inject, OnInit, signal } from '@angular/core';
 import { EntryItem } from './entry-item/entry-item';
-import { FileEntry } from './dto/file';
-import { FolderEntry } from './dto/folder';
 import { CdkContextMenuTrigger, CdkMenu, CdkMenuItem } from '@angular/cdk/menu';
 import { Icon } from '../../shared/icon/icon';
 import { DriveStore } from './drive-store';
@@ -10,7 +8,8 @@ import { distinctUntilChanged, map } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { apiErrorMessage } from '../../shared/api-error';
 import { Dialog } from '@angular/cdk/dialog';
-import { RenameDialogData, RenameEntryDialog } from './rename-entry-dialog/rename-entry-dialog';
+import { RenameEntryDialog } from './rename-entry-dialog/rename-entry-dialog';
+import { FileEntry, FolderEntry } from '../../data-access/entries/entry-models';
 
 @Component({
   selector: 'app-drive',
