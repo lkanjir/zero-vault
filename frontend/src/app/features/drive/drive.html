@@ -45,91 +45,155 @@
   }
 
   @if (downloadEntryIds().size > 0) {
-    <p role="status" class="mb-4 px-4 text-sm text-foreground-muted">Pripremanje preuzimanja…</p>
+    <p class="mb-4 px-4 text-sm text-foreground-muted">Pripremanje preuzimanja…</p>
   }
 
-  <table class="w-full table-auto text-left">
-    <thead class="border-b border-border text-sm text-foreground-muted">
+  @if (store.error() && store.entries().length > 0) {
+    <div class="mb-4 px-4 text-sm">
+      <p class="text-danger">{{ store.error() }}</p>
+      <button type="button" (click)="retry()" class="mt-2 text-primary">Pokušaj ponovno</button>
+    </div>
+  }
+
+  <table
+    cdk-table
+    fixedLayout
+    [dataSource]="store.entries()"
+    [trackBy]="trackEntry"
+    class="w-full table-fixed text-left"
+  >
+    <ng-container cdkColumnDef="name">
+      <th cdk-header-cell *cdkHeaderCellDef class="w-1/2 px-4 py-1 font-medium">Naziv</th>
+      <td cdk-cell *cdkCellDef="let entry" class="px-4 py-2">
+        @if (entry.kind === 'folder') {
+          <a [routerLink]="['/drive', entry.id]" class="flex min-w-0 items-center gap-3">
+            <app-icon [name]="'folder'" />
+            <span class="truncate text-lg">{{ entry.name }}</span>
+          </a>
+        } @else {
+          <div class="flex min-w-0 items-center gap-3">
+            <app-icon [name]="'file-text'" />
+            <span class="truncate text-lg">{{ entry.name }}</span>
+          </div>
+        }
+      </td>
+    </ng-container>
+
+    <ng-container cdkColumnDef="size">
+      <th cdk-header-cell *cdkHeaderCellDef class="w-px px-4 py-1 font-medium whitespace-nowrap">
+        Veličina
+      </th>
+      <td cdk-cell *cdkCellDef="let entry" class="px-4 py-2 text-lg whitespace-nowrap">
+        @if (entry.kind === 'file') {
+          {{ entry.sizeBytes | fileSize }}
+        } @else {
+          -
+        }
+      </td>
+    </ng-container>
+
+    <ng-container cdkColumnDef="updatedAt">
+      <th
+        cdk-header-cell
+        *cdkHeaderCellDef
+        class="w-px px-4 py-1 text-right font-medium whitespace-nowrap"
+      >
+        Datum promjene
+      </th>
+      <td cdk-cell *cdkCellDef="let entry" class="px-4 py-2 text-right text-lg whitespace-nowrap">
+        {{ entry.updatedAt | date: 'dd.MM.yyyy HH:mm' }}
+      </td>
+    </ng-container>
+
+    <tr
+      cdk-header-row
+      *cdkHeaderRowDef="displayedColumns"
+      class="border-b border-border text-sm text-foreground-muted"
+    ></tr>
+
+    <tr
+      cdk-row
+      *cdkRowDef="let entry; columns: displayedColumns"
+      [cdkContextMenuTriggerFor]="entryMenu"
+      [cdkContextMenuTriggerData]="{ entry }"
+      class="h-12 hover:bg-surface-hover"
+    ></tr>
+
+    <ng-template cdkNoDataRow>
       <tr>
-        <th class="w-1/2 px-4 py-1 font-medium">Naziv</th>
-        <th class="w-px px-4 py-1 font-medium whitespace-nowrap">Veličina</th>
-        <th class="w-px px-4 py-1 text-right font-medium whitespace-nowrap">Datum promjene</th>
-      </tr>
-    </thead>
-    <tbody>
-      @if (store.loading() && store.entries().length === 0) {
-        <tr>
-          <td colspan="3" class="px-4 py-10 text-center text-foreground-muted">Učitavanje</td>
-        </tr>
-      } @else if (store.error()) {
-        <tr>
-          <td colspan="3" class="px-4 py-10 text-center">
+        <td colspan="3" class="px-4 py-10 text-center text-foreground-muted">
+          @if (store.loading()) {
+            <span>Učitavanje</span>
+          } @else if (store.error()) {
             <p class="text-danger">{{ store.error() }}</p>
             <button type="button" (click)="retry()" class="mt-3 text-primary">
               Pokušaj ponovno
             </button>
-          </td>
-        </tr>
-      } @else if (store.entries().length === 0) {
-        <tr>
-          <td colspan="3" class="px-4 py-10 text-center text-foreground-muted">
+          } @else {
             Ova mapa je prazna
-          </td>
-        </tr>
-      } @else {
-        @for (entry of store.entries(); track entry.id) {
-          <tr app-entry-item [entry]="entry" [cdkContextMenuTriggerFor]="entryMenu"></tr>
-
-          <ng-template #entryMenu>
-            <div
-              cdkMenu
-              cdkTargetMenuAim
-              class="min-w-40 overflow-hidden rounded-md border-border bg-surface shadow-xl"
-            >
-              <button
-                cdkMenuItem
-                type="button"
-                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
-                (cdkMenuItemTriggered)="download(entry)"
-                [disabled]="isDownloading(entry.id)"
-              >
-                <app-icon [name]="'download'" [size]="16" />
-                <span>Preuzmi</span>
-              </button>
-
-              <button
-                cdkMenuItem
-                type="button"
-                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
-                (cdkMenuItemTriggered)="rename(entry)"
-              >
-                <app-icon [name]="'square-pen'" [size]="16" />
-                <span>Preimenuj</span>
-              </button>
-
-              <button
-                cdkMenuItem
-                type="button"
-                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
-                (cdkMenuItemTriggered)="move(entry)"
-              >
-                <app-icon [name]="'move'" [size]="16" />
-                <span>Premjesti</span>
-              </button>
-
-              <button
-                cdkMenuItem
-                type="button"
-                class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
-                (cdkMenuItemTriggered)="delete(entry)"
-              >
-                <app-icon [name]="'trash'" [size]="16" />
-                <span>Obriši</span>
-              </button>
-            </div>
-          </ng-template>
-        }
-      }
-    </tbody>
+          }
+        </td>
+      </tr>
+    </ng-template>
   </table>
+
+  @if (store.loadingMore()) {
+    <p class="px-4 py-4 text-center text-sm text-foreground-muted">Učitavanje dodatnih stavki…</p>
+  } @else if (store.loadMoreError()) {
+    <div class="px-4 py-4 text-center text-sm">
+      <p class="text-danger">{{ store.loadMoreError() }}</p>
+      <button type="button" (click)="retryLoadMore()" class="mt-2 text-primary">
+        Pokušaj ponovno
+      </button>
+    </div>
+  }
 </section>
+
+<ng-template #entryMenu let-entry="entry">
+  <div
+    cdkMenu
+    cdkTargetMenuAim
+    class="min-w-40 overflow-hidden rounded-md border-border bg-surface shadow-xl"
+  >
+    <button
+      cdkMenuItem
+      type="button"
+      class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+      (cdkMenuItemTriggered)="download(entry)"
+      [disabled]="isDownloading(entry.id)"
+    >
+      <app-icon [name]="'download'" [size]="16" />
+      <span>Preuzmi</span>
+    </button>
+
+    <button
+      cdkMenuItem
+      type="button"
+      class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
+      (cdkMenuItemTriggered)="rename(entry)"
+    >
+      <app-icon [name]="'square-pen'" [size]="16" />
+      <span>Preimenuj</span>
+    </button>
+
+    <button
+      cdkMenuItem
+      type="button"
+      class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
+      (cdkMenuItemTriggered)="move(entry)"
+    >
+      <app-icon [name]="'move'" [size]="16" />
+      <span>Premjesti</span>
+    </button>
+
+    <button
+      cdkMenuItem
+      type="button"
+      class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
+      (cdkMenuItemTriggered)="delete(entry)"
+    >
+      <app-icon [name]="'trash'" [size]="16" />
+      <span>Obriši</span>
+    </button>
+  </div>
+</ng-template>

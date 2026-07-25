@@ -1,5 +1,12 @@
-import { Component, DestroyRef, DOCUMENT, inject, OnInit, signal } from '@angular/core';
-import { EntryItem } from './entry-item/entry-item';
+import {
+  Component,
+  DestroyRef,
+  DOCUMENT,
+  inject,
+  OnInit,
+  signal,
+  type TrackByFunction,
+} from '@angular/core';
 import { CdkContextMenuTrigger, CdkMenu, CdkMenuItem } from '@angular/cdk/menu';
 import { Icon } from '../../shared/icon/icon';
 import { DriveStore } from './state/drive-store';
@@ -9,12 +16,28 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { apiErrorMessage } from '../../shared/api-error';
 import { Dialog } from '@angular/cdk/dialog';
 import { RenameEntryDialog } from './rename-entry-dialog/rename-entry-dialog';
-import { FileEntry, FolderEntry } from '../../data-access/entries/entry-models';
+import {
+  type EntryResponse,
+  type FileEntry,
+  type FolderEntry,
+} from '../../data-access/entries/entry-models';
 import { EntryDownloadService } from './actions/download/entry-download-service';
+import { CdkTableModule } from '@angular/cdk/table';
+import { DatePipe } from '@angular/common';
+import { FileSizePipe } from '../../shared/pipes/file-size-pipe';
 
 @Component({
   selector: 'app-drive',
-  imports: [EntryItem, CdkMenu, CdkMenuItem, CdkContextMenuTrigger, Icon, RouterLink],
+  imports: [
+    CdkMenu,
+    CdkMenuItem,
+    CdkContextMenuTrigger,
+    Icon,
+    RouterLink,
+    CdkTableModule,
+    DatePipe,
+    FileSizePipe,
+  ],
   templateUrl: './drive.html',
 })
 export class Drive implements OnInit {
@@ -31,6 +54,8 @@ export class Drive implements OnInit {
 
   readonly downloadEntryIds = this._downloadEntryIds.asReadonly();
   readonly downloadError = this._downloadError.asReadonly();
+  readonly displayedColumns = ['name', 'size', 'updatedAt'];
+  readonly trackEntry: TrackByFunction<EntryResponse> = (_index, entry) => entry.id;
 
   ngOnInit(): void {
     this.route.paramMap
@@ -44,6 +69,10 @@ export class Drive implements OnInit {
 
   retry(): void {
     this.store.reload();
+  }
+
+  retryLoadMore(): void {
+    this.store.loadMore();
   }
 
   async download(selectedEntry: FolderEntry | FileEntry): Promise<void> {
