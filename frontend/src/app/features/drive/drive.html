@@ -1,4 +1,4 @@
-<section class="mx-auto w-full md:w-4/5 lg:w-[70%]">
+<section class="mx-auto flex h-full min-h-0 w-full flex-col md:w-4/5 lg:w-[70%]">
   @let path = store.path();
 
   <nav class="mb-4 px-4">
@@ -55,87 +55,94 @@
     </div>
   }
 
-  <table
-    cdk-table
-    fixedLayout
-    [dataSource]="store.entries()"
-    [trackBy]="trackEntry"
-    class="w-full table-fixed text-left"
+  <cdk-virtual-scroll-viewport
+    itemSize="48"
+    minBufferPx="240"
+    maxBufferPx="480"
+    class="min-h-0 w-full flex-1"
   >
-    <ng-container cdkColumnDef="name">
-      <th cdk-header-cell *cdkHeaderCellDef class="w-1/2 px-4 py-1 font-medium">Naziv</th>
-      <td cdk-cell *cdkCellDef="let entry" class="px-4 py-2">
-        @if (entry.kind === 'folder') {
-          <a [routerLink]="['/drive', entry.id]" class="flex min-w-0 items-center gap-3">
-            <app-icon [name]="'folder'" />
-            <span class="truncate text-lg">{{ entry.name }}</span>
-          </a>
-        } @else {
-          <div class="flex min-w-0 items-center gap-3">
-            <app-icon [name]="'file-text'" />
-            <span class="truncate text-lg">{{ entry.name }}</span>
-          </div>
-        }
-      </td>
-    </ng-container>
-
-    <ng-container cdkColumnDef="size">
-      <th cdk-header-cell *cdkHeaderCellDef class="w-px px-4 py-1 font-medium whitespace-nowrap">
-        Veličina
-      </th>
-      <td cdk-cell *cdkCellDef="let entry" class="px-4 py-2 text-lg whitespace-nowrap">
-        @if (entry.kind === 'file') {
-          {{ entry.sizeBytes | fileSize }}
-        } @else {
-          -
-        }
-      </td>
-    </ng-container>
-
-    <ng-container cdkColumnDef="updatedAt">
-      <th
-        cdk-header-cell
-        *cdkHeaderCellDef
-        class="w-px px-4 py-1 text-right font-medium whitespace-nowrap"
-      >
-        Datum promjene
-      </th>
-      <td cdk-cell *cdkCellDef="let entry" class="px-4 py-2 text-right text-lg whitespace-nowrap">
-        {{ entry.updatedAt | date: 'dd.MM.yyyy HH:mm' }}
-      </td>
-    </ng-container>
-
-    <tr
-      cdk-header-row
-      *cdkHeaderRowDef="displayedColumns"
-      class="border-b border-border text-sm text-foreground-muted"
-    ></tr>
-
-    <tr
-      cdk-row
-      *cdkRowDef="let entry; columns: displayedColumns"
-      [cdkContextMenuTriggerFor]="entryMenu"
-      [cdkContextMenuTriggerData]="{ entry }"
-      class="h-12 hover:bg-surface-hover"
-    ></tr>
-
-    <ng-template cdkNoDataRow>
-      <tr>
-        <td colspan="3" class="px-4 py-10 text-center text-foreground-muted">
-          @if (store.loading()) {
-            <span>Učitavanje</span>
-          } @else if (store.error()) {
-            <p class="text-danger">{{ store.error() }}</p>
-            <button type="button" (click)="retry()" class="mt-3 text-primary">
-              Pokušaj ponovno
-            </button>
+    <table
+      cdk-table
+      fixedLayout
+      [dataSource]="store.entries()"
+      [trackBy]="trackEntry"
+      class="w-full table-fixed text-left"
+    >
+      <ng-container cdkColumnDef="name">
+        <th cdk-header-cell *cdkHeaderCellDef class="w-1/2 px-4 py-1 font-medium">Naziv</th>
+        <td cdk-cell *cdkCellDef="let entry" class="px-4 py-2">
+          @if (entry.kind === 'folder') {
+            <a [routerLink]="['/drive', entry.id]" class="flex min-w-0 items-center gap-3">
+              <app-icon [name]="'folder'" />
+              <span class="truncate text-lg">{{ entry.name }}</span>
+            </a>
           } @else {
-            Ova mapa je prazna
+            <div class="flex min-w-0 items-center gap-3">
+              <app-icon [name]="'file-text'" />
+              <span class="truncate text-lg">{{ entry.name }}</span>
+            </div>
           }
         </td>
-      </tr>
-    </ng-template>
-  </table>
+      </ng-container>
+
+      <ng-container cdkColumnDef="size">
+        <th cdk-header-cell *cdkHeaderCellDef class="w-px px-4 py-1 font-medium whitespace-nowrap">
+          Veličina
+        </th>
+        <td cdk-cell *cdkCellDef="let entry" class="px-4 py-2 text-lg whitespace-nowrap">
+          @if (entry.kind === 'file') {
+            {{ entry.sizeBytes | fileSize }}
+          } @else {
+            -
+          }
+        </td>
+      </ng-container>
+
+      <ng-container cdkColumnDef="updatedAt">
+        <th
+          cdk-header-cell
+          *cdkHeaderCellDef
+          class="w-px px-4 py-1 text-right font-medium whitespace-nowrap"
+        >
+          Datum promjene
+        </th>
+        <td cdk-cell *cdkCellDef="let entry" class="px-4 py-2 text-right text-lg whitespace-nowrap">
+          {{ entry.updatedAt | date: 'dd.MM.yyyy HH:mm' }}
+        </td>
+      </ng-container>
+
+      <tr
+        cdk-header-row
+        *cdkHeaderRowDef="displayedColumns"
+        class="border-b border-border text-sm text-foreground-muted"
+      ></tr>
+
+      <tr
+        cdk-row
+        *cdkRowDef="let entry; columns: displayedColumns"
+        [cdkContextMenuTriggerFor]="entryMenu"
+        [cdkContextMenuTriggerData]="{ entry }"
+        class="h-12 hover:bg-surface-hover"
+      ></tr>
+
+      <ng-template cdkNoDataRow>
+        <tr>
+          <td colspan="3" class="px-4 py-10 text-center text-foreground-muted">
+            @if (store.loading()) {
+              <span>Učitavanje</span>
+            } @else if (store.error()) {
+              <p class="text-danger">{{ store.error() }}</p>
+              <button type="button" (click)="retry()" class="mt-3 text-primary">
+                Pokušaj ponovno
+              </button>
+            } @else {
+              Ova mapa je prazna
+            }
+          </td>
+        </tr>
+      </ng-template>
+    </table>
+  </cdk-virtual-scroll-viewport>
 
   @if (store.loadingMore()) {
     <p class="px-4 py-4 text-center text-sm text-foreground-muted">Učitavanje dodatnih stavki…</p>

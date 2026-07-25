@@ -5,6 +5,7 @@ import {
   inject,
   OnInit,
   signal,
+  viewChild,
   type TrackByFunction,
 } from '@angular/core';
 import { CdkContextMenuTrigger, CdkMenu, CdkMenuItem } from '@angular/cdk/menu';
@@ -25,6 +26,7 @@ import { EntryDownloadService } from './actions/download/entry-download-service'
 import { CdkTableModule } from '@angular/cdk/table';
 import { DatePipe } from '@angular/common';
 import { FileSizePipe } from '../../shared/pipes/file-size-pipe';
+import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
 
 @Component({
   selector: 'app-drive',
@@ -37,6 +39,7 @@ import { FileSizePipe } from '../../shared/pipes/file-size-pipe';
     CdkTableModule,
     DatePipe,
     FileSizePipe,
+    ScrollingModule
   ],
   templateUrl: './drive.html',
 })
@@ -55,7 +58,9 @@ export class Drive implements OnInit {
   readonly downloadEntryIds = this._downloadEntryIds.asReadonly();
   readonly downloadError = this._downloadError.asReadonly();
   readonly displayedColumns = ['name', 'size', 'updatedAt'];
+  
   readonly trackEntry: TrackByFunction<EntryResponse> = (_index, entry) => entry.id;
+  readonly viewport = viewChild(CdkVirtualScrollViewport); 
 
   ngOnInit(): void {
     this.route.paramMap
@@ -64,7 +69,10 @@ export class Drive implements OnInit {
         distinctUntilChanged(),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe((folderId) => this.store.loadFolder(folderId));
+      .subscribe((folderId) => {
+        this.viewport()?.scrollToIndex(0);
+        this.store.loadFolder(folderId);
+      });
   }
 
   retry(): void {
