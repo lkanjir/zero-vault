@@ -2,7 +2,7 @@ import { Component, DestroyRef, DOCUMENT, inject, OnInit, signal } from '@angula
 import { EntryItem } from './entry-item/entry-item';
 import { CdkContextMenuTrigger, CdkMenu, CdkMenuItem } from '@angular/cdk/menu';
 import { Icon } from '../../shared/icon/icon';
-import { DriveStore } from './drive-store';
+import { DriveStore } from './state/drive-store';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';

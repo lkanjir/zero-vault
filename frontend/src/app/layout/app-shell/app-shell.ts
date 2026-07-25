@@ -4,7 +4,7 @@ import { Topbar } from './topbar/topbar';
 import { Sidebar } from './sidebar/sidebar';
 import { Dialog, DialogModule } from '@angular/cdk/dialog';
 import { CreateFolderDialog } from '../../features/drive/create-folder-dialog/create-folder-dialog';
-import { DriveStore } from '../../features/drive/drive-store';
+import { DriveStore } from '../../features/drive/state/drive-store';
 import { TransferStore } from '../../features/transfers/state/transfer-store';
 import { TransferPanel } from '../../features/transfers/ui/transfer-panel/transfer-panel';
 

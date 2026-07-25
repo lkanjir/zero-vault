@@ -1,5 +1,4 @@
 import { Component, inject, signal } from '@angular/core';
-import { DriveStore } from '../drive-store';
 import { DialogRef } from '@angular/cdk/dialog';
 import {
   debounce,
@@ -11,6 +10,7 @@ import {
   validate,
 } from '@angular/forms/signals';
 import { apiErrorMessage } from '../../../shared/api-error';
+import { EntryActions } from '../actions/entry-actions';
 
 @Component({
   selector: 'app-create-folder-dialog',
@@ -18,7 +18,7 @@ import { apiErrorMessage } from '../../../shared/api-error';
   templateUrl: './create-folder-dialog.html',
 })
 export class CreateFolderDialog {
-  private readonly store = inject(DriveStore);
+  private readonly entryActions = inject(EntryActions);
   readonly dialogRef = inject(DialogRef);
 
   readonly formModel = signal({ name: '' });
@@ -46,7 +46,7 @@ export class CreateFolderDialog {
     {
       submission: {
         action: async (field) => {
-          const result = await this.store.createFolder(this.formModel().name.trim());
+          const result = await this.entryActions.createFolder(this.formModel().name.trim());
           if (result.ok) {
             this.dialogRef.close();
             return;

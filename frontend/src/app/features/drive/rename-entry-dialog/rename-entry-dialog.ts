@@ -1,9 +1,9 @@
 import { Component, inject, signal } from '@angular/core';
 import { form, FormField, FormRoot, maxLength, pattern, validate } from '@angular/forms/signals';
-import { DriveStore } from '../drive-store';
 import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
 import { apiErrorMessage } from '../../../shared/api-error';
 import { EntryResponse } from '../../../data-access/entries/entry-models';
+import { EntryActions } from '../actions/entry-actions';
 
 export type RenameDialogData = {
   entry: EntryResponse;
@@ -15,7 +15,7 @@ export type RenameDialogData = {
   templateUrl: './rename-entry-dialog.html',
 })
 export class RenameEntryDialog {
-  private readonly store = inject(DriveStore);
+  private readonly entryActions = inject(EntryActions);
   private readonly dialogRef = inject(DialogRef);
 
   readonly data = inject<RenameDialogData>(DIALOG_DATA);
@@ -51,7 +51,7 @@ export class RenameEntryDialog {
     {
       submission: {
         action: async (field) => {
-          const result = await this.store.renameEntry(
+          const result = await this.entryActions.renameEntry(
             this.data.entry.id,
             this.formModel().name.trim(),
           );
