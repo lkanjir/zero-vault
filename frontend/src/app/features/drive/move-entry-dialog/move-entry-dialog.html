@@ -4,7 +4,20 @@
   <p class="mt-2 text-sm text-foreground-muted">Odaberi odredišni direktorij.</p>
 
   <div class="mt-5 min-h-64 rounded-md border border-border p-4">
-    Destination picker
+    @if (store.loading()) {
+      <span class="text-sm text-foreground-muted">Učitavanje direktorija</span>
+    } @else if (store.error()) {
+      <span class="text-sm text-danger">{{ store.error() }}</span>
+      <button type="button" class="mt-3 text-sm" (click)="store.retry()">Pokušaj ponovno</button>
+    } @else {
+      <ul>
+        @for (folder of store.folders(); track folder.id) {
+          <li>{{ folder.name }}</li>
+        } @empty {
+          <li>Nema pod direktorija</li>
+        }
+      </ul>
+    }
   </div>
 
   <div class="mt-5 flex justify-end gap-3">

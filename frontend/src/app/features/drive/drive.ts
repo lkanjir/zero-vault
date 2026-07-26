@@ -162,18 +162,18 @@ export class Drive implements OnInit, AfterViewInit {
     });
   }
 
-  move(selectedEntry: FolderEntry | FileEntry) : void {
+  move(selectedEntry: FolderEntry | FileEntry): void {
     const sourceParentId = this.store.parentId();
     this.dialog.open(MoveEntryDialog, {
       data: {
         entry: selectedEntry,
-        sourceParentId
+        sourceParentId,
       },
       width: 'calc(100vw - 2rem)',
       maxWidth: '36rem',
       autoFocus: 'first-tabbable',
       restoreFocus: true,
-    })
+    });
   }
 
   delete(selectedEntry: FolderEntry | FileEntry) {
