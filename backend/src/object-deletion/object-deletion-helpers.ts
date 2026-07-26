@@ -11,14 +11,23 @@ export async function enqueueObjectDeletionInTransaction(
   tx: Transaction,
   command: EnqueueObjectDeletionCommand,
 ): Promise<boolean> {
-  const [inserted] = await tx
+  const insertedCount = await enqueueObjectDeletionsInTransaction(tx, [command]);
+  return insertedCount === 1;
+}
+
+export async function enqueueObjectDeletionsInTransaction(
+  tx: Transaction,
+  commands: readonly EnqueueObjectDeletionCommand[],
+): Promise<number> {
+  if (commands.length === 0) {
+    return 0;
+  }
+
+  const inserted = await tx
     .insert(objectDeletionJobs)
-    .values({
-      objectKey: command.objectKey,
-      reason: command.reason,
-    })
+    .values(commands.map((command) => ({ objectKey: command.objectKey, reason: command.reason })))
     .onConflictDoNothing({ target: objectDeletionJobs.objectKey })
     .returning({ id: objectDeletionJobs.id });
 
-  return inserted !== undefined;
+  return inserted.length;
 }

@@ -4,19 +4,21 @@ import cron from 'node-cron';
 const BATCH_SIZE = 100;
 const composition = createCompositionRoot();
 
-const cleanupTaks = cron.schedule(
+const cleanupTask = cron.schedule(
   '0 * * * * *',
   async () => {
-    await composition.uploadCleanupService.cleanExpiredUploads(BATCH_SIZE);
+    const expiredCount = await composition.uploadCleanupService.cleanExpiredUploads(BATCH_SIZE);
+
+    if (expiredCount > 0) {
+      console.info('Expired uploads queued for deletion', {
+        expiredCount,
+      });
+    }
   },
   { noOverlap: true },
 );
 
-cleanupTaks.on('execution:started', () => {
-  console.info('worker: started execution');
-});
-
-cleanupTaks.on('execution:failed', (context) => {
+cleanupTask.on('execution:failed', (context) => {
   console.error('Upload cleanup failed', {
     error: context.execution?.error,
   });

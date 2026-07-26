@@ -1,23 +1,10 @@
 import { clamp } from '../shared/utils/clamp.js';
-import type { ObjectStorage } from '../storage/object-storage.js';
 import type { UploadIntentRepository } from './upload-intent-repository.js';
 
 export class UploadCleanupService {
-  constructor(
-    private readonly repo: UploadIntentRepository,
-    private readonly storage: ObjectStorage,
-  ) {}
+  constructor(private readonly repo: UploadIntentRepository) {}
 
-  async cleanExpiredUploads(limit: number): Promise<void> {
-    limit = clamp(limit, 1, 1000);
-
-    const expired = await this.repo.markExpiredIntents(limit);
-    const failed = await this.storage.deleteObjects(expired.map((e) => e.objectKey));
-
-    if (failed.length != 0) {
-      console.error('Failed to delte expired expired objects', {
-        failedKeys: failed,
-      });
-    }
+  async cleanExpiredUploads(limit: number): Promise<number> {
+    return this.repo.expirePendingIntents({ expiredAt: new Date(), limit: clamp(limit, 1, 1000) });
   }
 }

@@ -3,18 +3,18 @@ import type {
   CompletedUploadFile,
   CompletedVerifiedUploadResult,
   CompleteVerifiedUploadCommand,
-  ExpiredIntent,
+  ExpirePendingIntentsCommand,
   SaveUploadIntentCommand,
   UploadIntentRepository,
 } from './upload-intent-repository.js';
 import type { UploadIntent } from './upload-intent.js';
 import { db, type Transaction } from '../db/db-client.js';
 import { entries, files, uploadIntents } from '../db/schema.js';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { resolveParentIdInTransaction } from '../entry/resolve-parent-id-in-transaction.js';
 import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
 import { AppError } from '../shared/errors/api/app-error.js';
-import { enqueueObjectDeletionInTransaction } from '../object-deletion/object-deletion-helpers.js';
+import { enqueueObjectDeletionsInTransaction } from '../object-deletion/object-deletion-helpers.js';
 
 type UploadIntentRow = typeof uploadIntents.$inferSelect;
 type EntryRow = typeof entries.$inferSelect;
@@ -133,7 +133,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     command: CompleteVerifiedUploadCommand,
   ): Promise<CompletedVerifiedUploadResult> {
     if (this.isPastFinalizeDeadline(intent, command.completedAt)) {
-      await this.expireIntent(tx, intent);
+      await this.expireLockedIntents(tx, [intent.id]);
       return { kind: 'expired' };
     }
 
@@ -167,21 +167,30 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     return intent.finalizeDeadline.getTime() < completedAt.getTime();
   }
 
-  private async expireIntent(tx: Transaction, intent: UploadIntentRow): Promise<void> {
-    const [expired] = await tx
-      .update(uploadIntents)
-      .set({ status: 'expired' })
-      .where(and(eq(uploadIntents.id, intent.id), eq(uploadIntents.status, 'pending')))
-      .returning({ id: uploadIntents.id });
-
-    if (!expired) {
-      throw new Error('Failed to expire upload intent');
+  private async expireLockedIntents(
+    tx: Transaction,
+    intentIds: readonly number[],
+  ): Promise<number> {
+    if (intentIds.length === 0) {
+      return 0;
     }
 
-    await enqueueObjectDeletionInTransaction(tx, {
-      objectKey: intent.objectKey,
-      reason: 'expired_upload',
-    });
+    const expired = await tx
+      .update(uploadIntents)
+      .set({ status: 'expired' })
+      .where(and(inArray(uploadIntents.id, intentIds), eq(uploadIntents.status, 'pending')))
+      .returning({ objectKey: uploadIntents.objectKey });
+
+    if (expired.length !== intentIds.length) {
+      throw new Error('Failed to expire all locked upload intents');
+    }
+
+    await enqueueObjectDeletionsInTransaction(
+      tx,
+      expired.map((intent) => ({ objectKey: intent.objectKey, reason: 'expired_upload' })),
+    );
+
+    return expired.length;
   }
 
   private async createFileForIntent(
@@ -269,26 +278,26 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     };
   }
 
-  async markExpiredIntents(limit: number): Promise<ExpiredIntent[]> {
-    const updateStatement = sql`
-      WITH expired_rows AS (
-        SELECT id
-        FROM upload_intents
-        WHERE finalize_deadline < now() AND status = 'pending'
-        ORDER BY finalize_deadline, id
-        LIMIT ${limit}
-        FOR UPDATE SKIP LOCKED
-      ) 
-      UPDATE upload_intents AS ui 
-        SET status = 'expired'
-        FROM expired_rows AS er
-        WHERE ui.id = er.id
-        RETURNING ui.id, ui.object_key
-    `;
+  async expirePendingIntents(command: ExpirePendingIntentsCommand): Promise<number> {
+    return db.transaction(async (tx) => {
+      const candidates = await tx
+        .select({ id: uploadIntents.id })
+        .from(uploadIntents)
+        .where(
+          and(
+            eq(uploadIntents.status, 'pending'),
+            lt(uploadIntents.finalizeDeadline, command.expiredAt),
+          ),
+        )
+        .orderBy(uploadIntents.finalizeDeadline, uploadIntents.id)
+        .for('update', { skipLocked: true })
+        .limit(command.limit);
 
-    const result = await db.execute<ExpiredIntent>(updateStatement);
-
-    return result.rows.map((row) => ({ id: row.id, objectKey: row.objectKey }));
+      return this.expireLockedIntents(
+        tx,
+        candidates.map((candidate) => candidate.id),
+      );
+    });
   }
 
   async assertUploadTargetAvailable(command: AssertUploadTargetAvailableCommand): Promise<void> {
