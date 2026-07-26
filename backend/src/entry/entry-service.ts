@@ -66,6 +66,10 @@ export class EntryService {
     return this.toResponseItem(updatedEntry);
   }
 
+  async deleteEntry(user: User, entryId: string): Promise<void> {
+    await this.entryRepository.deleteEntry({ ownerId: user.id, entryId, deletedAt: new Date() });
+  }
+
   private toResponseItem(entry: ListedEntry): EntryResponse {
     if (entry.kind === 'folder') {
       return {

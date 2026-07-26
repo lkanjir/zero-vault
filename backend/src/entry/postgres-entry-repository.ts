@@ -1,5 +1,6 @@
 import type {
   CreateFolderCommand,
+  DeleteEntryCommand,
   EntriesQuery,
   EntryListing,
   EntryListRecord,
@@ -17,6 +18,7 @@ import type { Entry } from './entry.js';
 import { resolveParentIdInTransaction } from './resolve-parent-id-in-transaction.js';
 import { mapEntryDatabaseError } from './map-entry-db-error.js';
 import { AppError } from '../shared/errors/api/app-error.js';
+import { enqueueObjectDeletionInTransaction } from '../object-deletion/object-deletion-helpers.js';
 
 type QueryDbRow = {
   entryId: number;
@@ -28,6 +30,17 @@ type QueryDbRow = {
   contentType: string | null;
   sizeBytes: number | null;
 };
+
+type EntryDeletionTarget =
+  | {
+      id: number;
+      kind: 'folder';
+    }
+  | {
+      id: number;
+      kind: 'file';
+      objectKey: string;
+    };
 
 export class PostgresEntryRepository implements EntryRepository {
   readonly kindRankExpression = sql<number>`case when ${entries.kind} = 'folder' then 0 else 1 end`;
@@ -149,6 +162,103 @@ export class PostgresEntryRepository implements EntryRepository {
       });
     } catch (error) {
       throw mapEntryDatabaseError(error);
+    }
+  }
+
+  async deleteEntry(command: DeleteEntryCommand): Promise<void> {
+    try {
+      await db.transaction(async (tx) => {
+        const target = await this.resolveEntryDeletionTarget(tx, command.ownerId, command.entryId);
+
+        await this.softDeleteEntry(tx, command.ownerId, target.id, command.deletedAt);
+
+        if (target.kind === 'file') {
+          await enqueueObjectDeletionInTransaction(tx, {
+            objectKey: target.objectKey,
+            reason: 'deleted_file',
+          });
+        }
+      });
+    } catch (error) {
+      throw mapEntryDatabaseError(error);
+    }
+  }
+
+  private async resolveEntryDeletionTarget(
+    tx: Transaction,
+    ownerId: number,
+    entryId: string,
+  ): Promise<EntryDeletionTarget> {
+    const entry = await this.findEntryForUpdate(tx, ownerId, entryId);
+
+    if (entry.kind === 'folder') {
+      await this.assertFolderEmpty(tx, ownerId, entry.id);
+      return {
+        id: entry.id,
+        kind: 'folder',
+      };
+    }
+
+    return {
+      id: entry.id,
+      kind: 'file',
+      objectKey: await this.requireFileObjectKey(tx, entry.id),
+    };
+  }
+
+  private async assertFolderEmpty(
+    tx: Transaction,
+    ownerId: number,
+    folderId: number,
+  ): Promise<void> {
+    const [activeChild] = await tx
+      .select({ id: entries.id })
+      .from(entries)
+      .where(
+        and(
+          eq(entries.ownerId, ownerId),
+          eq(entries.parentId, folderId),
+          isNull(entries.deletedAt),
+        ),
+      )
+      .limit(1);
+
+    if (activeChild) {
+      throw new AppError('folder_not_empty');
+    }
+  }
+
+  private async requireFileObjectKey(tx: Transaction, entryId: number): Promise<string> {
+    const [file] = await tx
+      .select({ objectKey: files.objectKey })
+      .from(files)
+      .where(eq(files.entryId, entryId))
+      .limit(1);
+
+    if (!file) {
+      throw new Error('File entry is missing metadata');
+    }
+
+    return file.objectKey;
+  }
+
+  private async softDeleteEntry(
+    tx: Transaction,
+    ownerId: number,
+    entryId: number,
+    deletedAt: Date,
+  ): Promise<void> {
+    const [deletedEntry] = await tx
+      .update(entries)
+      .set({
+        deletedAt,
+        updatedAt: deletedAt,
+      })
+      .where(and(eq(entries.id, entryId), eq(entries.ownerId, ownerId), isNull(entries.deletedAt)))
+      .returning({ id: entries.id });
+
+    if (!deletedEntry) {
+      throw new Error('Failed to delete entry');
     }
   }
 

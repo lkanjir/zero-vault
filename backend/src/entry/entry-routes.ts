@@ -52,5 +52,17 @@ export function createEntryRouter(deps: EntryRouterDeps): Router {
     ),
   );
 
+  router.delete(
+    '/:entryId',
+    validateRequest({ params: entryIdParamsSchema }, async (req, res, validated) => {
+      const principal = requirePrincipal(req);
+      const user = await deps.userService.resolveUser(principal);
+
+      await deps.entryService.deleteEntry(user, validated.params.entryId);
+
+      res.status(204).end();
+    }),
+  );
+
   return router;
 }

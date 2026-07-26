@@ -55,8 +55,15 @@ export type UpdateEntryCommand = {
   name?: string;
 };
 
+export type DeleteEntryCommand = {
+  ownerId: number;
+  entryId: string;
+  deletedAt: Date;
+};
+
 export interface EntryRepository {
   getEntries(query: EntriesQuery): Promise<EntryListing>;
   createFolder(command: CreateFolderCommand): Promise<Folder>;
   updateEntry(command: UpdateEntryCommand): Promise<ListedEntry>;
+  deleteEntry(command: DeleteEntryCommand): Promise<void>;
 }

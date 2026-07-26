@@ -61,6 +61,11 @@ export const errorCatalog = {
     message: 'Direktorij nije pronađen.',
   },
 
+  folder_not_empty: {
+    status: 409,
+    message: 'Direktorij nije moguće obrisati jer nije prazan.',
+  },
+
   folder_download_not_found: {
     status: 404,
     message: 'Za dani direktorij nije traženo preuzimanje.',
