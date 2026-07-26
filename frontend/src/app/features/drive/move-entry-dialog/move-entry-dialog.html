@@ -10,7 +10,7 @@
           type="button"
           class="flex h-9 items-center rounded-md px-2 font-medium text-foreground enabled:hover:bg-surface-hover disabled:cursor-default"
           [disabled]="store.parentId() === null"
-          (click)="store.loadFolder(null)"
+          (click)="navigateTo(null)"
         >
           Moj disk
         </button>
@@ -54,7 +54,7 @@
           cdkMenuItem
           type="button"
           class="flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm hover:bg-surface-hover"
-          (cdkMenuItemTriggered)="store.loadFolder(folder.id)"
+          (cdkMenuItemTriggered)="navigateTo(folder.id)"
         >
           <app-icon [name]="'folder'" [size]="16" />
           <span class="max-w-64 truncate">{{ folder.name }}</span>
@@ -82,7 +82,7 @@
               type="button"
               class="flex w-full items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
               [disabled]="isBlockedFolder(folder)"
-              (click)="store.loadFolder(folder.id)"
+              (click)="navigateTo(folder.id)"
             >
               <app-icon [name]="'folder'" [size]="20" />
               <span class="min-w-0 flex-1 truncate">{{ folder.name }}</span>
@@ -99,10 +99,15 @@
     }
   </div>
 
+  @if (moveError()) {
+    <span class="block mt-4 text-sm text-danger">{{ moveError() }}</span>
+  }
+
   <div class="mt-5 flex justify-end gap-3">
     <button
       type="button"
-      class="h-10 rounded-md border border-border bg-background px-3 font-semibold"
+      [disabled]="submitting()"
+      class="h-10 rounded-md border border-border bg-background px-3 font-semibold disabled:cursor-not-allowed disabled:opacity-50"
       (click)="closeDialog()"
     >
       Odustani
@@ -110,10 +115,11 @@
 
     <button
       type="button"
-      disabled
+      [disabled]="!canMove()"
       class="h-10 rounded-md bg-foreground px-3 text-sm font-semibold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+      (click)="confirmMove()"
     >
-      Premjesti ovdje
+      {{submitting() ? 'Premještanje' : 'Premjesti ovdje'}}
     </button>
   </div>
 </div>

@@ -7,6 +7,12 @@ import { ApiError, toApiError } from '../../../shared/api-error';
 import { Result } from '../../../shared/result';
 import { DriveStore } from '../state/drive-store';
 
+export type MoveEntryCommand = {
+  entryId: string;
+  sourceParentId: string | null;
+  targetParentId: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class EntryActions {
   private readonly entryApi = inject(EntryApi);
@@ -55,13 +61,10 @@ export class EntryActions {
   }
 
   async moveEntry(
-    entryId: string,
-    targetParentId: string | null,
+    command: MoveEntryCommand
   ): Promise<Result<EntryResponse, ApiError>> {
-    const sourceParentId = this.store.parentId();
-
     const result = await firstValueFrom(
-      this.entryApi.updateEntry(entryId, { parentId: targetParentId }).pipe(
+      this.entryApi.updateEntry(command.entryId, { parentId: command.targetParentId }).pipe(
         map((updatedEntry): Result<EntryResponse, ApiError> => ({
           ok: true,
           value: updatedEntry,
@@ -73,10 +76,10 @@ export class EntryActions {
     );
 
     if (result.ok) {
-      this.store.reloadIfCurrent(sourceParentId);
+      this.store.reloadIfCurrent(command.sourceParentId);
 
-      if (targetParentId !== sourceParentId) {
-        this.store.reloadIfCurrent(targetParentId);
+      if (command.targetParentId !== command.sourceParentId) {
+        this.store.reloadIfCurrent(command.targetParentId);
       }
     }
 
