@@ -6,7 +6,6 @@ import { Icon } from '../../../shared/icon/icon';
 import { CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
 import { ApiError, apiErrorMessage } from '../../../shared/api-error';
 import { EntryActions } from '../actions/entry-actions';
-import { retry } from 'rxjs';
 
 export type MoveEntryDialogData = {
   entry: EntryResponse;
@@ -20,7 +19,7 @@ export type MoveEntryDialogData = {
   templateUrl: './move-entry-dialog.html',
 })
 export class MoveEntryDialog implements OnInit {
-  private readonly entryActins = inject(EntryActions);
+  private readonly entryActions = inject(EntryActions);
   private readonly dialogRef = inject(DialogRef);
 
   readonly data = inject<MoveEntryDialogData>(DIALOG_DATA);
@@ -67,7 +66,7 @@ export class MoveEntryDialog implements OnInit {
     this.submitting.set(true);
     this.moveError.set(null);
 
-    const result = await this.entryActins.moveEntry({
+    const result = await this.entryActions.moveEntry({
       entryId: this.data.entry.id,
       sourceParentId: this.data.sourceParentId,
       targetParentId,

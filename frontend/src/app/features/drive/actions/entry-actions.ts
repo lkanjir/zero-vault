@@ -11,7 +11,7 @@ export type MoveEntryCommand = {
   entryId: string;
   sourceParentId: string | null;
   targetParentId: string | null;
-}
+};
 
 @Injectable({ providedIn: 'root' })
 export class EntryActions {
@@ -60,9 +60,7 @@ export class EntryActions {
     return result;
   }
 
-  async moveEntry(
-    command: MoveEntryCommand
-  ): Promise<Result<EntryResponse, ApiError>> {
+  async moveEntry(command: MoveEntryCommand): Promise<Result<EntryResponse, ApiError>> {
     const result = await firstValueFrom(
       this.entryApi.updateEntry(command.entryId, { parentId: command.targetParentId }).pipe(
         map((updatedEntry): Result<EntryResponse, ApiError> => ({
