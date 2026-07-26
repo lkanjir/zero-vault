@@ -27,7 +27,9 @@
     "dev:upload-cleanup": "tsx watch src/workers/upload-cleanup-worker.ts",
     "start:upload-cleanup": "node dist/workers/upload-cleanup-worker.js",
     "dev:folder-download": "tsx watch src/workers/folder-download-worker.ts",
-    "start:folder-download": "node dist/workers/folder-download-worker.js"
+    "start:folder-download": "node dist/workers/folder-download-worker.js",
+    "dev:object-deletion": "tsx watch src/workers/object-deletion-worker.ts",
+    "start:object-deletion": "node dist/workers/object-deletion-worker.js"
   },
   "keywords": [],
   "author": "Luka Kanjir",

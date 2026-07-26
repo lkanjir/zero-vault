@@ -47,7 +47,7 @@ export class ObjectDeletionProcessor {
     });
 
     if (!completed) {
-      console.warn('Object deletion - completion failed', {
+      console.warn('Object deletion - attempt no longer active', {
         jobId: job.id,
         attemptCount: job.attemptCount,
       });
@@ -67,7 +67,7 @@ export class ObjectDeletionProcessor {
       errorCode,
     });
 
-    console.error('Object deletion - attempt no longer active', {
+    console.error('Object deletion failed', {
       jobId: job.id,
       reason: job.reason,
       attemptCount: job.attemptCount,
