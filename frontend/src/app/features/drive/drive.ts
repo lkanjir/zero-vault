@@ -28,6 +28,7 @@ import { CdkTableModule } from '@angular/cdk/table';
 import { DatePipe } from '@angular/common';
 import { FileSizePipe } from '../../shared/pipes/file-size-pipe';
 import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
+import { MoveEntryDialog } from './move-entry-dialog/move-entry-dialog';
 
 const LOAD_MORE_THRESHOLD = 10;
 
@@ -161,8 +162,18 @@ export class Drive implements OnInit, AfterViewInit {
     });
   }
 
-  move(selectedEntry: FolderEntry | FileEntry) {
-    throw new Error('Method not implemented.');
+  move(selectedEntry: FolderEntry | FileEntry) : void {
+    const sourceParentId = this.store.parentId();
+    this.dialog.open(MoveEntryDialog, {
+      data: {
+        entry: selectedEntry,
+        sourceParentId
+      },
+      width: 'calc(100vw - 2rem)',
+      maxWidth: '36rem',
+      autoFocus: 'first-tabbable',
+      restoreFocus: true,
+    })
   }
 
   delete(selectedEntry: FolderEntry | FileEntry) {

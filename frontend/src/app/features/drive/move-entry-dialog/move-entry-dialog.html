@@ -1,0 +1,27 @@
+<div class="w-full rounded-lg bg-background p-6 shadow-xl">
+  <h2 id="move-entry-dialog-title" class="text-lg font-bold">Premjesti „{{ data.entry.name }}”</h2>
+
+  <p class="mt-2 text-sm text-foreground-muted">Odaberi odredišni direktorij.</p>
+
+  <div class="mt-5 min-h-64 rounded-md border border-border p-4">
+    Destination picker
+  </div>
+
+  <div class="mt-5 flex justify-end gap-3">
+    <button
+      type="button"
+      class="h-10 rounded-md border border-border bg-background px-3 font-semibold"
+      (click)="closeDialog()"
+    >
+      Odustani
+    </button>
+
+    <button
+      type="button"
+      disabled
+      class="h-10 rounded-md bg-foreground px-3 text-sm font-semibold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      Premjesti ovdje
+    </button>
+  </div>
+</div>
