@@ -11,9 +11,9 @@ import type {
 
 export class PostgresObjectDeletionRepository implements ObjectDeletionRepository {
   async claimNext(command: ClaimNextObjectDeletionCommand): Promise<ObjectDeletionJob | null> {
-    const result = await db.transaction(async (tx) => {
-      const [claimedRow] = await tx
-        .select()
+    return db.transaction(async (tx) => {
+      const [candidate] = await tx
+        .select({ id: objectDeletionJobs.id })
         .from(objectDeletionJobs)
         .where(
           and(
@@ -29,29 +29,61 @@ export class PostgresObjectDeletionRepository implements ObjectDeletionRepositor
         .for('update', { skipLocked: true })
         .limit(1);
 
-      const [updatedRow] = claimedRow
-        ? await tx
-            .update(objectDeletionJobs)
-            .set({
-              leaseExpiresAt: command.leaseExpiresAt,
-              attemptCount: sql`${objectDeletionJobs.attemptCount} + 1`,
-            })
-            .where(eq(objectDeletionJobs.id, claimedRow.id))
-            .returning()
-        : [null];
+      if (!candidate) {
+        return null;
+      }
 
-      return updatedRow;
+      const [claimed] = await tx
+        .update(objectDeletionJobs)
+        .set({
+          leaseExpiresAt: command.leaseExpiresAt,
+          attemptCount: sql`${objectDeletionJobs.attemptCount} + 1`,
+        })
+        .where(and(eq(objectDeletionJobs.id, candidate.id), isNull(objectDeletionJobs.completedAt)))
+        .returning();
+
+      if (!claimed) {
+        throw new Error('Failed to claim object deletion job');
+      }
+
+      return this.toDomain(claimed);
     });
-
-    return result ? this.toDomain(result) : null;
   }
 
-  complete(command: CompleteObjectDeletionCommand): Promise<boolean> {
-    throw new Error('Method not implemented.');
+  async complete(command: CompleteObjectDeletionCommand): Promise<boolean> {
+    const [completed] = await db
+      .update(objectDeletionJobs)
+      .set({
+        completedAt: command.completedAt,
+        leaseExpiresAt: null,
+        lastErrorCode: null,
+      })
+      .where(this.activeAttemptCondition(command.id, command.attemptCount))
+      .returning({ id: objectDeletionJobs.id });
+
+    return completed !== undefined;
   }
 
-  reschedule(command: RescheduleObjectDeletionCommand): Promise<boolean> {
-    throw new Error('Method not implemented.');
+  async reschedule(command: RescheduleObjectDeletionCommand): Promise<boolean> {
+    const [rescheduled] = await db
+      .update(objectDeletionJobs)
+      .set({
+        availableAt: command.availableAt,
+        leaseExpiresAt: null,
+        lastErrorCode: command.errorCode,
+      })
+      .where(this.activeAttemptCondition(command.id, command.attemptCount))
+      .returning({ id: objectDeletionJobs.id });
+
+    return rescheduled !== undefined;
+  }
+
+  private activeAttemptCondition(id: number, attemptCount: number) {
+    return and(
+      eq(objectDeletionJobs.id, id),
+      isNull(objectDeletionJobs.completedAt),
+      eq(objectDeletionJobs.attemptCount, attemptCount),
+    );
   }
 
   private toDomain(updatedRow: typeof objectDeletionJobs.$inferSelect): ObjectDeletionJob {
