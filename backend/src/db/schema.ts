@@ -237,3 +237,38 @@ export const folderDownloads = pgTable(
     }).onDelete('restrict'),
   ],
 );
+
+export const objectDeletionReason = pgEnum('object_deletion_reason', [
+  'expired_upload',
+  'deleted_file',
+  'expired_folder_archive',
+  'stale_folder_archive_attempt',
+]);
+
+export const objectDeletionJobs = pgTable(
+  'object_deletion_jobs',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    objectKey: text('object_key').notNull(),
+    reason: objectDeletionReason('reason').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+    availableAt: timestamp('available_at', { withTimezone: true, mode: 'date' })
+      .defaultNow()
+      .notNull(),
+    attemptCount: integer('attempt_count').default(0).notNull(),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true, mode: 'date' }),
+    completedAt: timestamp('completed_at', { withTimezone: true, mode: 'date' }),
+    lastErrorCode: text('last_error_code'),
+  },
+  (table) => [
+    unique('object_deletion_jobs_object_key_key').on(table.objectKey),
+    check(
+      'object_deletion_jobs_object_key_not_blank_check',
+      sql`char_length(btrim(${table.objectKey})) > 0`,
+    ),
+    check('object_deletion_jobs_attempt_count_check', sql`${table.attemptCount} >= 0`),
+    index('object_deletion_jobs_claim_idx')
+      .on(table.availableAt, table.id)
+      .where(sql`${table.completedAt} is null`),
+  ],
+);
