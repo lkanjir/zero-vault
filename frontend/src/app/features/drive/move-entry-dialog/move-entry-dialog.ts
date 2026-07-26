@@ -1,29 +1,45 @@
 import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import {
+  AfterViewInit,
+  Component,
+  computed,
+  DestroyRef,
+  inject,
+  OnInit,
+  signal,
+  TrackByFunction,
+  viewChild,
+} from '@angular/core';
 import { EntryResponse, FolderEntry } from '../../../data-access/entries/entry-models';
 import { MoveStore } from './move-store';
 import { Icon } from '../../../shared/icon/icon';
 import { CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
 import { ApiError, apiErrorMessage } from '../../../shared/api-error';
 import { EntryActions } from '../actions/entry-actions';
+import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 export type MoveEntryDialogData = {
   entry: EntryResponse;
   sourceParentId: string | null;
 };
 
+const LOAD_MORE_THRESHOLD = 10;
+
 @Component({
   selector: 'app-move-entry-dialog',
-  imports: [Icon, CdkMenu, CdkMenuTrigger, CdkMenuItem],
+  imports: [Icon, CdkMenu, CdkMenuTrigger, CdkMenuItem, ScrollingModule],
   providers: [MoveStore],
   templateUrl: './move-entry-dialog.html',
 })
-export class MoveEntryDialog implements OnInit {
+export class MoveEntryDialog implements OnInit, AfterViewInit {
   private readonly entryActions = inject(EntryActions);
   private readonly dialogRef = inject(DialogRef);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly data = inject<MoveEntryDialogData>(DIALOG_DATA);
   readonly store = inject(MoveStore);
+  readonly viewport = viewChild.required(CdkVirtualScrollViewport);
 
   readonly ancestorFolders = computed(() => {
     const path = this.store.path();
@@ -40,8 +56,22 @@ export class MoveEntryDialog implements OnInit {
       this.store.parentId() !== this.data.sourceParentId,
   );
 
+  readonly trackFolder: TrackByFunction<FolderEntry> = (_index, folder) => folder.id;
+
   ngOnInit(): void {
     this.store.loadFolder(this.data.sourceParentId);
+  }
+
+  ngAfterViewInit(): void {
+    this.viewport()
+      .renderedRangeStream.pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(({ end }) => {
+        const remainingCount = this.store.folders().length - end;
+
+        if (this.store.folders().length > 0 && remainingCount <= LOAD_MORE_THRESHOLD) {
+          this.store.loadMore();
+        }
+      });
   }
 
   isBlockedFolder(folder: FolderEntry): boolean {
@@ -54,6 +84,7 @@ export class MoveEntryDialog implements OnInit {
     }
 
     this.moveError.set(null);
+    this.viewport().scrollToIndex(0);
     this.store.loadFolder(parentId);
   }
 
