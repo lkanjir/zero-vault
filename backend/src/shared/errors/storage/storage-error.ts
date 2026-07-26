@@ -4,13 +4,11 @@ export type StorageOperation =
   | 'head_object'
   | 'get_object_stream'
   | 'upload_object_stream'
-  | 'delete_object'
-  | 'delete_objects';
+  | 'delete_object';
 
 export type StorageErrorContext = Readonly<{
   operation: StorageOperation;
   objectKey?: string;
-  objectCount?: number;
 }>;
 
 export abstract class StorageError extends Error {

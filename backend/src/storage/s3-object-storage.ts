@@ -1,6 +1,5 @@
 import {
   DeleteObjectCommand,
-  DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -166,32 +165,6 @@ export class S3ObjectStorage implements ObjectStorage {
   private getDisposition(fileName: string): string {
     const encodedFileName = encodeURIComponent(fileName);
     return `attachment; filename*=UTF-8''${encodedFileName}`;
-  }
-
-  async deleteObjects(objectKeys: string[]): Promise<string[]> {
-    if (objectKeys.length === 0) return [];
-
-    const context = {
-      operation: 'delete_objects',
-      objectCount: objectKeys.length,
-    } as const satisfies StorageErrorContext;
-
-    return this.executeStorageOperation(context, async () => {
-      const command = new DeleteObjectsCommand({
-        Bucket: config.s3.bucket,
-        Delete: {
-          Objects: objectKeys.map((key) => ({
-            Key: key,
-          })),
-          Quiet: true,
-        },
-      });
-
-      const result = await this.client.send(command);
-      return (result.Errors ?? []).flatMap((error) => {
-        return error.Key ? [error.Key] : [];
-      });
-    });
   }
 
   async getObjectStream(objectKey: string): Promise<Readable> {

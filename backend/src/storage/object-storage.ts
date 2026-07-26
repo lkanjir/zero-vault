@@ -38,5 +38,4 @@ export interface ObjectStorage {
   getObjectStream(objectKey: string): Promise<Readable>;
   uploadObjectStream(params: UploadObjectStreamParams): Promise<void>;
   deleteObject(objectKey: string): Promise<void>;
-  deleteObjects(objectKeys: string[]): Promise<string[]>;
 }

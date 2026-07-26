@@ -100,16 +100,16 @@ describe('S3ObjectStorage errors', () => {
     });
   });
 
-  it('includes the batch size in deleteObjects failures', async () => {
+  it('maps a DELETE failure to StorageUnavailableError', async () => {
     const providerError = new Error('Delete unavailable');
     mocks.send.mockRejectedValueOnce(providerError);
 
-    await expect(storage.deleteObjects(['first-key', 'second-key'])).rejects.toMatchObject({
+    await expect(storage.deleteObject('object-key')).rejects.toMatchObject({
       name: StorageUnavailableError.name,
       cause: providerError,
       context: {
-        operation: 'delete_objects',
-        objectCount: 2,
+        operation: 'delete_object',
+        objectKey: 'object-key',
       },
     });
   });
