@@ -14,6 +14,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { resolveParentIdInTransaction } from '../entry/resolve-parent-id-in-transaction.js';
 import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
 import { AppError } from '../shared/errors/api/app-error.js';
+import { enqueueObjectDeletionInTransaction } from '../object-deletion/object-deletion-helpers.js';
 
 type UploadIntentRow = typeof uploadIntents.$inferSelect;
 type EntryRow = typeof entries.$inferSelect;
@@ -132,7 +133,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     command: CompleteVerifiedUploadCommand,
   ): Promise<CompletedVerifiedUploadResult> {
     if (this.isPastFinalizeDeadline(intent, command.completedAt)) {
-      await this.expireIntent(tx, intent.id);
+      await this.expireIntent(tx, intent);
       return { kind: 'expired' };
     }
 
@@ -166,8 +167,21 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     return intent.finalizeDeadline.getTime() < completedAt.getTime();
   }
 
-  private async expireIntent(tx: Transaction, intentId: number): Promise<void> {
-    await tx.update(uploadIntents).set({ status: 'expired' }).where(eq(uploadIntents.id, intentId));
+  private async expireIntent(tx: Transaction, intent: UploadIntentRow): Promise<void> {
+    const [expired] = await tx
+      .update(uploadIntents)
+      .set({ status: 'expired' })
+      .where(and(eq(uploadIntents.id, intent.id), eq(uploadIntents.status, 'pending')))
+      .returning({ id: uploadIntents.id });
+
+    if (!expired) {
+      throw new Error('Failed to expire upload intent');
+    }
+
+    await enqueueObjectDeletionInTransaction(tx, {
+      objectKey: intent.objectKey,
+      reason: 'expired_upload',
+    });
   }
 
   private async createFileForIntent(
