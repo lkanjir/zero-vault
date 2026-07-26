@@ -8,21 +8,12 @@ import type {
   UploadIntentRepository,
 } from './upload-intent-repository.js';
 import type { UploadIntent } from './upload-intent.js';
-import { db } from '../db/db-client.js';
+import { db, type Transaction } from '../db/db-client.js';
 import { entries, files, uploadIntents } from '../db/schema.js';
-import { and, eq, isNull, sql, type ExtractTablesWithRelations } from 'drizzle-orm';
-import type { PgTransaction } from 'drizzle-orm/pg-core';
-import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
-import type * as schema from '../db/schema.js';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { resolveParentIdInTransaction } from '../entry/resolve-parent-id-in-transaction.js';
 import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
 import { AppError } from '../shared/errors/api/app-error.js';
-
-type Transaction = PgTransaction<
-  NodePgQueryResultHKT,
-  typeof schema,
-  ExtractTablesWithRelations<typeof schema>
->;
 
 type UploadIntentRow = typeof uploadIntents.$inferSelect;
 type EntryRow = typeof entries.$inferSelect;

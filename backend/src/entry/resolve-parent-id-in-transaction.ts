@@ -1,12 +1,10 @@
-import { and, eq, isNull, type ExtractTablesWithRelations } from 'drizzle-orm';
-import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
-import type { PgTransaction } from 'drizzle-orm/pg-core';
-import type * as schema from '../db/schema.js';
+import { and, eq, isNull } from 'drizzle-orm';
 import { entries } from '../db/schema.js';
 import { AppError } from '../shared/errors/api/app-error.js';
+import type { Transaction } from '../db/db-client.js';
 
 export async function resolveParentIdInTransaction(
-  tx: PgTransaction<NodePgQueryResultHKT, typeof schema, ExtractTablesWithRelations<typeof schema>>,
+  tx: Transaction,
   ownerId: number,
   parentId: string | null,
 ): Promise<number | null> {

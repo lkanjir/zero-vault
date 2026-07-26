@@ -8,23 +8,11 @@ import type {
   ResolvedFolderPath,
   UpdateEntryCommand,
 } from './entry-repository.js';
-import {
-  eq,
-  isNull,
-  sql,
-  and,
-  or,
-  gt,
-  type SQL,
-  type ExtractTablesWithRelations,
-} from 'drizzle-orm';
+import { eq, isNull, sql, and, or, gt, type SQL } from 'drizzle-orm';
 import { entries, files } from '../db/schema.js';
-import { db } from '../db/db-client.js';
+import { db, type Transaction } from '../db/db-client.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
-import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
-import { type PgTransaction } from 'drizzle-orm/pg-core';
-import type * as schema from '../db/schema.js';
 import type { Entry } from './entry.js';
 import { resolveParentIdInTransaction } from './resolve-parent-id-in-transaction.js';
 import { mapEntryDatabaseError } from './map-entry-db-error.js';
@@ -165,11 +153,7 @@ export class PostgresEntryRepository implements EntryRepository {
   }
 
   private async toListedEntryInTransaction(
-    tx: PgTransaction<
-      NodePgQueryResultHKT,
-      typeof schema,
-      ExtractTablesWithRelations<typeof schema>
-    >,
+    tx: Transaction,
     updatedEntry: Entry,
   ): Promise<ListedEntry> {
     if (updatedEntry.kind === 'folder') {
@@ -205,11 +189,7 @@ export class PostgresEntryRepository implements EntryRepository {
   }
 
   private async assertFolderCanMove(
-    tx: PgTransaction<
-      NodePgQueryResultHKT,
-      typeof schema,
-      ExtractTablesWithRelations<typeof schema>
-    >,
+    tx: Transaction,
     folderId: number,
     nextParentId: number | null,
   ) {
@@ -252,11 +232,7 @@ export class PostgresEntryRepository implements EntryRepository {
   }
 
   private async findEntryForUpdate(
-    tx: PgTransaction<
-      NodePgQueryResultHKT,
-      typeof schema,
-      ExtractTablesWithRelations<typeof schema>
-    >,
+    tx: Transaction,
     ownerId: number,
     entryId: string,
   ): Promise<Entry> {
