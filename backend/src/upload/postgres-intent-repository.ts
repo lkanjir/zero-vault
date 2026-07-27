@@ -11,7 +11,10 @@ import type { UploadIntent } from './upload-intent.js';
 import { db, type Transaction } from '../db/db-client.js';
 import { entries, files, uploadIntents } from '../db/schema.js';
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
-import { resolveParentIdInTransaction } from '../entry/resolve-parent-id-in-transaction.js';
+import {
+  assertParentAvailableInTransaction,
+  resolveParentIdInTransaction,
+} from '../entry/resolve-parent-id-in-transaction.js';
 import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 import { enqueueObjectDeletionsInTransaction } from '../object-deletion/object-deletion-helpers.js';
@@ -137,6 +140,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       return { kind: 'expired' };
     }
 
+    await assertParentAvailableInTransaction(tx, command.userId, intent.targetParentId);
     const entry = await this.createEntryForIntent(tx, command.userId, intent);
 
     if (!entry) {

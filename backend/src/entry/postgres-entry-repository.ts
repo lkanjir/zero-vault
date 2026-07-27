@@ -86,35 +86,40 @@ export class PostgresEntryRepository implements EntryRepository {
   }
 
   async createFolder(command: CreateFolderCommand): Promise<Folder> {
-    const targetParentFolder = await this.resolveFolderPath(command.ownerId, command.parentId);
-    const folder = await this.insertFolder(
-      command.ownerId,
-      command.name,
-      targetParentFolder?.dbId ?? null,
-    );
-    return this.toFolder(folder);
-  }
-
-  private async insertFolder(owner: number, name: string, parent: number | null): Promise<Entry> {
     try {
-      const [folder] = await db
-        .insert(entries)
-        .values({
-          kind: 'folder',
-          name: name,
-          ownerId: owner,
-          parentId: parent,
-        })
-        .returning();
+      const folder = await db.transaction(async (tx) => {
+        const parentId = await resolveParentIdInTransaction(tx, command.ownerId, command.parentId);
 
-      if (!folder) {
-        throw new Error('Failed to create folder');
-      }
+        return this.insertFolder(tx, command.ownerId, command.name, parentId);
+      });
 
-      return folder;
+      return this.toFolder(folder);
     } catch (error) {
       throw mapEntryDatabaseError(error);
     }
+  }
+
+  private async insertFolder(
+    tx: Transaction,
+    ownerId: number,
+    name: string,
+    parentId: number | null,
+  ): Promise<Entry> {
+    const [folder] = await tx
+      .insert(entries)
+      .values({
+        kind: 'folder',
+        name: name,
+        ownerId: ownerId,
+        parentId: parentId,
+      })
+      .returning();
+
+    if (!folder) {
+      throw new Error('Failed to create folder');
+    }
+
+    return folder;
   }
 
   async updateEntry(command: UpdateEntryCommand): Promise<ListedEntry> {
