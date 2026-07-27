@@ -124,7 +124,7 @@ export class PostgresEntryRepository implements EntryRepository {
 
   async updateEntry(command: UpdateEntryCommand): Promise<ListedEntry> {
     try {
-      return db.transaction(async (tx) => {
+      return await db.transaction(async (tx) => {
         const target = await this.findEntryForUpdate(tx, command.ownerId, command.entryId);
         const nextParentId =
           command.parentId === undefined
