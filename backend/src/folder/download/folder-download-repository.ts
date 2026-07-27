@@ -41,6 +41,11 @@ export type GetFolderArchiveManifestCommand = {
   rootFolderName: string;
 };
 
+export type ExpireReadyFolderDownloadsCommand = {
+  expiredAt: Date;
+  limit: number;
+};
+
 export interface FolderDownloadRepository {
   create(command: CreateFolderDownloadCommand): Promise<FolderDownload>;
   findByOwnerAndDownloadId(ownerId: number, downloadId: string): Promise<FolderDownload | null>;
@@ -49,4 +54,5 @@ export interface FolderDownloadRepository {
   markReady(command: MarkFolderDownloadReadyCommand): Promise<boolean>;
   markFailed(command: MarkFolderDownloadFailedCommand): Promise<boolean>;
   getArchiveManifest(command: GetFolderArchiveManifestCommand): Promise<FolderArchiveEntry[]>;
+  expireReadyFolderDownloads(command: ExpireReadyFolderDownloadsCommand): Promise<number>;
 }

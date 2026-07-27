@@ -1,9 +1,10 @@
-import { and, eq, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { db } from '../../db/db-client.js';
 import { entries, folderDownloads } from '../../db/schema.js';
 import type {
   ClaimNextFolderDownloadCommand,
   CreateFolderDownloadCommand,
+  ExpireReadyFolderDownloadsCommand,
   FolderDownloadRepository,
   GetFolderArchiveManifestCommand,
   MarkFolderDownloadFailedCommand,
@@ -12,6 +13,7 @@ import type {
 } from './folder-download-repository.js';
 import type { FolderArchiveEntry, FolderDownload } from './folder-download.js';
 import { AppError } from '../../shared/errors/api/app-error.js';
+import { enqueueObjectDeletionsInTransaction } from '../../object-deletion/object-deletion-helpers.js';
 
 type FolderArchiveManifestRow = {
   kind: 'folder' | 'file';
@@ -230,6 +232,55 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
         objectKey: row.objectKey,
         sizeBytes,
       };
+    });
+  }
+
+  async expireReadyFolderDownloads(command: ExpireReadyFolderDownloadsCommand): Promise<number> {
+    return db.transaction(async (tx) => {
+      const candidates = await tx
+        .select({ id: folderDownloads.id })
+        .from(folderDownloads)
+        .where(
+          and(
+            eq(folderDownloads.status, 'ready'),
+            lte(folderDownloads.expiresAt, command.expiredAt),
+          ),
+        )
+        .orderBy(folderDownloads.expiresAt, folderDownloads.id)
+        .for('update', { skipLocked: true })
+        .limit(command.limit);
+
+      if (candidates.length === 0) {
+        return 0;
+      }
+
+      const expired = await tx
+        .update(folderDownloads)
+        .set({ status: 'expired' })
+        .where(
+          and(
+            inArray(
+              folderDownloads.id,
+              candidates.map((item) => item.id),
+            ),
+            eq(folderDownloads.status, 'ready'),
+          ),
+        )
+        .returning({ archiveObjectKey: folderDownloads.archiveObjectKey });
+
+      if (expired.length !== candidates.length) {
+        throw new Error('Failed to expire all locked folder downloads');
+      }
+
+      await enqueueObjectDeletionsInTransaction(
+        tx,
+        expired.map((item) => ({
+          objectKey: item.archiveObjectKey,
+          reason: 'expired_folder_archive',
+        })),
+      );
+
+      return expired.length;
     });
   }
 
