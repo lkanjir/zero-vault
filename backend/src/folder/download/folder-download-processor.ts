@@ -41,7 +41,7 @@ export class FolderDownloadProcessor {
       const result = await this.archiver.create({ entries, archiveObjectKey });
       const finishedAt = new Date();
 
-      const markedReady = await this.repository.markReady({
+      const outcome = await this.repository.completeArchiveAttempt({
         id: download.id,
         attemptCount: download.attemptCount,
         archiveObjectKey,
@@ -50,10 +50,11 @@ export class FolderDownloadProcessor {
         expiresAt: new Date(finishedAt.getTime() + ARCHIVE_RETENTION_MS),
       });
 
-      if (!markedReady) {
+      if (outcome === 'stale') {
         console.warn('Folder download attempt is no longer active', {
           downloadId: download.downloadId,
           attemptCount: download.attemptCount,
+          archiveObjectKey,
         });
       }
     } catch (error) {

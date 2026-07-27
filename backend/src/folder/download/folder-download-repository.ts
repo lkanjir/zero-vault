@@ -19,7 +19,7 @@ export type RenewFolderDownloadLeaseCommand = {
   leaseExpiresAt: Date;
 };
 
-export type MarkFolderDownloadReadyCommand = {
+export type CompleteFolderDownloadAttemptCommand = {
   id: number;
   attemptCount: number;
   archiveObjectKey: string;
@@ -51,7 +51,7 @@ export interface FolderDownloadRepository {
   findByOwnerAndDownloadId(ownerId: number, downloadId: string): Promise<FolderDownload | null>;
   claimNext(command: ClaimNextFolderDownloadCommand): Promise<FolderDownload | null>;
   renewLease(command: RenewFolderDownloadLeaseCommand): Promise<boolean>;
-  markReady(command: MarkFolderDownloadReadyCommand): Promise<boolean>;
+  completeArchiveAttempt(command: CompleteFolderDownloadAttemptCommand): Promise<'ready' | 'stale'>;
   markFailed(command: MarkFolderDownloadFailedCommand): Promise<boolean>;
   getArchiveManifest(command: GetFolderArchiveManifestCommand): Promise<FolderArchiveEntry[]>;
   expireReadyFolderDownloads(command: ExpireReadyFolderDownloadsCommand): Promise<number>;

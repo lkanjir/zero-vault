@@ -16,6 +16,7 @@ import { StreamingFolderArchiver } from './folder/download/streaming-folder-arch
 import { FolderDownloadProcessor } from './folder/download/folder-download-processor.js';
 import { PostgresObjectDeletionRepository } from './object-deletion/postgres-object-deletion-repository.js';
 import { ObjectDeletionProcessor } from './object-deletion/object-deletion-processor.js';
+import { FolderDownloadCleanupService } from './folder/download/folder-download-cleanup-service.js';
 
 export function createCompositionRoot() {
   const storage = new S3ObjectStorage();
@@ -41,6 +42,7 @@ export function createCompositionRoot() {
     folderDownloadRepository,
     folderArchiver,
   );
+  const folderDownloadCleanupService = new FolderDownloadCleanupService(folderDownloadRepository);
 
   const completeUploadUseCase = new CompleteUploadUseCase(uploadService);
 
@@ -56,6 +58,7 @@ export function createCompositionRoot() {
     entryService,
     folderService,
     folderDownloadService,
+    folderDownloadCleanupService,
     folderDownloadProcessor,
     objectDeletionProcessor,
   };

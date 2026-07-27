@@ -3,17 +3,20 @@ import { db } from '../../db/db-client.js';
 import { entries, folderDownloads } from '../../db/schema.js';
 import type {
   ClaimNextFolderDownloadCommand,
+  CompleteFolderDownloadAttemptCommand,
   CreateFolderDownloadCommand,
   ExpireReadyFolderDownloadsCommand,
   FolderDownloadRepository,
   GetFolderArchiveManifestCommand,
   MarkFolderDownloadFailedCommand,
-  MarkFolderDownloadReadyCommand,
   RenewFolderDownloadLeaseCommand,
 } from './folder-download-repository.js';
 import type { FolderArchiveEntry, FolderDownload } from './folder-download.js';
 import { AppError } from '../../shared/errors/api/app-error.js';
-import { enqueueObjectDeletionsInTransaction } from '../../object-deletion/object-deletion-helpers.js';
+import {
+  enqueueObjectDeletionInTransaction,
+  enqueueObjectDeletionsInTransaction,
+} from '../../object-deletion/object-deletion-helpers.js';
 
 type FolderArchiveManifestRow = {
   kind: 'folder' | 'file';
@@ -131,22 +134,55 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
     return updated !== undefined;
   }
 
-  async markReady(command: MarkFolderDownloadReadyCommand): Promise<boolean> {
-    const [updated] = await db
-      .update(folderDownloads)
-      .set({
-        status: 'ready',
-        archiveObjectKey: command.archiveObjectKey,
-        archiveSizeBytes: command.archiveSizeBytes,
-        finishedAt: command.finishedAt,
-        expiresAt: command.expiresAt,
-        leaseExpiresAt: null,
-        failureCode: null,
-      })
-      .where(this.activeAttemptCondition(command.id, command.attemptCount))
-      .returning({ id: folderDownloads.id });
+  async completeArchiveAttempt(
+    command: CompleteFolderDownloadAttemptCommand,
+  ): Promise<'ready' | 'stale'> {
+    return db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(folderDownloads)
+        .set({
+          status: 'ready',
+          archiveObjectKey: command.archiveObjectKey,
+          archiveSizeBytes: command.archiveSizeBytes,
+          finishedAt: command.finishedAt,
+          expiresAt: command.expiresAt,
+          leaseExpiresAt: null,
+          failureCode: null,
+        })
+        .where(this.activeAttemptCondition(command.id, command.attemptCount))
+        .returning({ id: folderDownloads.id });
 
-    return updated !== undefined;
+      if (updated) {
+        return 'ready';
+      }
+
+      const [current] = await tx
+        .select({
+          status: folderDownloads.status,
+          attemptCount: folderDownloads.attemptCount,
+          archiveObjectKey: folderDownloads.archiveObjectKey,
+        })
+        .from(folderDownloads)
+        .where(eq(folderDownloads.id, command.id))
+        .for('update')
+        .limit(1);
+
+      const alreadyCompleted =
+        current?.status === 'ready' &&
+        current.attemptCount === command.attemptCount &&
+        current.archiveObjectKey === command.archiveObjectKey;
+
+      if (alreadyCompleted) {
+        return 'ready';
+      }
+
+      await enqueueObjectDeletionInTransaction(tx, {
+        objectKey: command.archiveObjectKey,
+        reason: 'stale_folder_archive_attempt',
+      });
+
+      return 'stale';
+    });
   }
 
   async markFailed(command: MarkFolderDownloadFailedCommand): Promise<boolean> {
