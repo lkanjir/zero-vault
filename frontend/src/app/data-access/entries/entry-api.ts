@@ -27,4 +27,9 @@ export class EntryApi {
     const encoded = encodeURIComponent(entryId);
     return this.http.patch<EntryResponse>(`/api/entries/${encoded}`, request);
   }
+
+  deleteEntry(entryId: string): Observable<void> {
+    const encoded = encodeURIComponent(entryId);
+    return this.http.delete<void>(`/api/entries/${encoded}`);
+  }
 }

@@ -136,6 +136,14 @@ export class DriveStore {
       });
   }
 
+  removeIfCurrent(parentId: string | null, entryId: string): void {
+    if (this._parentId() !== parentId) {
+      return;
+    }
+
+    this._entries.update((entries) => entries.filter((entry) => entry.id !== entryId));
+  }
+
   private resetPagination(): void {
     this._nextCursor.set(null);
     this._hasMore.set(false);

@@ -83,4 +83,21 @@ export class EntryActions {
 
     return result;
   }
+
+  async deleteEntry(entryId: string): Promise<Result<void, ApiError>> {
+    const sourceParentId = this.store.parentId();
+
+    const result = await firstValueFrom(
+      this.entryApi.deleteEntry(entryId).pipe(
+        map((): Result<void, ApiError> => ({ ok: true, value: undefined })),
+        catchError((error) => of<Result<void, ApiError>>({ ok: false, error: toApiError(error) })),
+      ),
+    );
+
+    if (result.ok) {
+      this.store.removeIfCurrent(sourceParentId, entryId);
+    }
+
+    return result;
+  }
 }

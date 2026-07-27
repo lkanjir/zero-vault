@@ -1,0 +1,33 @@
+<div class="w-md max-w-[90vw] rounded-lg bg-background p-6 shadow-xl">
+  <h2 class="mb-3 text-lg font-bold">
+    {{ data.entry.kind === 'folder' ? 'Obriši direktorij' : 'Obriši datoteku' }}
+  </h2>
+
+  <p class="text-foreground-muted">
+    Želiš li obrisati <span class="font-semibold text-foreground">"{{ data.entry.name }}"</span>?
+  </p>
+
+  @if (deleteError()) {
+    <p class="mt-4 text-sm text-danger">{{ deleteError() }}</p>
+  }
+
+  <div class="mt-6 flex justify-end gap-3">
+    <button
+      type="button"
+      class="h-10 rounded-md border border-border bg-background px-3 font-semibold"
+      [disabled]="submitting()"
+      (click)="closeDialog()"
+    >
+      Odustani
+    </button>
+
+    <button
+      type="button"
+      class="h-10 rounded-md bg-danger px-3 text-sm font-semibold text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+      [disabled]="submitting()"
+      (click)="confirmDelete()"
+    >
+      {{ submitting() ? 'Brisanje...' : 'Obriši' }}
+    </button>
+  </div>
+</div>
