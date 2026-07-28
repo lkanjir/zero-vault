@@ -3,7 +3,6 @@ import type { UploadResponse } from './dto.js';
 import type { UploadRequestBody } from './validation-schemas.js';
 import type { UploadIntent } from './upload-intent.js';
 import type { ObjectMetadata, ObjectStorage } from '../storage/object-storage.js';
-import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
 import type {
   CompletedUploadFile,
   CompletedVerifiedUploadResult,
@@ -41,7 +40,6 @@ export class UploadService {
 
     const objectId = randomUUID();
     const objectKey = `users/${user.publicId}/objects/${objectId}`;
-    const contentType = normalizedContentType(requestBody.contentType);
     const uploadId = randomUUID();
 
     const intent: UploadIntent = {
@@ -49,7 +47,7 @@ export class UploadService {
       createdByUserId: user.id,
       fileName: requestBody.fileName,
       objectKey: objectKey,
-      contentType: contentType,
+      contentType: requestBody.contentType,
       expectedSizeBytes: requestBody.size,
       expectedSha256: requestBody.sha256,
       status: 'pending',

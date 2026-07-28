@@ -15,6 +15,11 @@ export class StreamingFolderArchiver implements FolderArchiver {
       throw new Error('Folder archive manifest is empty');
     }
 
+    const archiveEntries = command.entries.map((entry) => ({
+      entry,
+      path: this.toArchivePath(entry.pathParts),
+    }));
+
     const uploadBody = new PassThrough();
     const archive = new ZipArchive({ forceZip64: true, store: true });
     archive.pipe(uploadBody);
@@ -28,9 +33,7 @@ export class StreamingFolderArchiver implements FolderArchiver {
     uploadPromise.catch((error) => archive.destroy(this.toError(error)));
 
     try {
-      for (const entry of command.entries) {
-        const path = this.toArchivePath(entry.pathParts);
-
+      for (const { entry, path } of archiveEntries) {
         if (entry.kind === 'folder') {
           await this.appendAndWait(archive, Buffer.alloc(0), {
             name: `${path}/`,
@@ -51,11 +54,11 @@ export class StreamingFolderArchiver implements FolderArchiver {
     } catch (error) {
       const normalizedError = this.toError(error);
 
-      archive.destroy(normalizedError);
-      uploadBody.destroy(normalizedError);
+      archive.destroy();
+      uploadBody.destroy();
 
       await uploadPromise.catch(() => undefined);
-      throw error;
+      throw normalizedError;
     }
   }
 

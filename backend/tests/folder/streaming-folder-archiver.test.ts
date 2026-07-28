@@ -93,5 +93,8 @@ describe('StreamingFolderArchiver', () => {
         entries: [{ kind: 'folder', pathParts }],
       }),
     ).rejects.toThrow('Folder archive entry has an invalid path');
+
+    expect(storage.getObjectStream).not.toHaveBeenCalled();
+    expect(storage.uploadObjectStream).not.toHaveBeenCalled();
   });
 });

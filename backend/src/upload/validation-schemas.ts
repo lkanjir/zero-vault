@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
 
 const SINGLE_PART_MAX_BYTES = 50 * 1024 * 1024;
 const sha256Schema = z
@@ -6,6 +7,13 @@ const sha256Schema = z
   .trim()
   .toLowerCase()
   .regex(/^[0-9a-f]{64}$/);
+
+export const contentTypeSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .transform(normalizedContentType)
+  .pipe(z.string().min(1).max(500));
 
 export const uploadRequestSchema = z.object({
   parentFolderId: z.uuid().nullable().optional(),
@@ -17,7 +25,7 @@ export const uploadRequestSchema = z.object({
     .refine((value) => !/[\\/]+/.test(value), {
       message: 'Naziv datoteke ne smije sadržavati znak / ili \\',
     }),
-  contentType: z.string().trim().min(1).max(255),
+  contentType: contentTypeSchema,
   size: z.number().int().positive().max(SINGLE_PART_MAX_BYTES),
   sha256: sha256Schema,
 });

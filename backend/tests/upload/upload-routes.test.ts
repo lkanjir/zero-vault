@@ -108,9 +108,52 @@ describe('upload routes contract', () => {
         sha256: EXPECTED_SHA256,
       });
 
-    expectErrorResponse(response, 'invalid_request_body');
+    const body = response.body as ErrorResponse;
+
+    expect(response.status).toBe(errorCatalog.invalid_request_body.status);
+    expect(body).toMatchObject({
+      code: 'invalid_request_body',
+      message: errorCatalog.invalid_request_body.message,
+    });
+    expect(typeof body.requestId).toBe('string');
+    expect(Array.isArray(body.details?.issues)).toBe(true);
+    expect(body.details?.issues[0]).toMatchObject({
+      code: 'too_small',
+      path: ['contentType'],
+    });
     expect(userService.resolveUser).not.toHaveBeenCalled();
     expect(uploadService.createUpload).not.toHaveBeenCalled();
+  });
+
+  it('normalizes the content type before invoking the upload service', async () => {
+    uploadService.createUpload.mockResolvedValue({
+      uploadId: UPLOAD_ID,
+      uploadUrl: 'https://storage.example.test/upload',
+      expiresInSeconds: 60,
+      requiredHeaders: {
+        'Content-Type': 'text/plain',
+        'x-amz-checksum-sha256': Buffer.from(EXPECTED_SHA256, 'hex').toString('base64'),
+      },
+    });
+
+    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+      .post('/uploads/presign')
+      .send({
+        parentFolderId: null,
+        fileName: 'document.txt',
+        contentType: ' Text/Plain; charset=utf-8 ',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+      });
+
+    expect(response.status).toBe(201);
+    expect(uploadService.createUpload).toHaveBeenCalledExactlyOnceWith(USER, {
+      parentFolderId: null,
+      fileName: 'document.txt',
+      contentType: 'text/plain',
+      size: 12,
+      sha256: EXPECTED_SHA256,
+    });
   });
 
   it.each([

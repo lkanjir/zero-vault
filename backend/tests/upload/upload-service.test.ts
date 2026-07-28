@@ -46,7 +46,7 @@ describe('UploadService', () => {
 
     const result = await service.createUpload(USER, {
       fileName: 'document.txt',
-      contentType: ' text/plain ',
+      contentType: 'text/plain',
       size: 12,
       sha256: EXPECTED_SHA256,
       parentFolderId: parentFolderId,
@@ -92,7 +92,7 @@ describe('UploadService', () => {
 
     await service.createUpload(USER, {
       fileName: 'document.txt',
-      contentType: ' text/plain ',
+      contentType: 'text/plain',
       size: 12,
       sha256: EXPECTED_SHA256,
     });
