@@ -41,11 +41,55 @@ describe('entry routes', () => {
     entryService = mock<EntryService>();
 
     userService.resolveUser.mockResolvedValue(USER);
+    entryService.listEntries.mockResolvedValue({
+      items: [],
+      path: [],
+      page: {
+        hasMore: false,
+        limit: 50,
+        nextCursor: null,
+      },
+    });
     entryService.updateEntry.mockResolvedValue({
       kind: 'folder',
       id: ENTRY_ID,
       name: 'Renamed',
       updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+  });
+
+  it('lists the root with the default cursor page contract', async () => {
+    const response = await request(createTestApp(userService, entryService)).get('/entries');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toStrictEqual({
+      items: [],
+      path: [],
+      page: {
+        hasMore: false,
+        limit: 50,
+        nextCursor: null,
+      },
+    });
+    expect(entryService.listEntries).toHaveBeenCalledExactlyOnceWith(USER, {
+      parentId: null,
+      cursor: null,
+      limit: 50,
+    });
+  });
+
+  it('passes the parent, cursor and limit query to the listing service', async () => {
+    const response = await request(createTestApp(userService, entryService)).get('/entries').query({
+      parentId: ENTRY_ID,
+      cursor: 'cursor-value',
+      limit: 25,
+    });
+
+    expect(response.status).toBe(200);
+    expect(entryService.listEntries).toHaveBeenCalledExactlyOnceWith(USER, {
+      parentId: ENTRY_ID,
+      cursor: 'cursor-value',
+      limit: 25,
     });
   });
 
@@ -112,6 +156,42 @@ describe('entry routes', () => {
     expect(entryService.updateEntry).toHaveBeenCalledExactlyOnceWith(USER, ENTRY_ID, {
       parentId,
     });
+  });
+
+  it('deletes an entry and returns no response body', async () => {
+    const response = await request(createTestApp(userService, entryService)).delete(
+      `/entries/${ENTRY_ID}`,
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.text).toBe('');
+    expect(entryService.deleteEntry).toHaveBeenCalledExactlyOnceWith(USER, ENTRY_ID);
+  });
+
+  it('returns folder_not_empty when a non-empty folder cannot be deleted', async () => {
+    entryService.deleteEntry.mockRejectedValueOnce(new AppError('folder_not_empty'));
+
+    const response = await request(createTestApp(userService, entryService)).delete(
+      `/entries/${ENTRY_ID}`,
+    );
+    const body = response.body as ErrorResponse;
+
+    expect(response.status).toBe(409);
+    expect(body).toStrictEqual({
+      code: 'folder_not_empty',
+      message: 'Direktorij nije moguće obrisati jer nije prazan.',
+      requestId: body.requestId,
+    });
+    expect(typeof body.requestId).toBe('string');
+  });
+
+  it('rejects an invalid delete entryId before calling the service', async () => {
+    const response = await request(createTestApp(userService, entryService)).delete(
+      '/entries/not-a-uuid',
+    );
+
+    expect(response.status).toBe(400);
+    expect(entryService.deleteEntry).not.toHaveBeenCalled();
   });
 });
 

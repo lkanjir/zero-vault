@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { S3ServiceException } from '@aws-sdk/client-s3';
 import type * as S3ClientModule from '@aws-sdk/client-s3';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +9,8 @@ import { S3ObjectStorage } from '../../src/storage/s3-object-storage.js';
 const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   getSignedUrl: vi.fn(),
+  uploadDone: vi.fn(),
+  uploadOptions: [] as unknown[],
 }));
 
 vi.mock('@aws-sdk/client-s3', async (importOriginal) => {
@@ -25,11 +28,22 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: mocks.getSignedUrl,
 }));
 
+vi.mock('@aws-sdk/lib-storage', () => ({
+  Upload: class {
+    constructor(options: unknown) {
+      mocks.uploadOptions.push(options);
+    }
+
+    done = mocks.uploadDone;
+  },
+}));
+
 describe('S3ObjectStorage errors', () => {
   let storage: S3ObjectStorage;
 
   beforeEach(() => {
     storage = new S3ObjectStorage();
+    mocks.uploadOptions.length = 0;
   });
 
   it('maps a HEAD 404 to StorageObjectNotFoundError', async () => {
@@ -110,6 +124,90 @@ describe('S3ObjectStorage errors', () => {
       context: {
         operation: 'delete_object',
         objectKey: 'object-key',
+      },
+    });
+  });
+
+  it('returns a Node.js readable GET body', async () => {
+    const body = Readable.from(['content']);
+    mocks.send.mockResolvedValueOnce({ Body: body });
+
+    await expect(storage.getObjectStream('object-key')).resolves.toBe(body);
+  });
+
+  it('maps a GET 404 to StorageObjectNotFoundError', async () => {
+    const providerError = new S3ServiceException({
+      name: 'NotFound',
+      $fault: 'client',
+      $metadata: { httpStatusCode: 404 },
+    });
+    mocks.send.mockRejectedValueOnce(providerError);
+
+    await expect(storage.getObjectStream('object-key')).rejects.toMatchObject({
+      name: StorageObjectNotFoundError.name,
+      cause: providerError,
+      context: {
+        operation: 'get_object_stream',
+        objectKey: 'object-key',
+      },
+    });
+  });
+
+  it('rejects a GET response without a Node.js readable body', async () => {
+    mocks.send.mockResolvedValueOnce({ Body: new Uint8Array([1, 2, 3]) });
+
+    await expect(storage.getObjectStream('object-key')).rejects.toMatchObject({
+      name: StorageUnavailableError.name,
+      context: {
+        operation: 'get_object_stream',
+        objectKey: 'object-key',
+      },
+    });
+  });
+
+  it('uploads a stream with bounded multipart concurrency and automatic abort cleanup', async () => {
+    const body = Readable.from(['content']);
+    mocks.uploadDone.mockResolvedValueOnce(undefined);
+
+    await expect(
+      storage.uploadObjectStream({
+        objectKey: 'archive.zip',
+        contentType: 'application/zip',
+        body,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.uploadDone).toHaveBeenCalledOnce();
+    expect(mocks.uploadOptions).toHaveLength(1);
+    expect(mocks.uploadOptions[0]).toMatchObject({
+      params: {
+        Bucket: process.env['S3_BUCKET'],
+        Key: 'archive.zip',
+        Body: body,
+        ContentType: 'application/zip',
+      },
+      partSize: 32 * 1024 * 1024,
+      queueSize: 2,
+      leavePartsOnError: false,
+    });
+  });
+
+  it('maps a multipart upload failure to StorageUnavailableError', async () => {
+    const providerError = new Error('Upload unavailable');
+    mocks.uploadDone.mockRejectedValueOnce(providerError);
+
+    await expect(
+      storage.uploadObjectStream({
+        objectKey: 'archive.zip',
+        contentType: 'application/zip',
+        body: Readable.from(['content']),
+      }),
+    ).rejects.toMatchObject({
+      name: StorageUnavailableError.name,
+      cause: providerError,
+      context: {
+        operation: 'upload_object_stream',
+        objectKey: 'archive.zip',
       },
     });
   });

@@ -97,6 +97,22 @@ describe('upload routes contract', () => {
     expectErrorResponse(response, 'storage_unavailable');
   });
 
+  it('rejects a content type that becomes empty after normalization', async () => {
+    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+      .post('/uploads/presign')
+      .send({
+        parentFolderId: null,
+        fileName: 'document.txt',
+        contentType: '; charset=utf-8',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+      });
+
+    expectErrorResponse(response, 'invalid_request_body');
+    expect(userService.resolveUser).not.toHaveBeenCalled();
+    expect(uploadService.createUpload).not.toHaveBeenCalled();
+  });
+
   it.each([
     'upload_object_missing',
     'upload_expired',

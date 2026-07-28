@@ -1,0 +1,220 @@
+import { createHash, randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { CreateBucketCommand, S3Client, type BucketLocationConstraint } from '@aws-sdk/client-s3';
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { eq } from 'drizzle-orm';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { objectDeletionJobs, uploadIntents, users } from '../../../src/db/schema.js';
+import type { Database } from '../../../src/db/db-client.js';
+import type { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
+import type { FileDownloadService } from '../../../src/files/file-download-service.js';
+import type { ObjectDeletionProcessor } from '../../../src/object-deletion/object-deletion-processor.js';
+import type { PostgresObjectDeletionRepository } from '../../../src/object-deletion/postgres-object-deletion-repository.js';
+import { StorageObjectNotFoundError } from '../../../src/shared/errors/storage/storage-object-not-found-error.js';
+import type { S3ObjectStorage } from '../../../src/storage/s3-object-storage.js';
+import type { CompleteUploadUseCase } from '../../../src/upload/complete-upload-use-case.js';
+import type { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
+import type { UploadService } from '../../../src/upload/upload-service.js';
+import type { User } from '../../../src/user/user.js';
+
+const REGION = 'eu-central-1';
+const ACCESS_KEY = 'test';
+const SECRET_KEY = 'test';
+const BUCKET = 'zero-vault-roundtrip';
+const ISSUER = 'https://issuer.example.test/realms/zero-vault';
+
+describe('LocalStack storage round-trip', () => {
+  let postgres: StartedPostgreSqlContainer;
+  let localstack: StartedTestContainer;
+  let database: Database;
+  let closeDatabase: () => Promise<void>;
+  let uploadService: UploadService;
+  let completeUpload: CompleteUploadUseCase;
+  let fileDownloadService: FileDownloadService;
+  let entryRepository: PostgresEntryRepository;
+  let deletionRepository: PostgresObjectDeletionRepository;
+  let deletionProcessor: ObjectDeletionProcessor;
+  let storage: S3ObjectStorage;
+
+  beforeAll(async () => {
+    [postgres, localstack] = await Promise.all([
+      new PostgreSqlContainer('postgres:18-alpine')
+        .withDatabase('zero_vault_test')
+        .withUsername('test')
+        .withPassword('test')
+        .start(),
+      new GenericContainer('localstack/localstack:4.6.0')
+        .withEnvironment({
+          SERVICES: 's3',
+          AWS_DEFAULT_REGION: REGION,
+        })
+        .withExposedPorts(4566)
+        .withWaitStrategy(Wait.forHttp('/_localstack/health', 4566).forStatusCode(200))
+        .withStartupTimeout(120_000)
+        .start(),
+    ]);
+
+    const endpoint = `http://${localstack.getHost()}:${localstack.getMappedPort(4566)}`;
+    Object.assign(process.env, {
+      DATABASE_URL: postgres.getConnectionUri(),
+      S3_ENDPOINT: endpoint,
+      S3_REGION: REGION,
+      S3_FORCE_PATH_STYLE: 'true',
+      S3_ACCESS_KEY_ID: ACCESS_KEY,
+      S3_SECRET_ACCESS_KEY: SECRET_KEY,
+      S3_BUCKET: BUCKET,
+    });
+
+    const client = new S3Client({
+      endpoint,
+      region: REGION,
+      forcePathStyle: true,
+      credentials: {
+        accessKeyId: ACCESS_KEY,
+        secretAccessKey: SECRET_KEY,
+      },
+    });
+    await client.send(
+      new CreateBucketCommand({
+        Bucket: BUCKET,
+        CreateBucketConfiguration: {
+          LocationConstraint: REGION as BucketLocationConstraint,
+        },
+      }),
+    );
+    client.destroy();
+
+    const [
+      databaseModule,
+      storageModule,
+      intentRepositoryModule,
+      uploadServiceModule,
+      completeUploadModule,
+      fileRepositoryModule,
+      fileDownloadModule,
+      entryRepositoryModule,
+      deletionRepositoryModule,
+      deletionProcessorModule,
+    ] = await Promise.all([
+      import('../../../src/db/db-client.js'),
+      import('../../../src/storage/s3-object-storage.js'),
+      import('../../../src/upload/postgres-intent-repository.js'),
+      import('../../../src/upload/upload-service.js'),
+      import('../../../src/upload/complete-upload-use-case.js'),
+      import('../../../src/files/postgres-file-repository.js'),
+      import('../../../src/files/file-download-service.js'),
+      import('../../../src/entry/postgres-entry-repository.js'),
+      import('../../../src/object-deletion/postgres-object-deletion-repository.js'),
+      import('../../../src/object-deletion/object-deletion-processor.js'),
+    ]);
+
+    database = databaseModule.db;
+    closeDatabase = databaseModule.closeDatabase;
+    await migrate(database, {
+      migrationsFolder: path.resolve(process.cwd(), 'drizzle'),
+    });
+
+    storage = new storageModule.S3ObjectStorage();
+    const intentRepository: PostgresIntentRepository =
+      new intentRepositoryModule.PostgresIntentRepository();
+    uploadService = new uploadServiceModule.UploadService(storage, intentRepository);
+    completeUpload = new completeUploadModule.CompleteUploadUseCase(uploadService);
+    fileDownloadService = new fileDownloadModule.FileDownloadService(
+      new fileRepositoryModule.PostgresFileRepository(),
+      storage,
+    );
+    entryRepository = new entryRepositoryModule.PostgresEntryRepository();
+    deletionRepository = new deletionRepositoryModule.PostgresObjectDeletionRepository();
+    deletionProcessor = new deletionProcessorModule.ObjectDeletionProcessor(
+      deletionRepository,
+      storage,
+    );
+  });
+
+  afterAll(async () => {
+    await closeDatabase();
+    await Promise.all([postgres.stop(), localstack.stop()]);
+  });
+
+  it('uploads, completes, downloads and physically deletes one file', async () => {
+    const user = await createUser();
+    const content = Buffer.from('LocalStack storage round-trip');
+    const sha256 = createHash('sha256').update(content).digest('hex');
+
+    const presign = await uploadService.createUpload(user, {
+      parentFolderId: null,
+      fileName: 'roundtrip.txt',
+      contentType: 'text/plain',
+      size: content.length,
+      sha256,
+    });
+
+    const putResponse = await fetch(presign.uploadUrl, {
+      method: 'PUT',
+      headers: presign.requiredHeaders,
+      body: content,
+    });
+    expect(putResponse.status).toBe(200);
+
+    const file = await completeUpload.execute(user, presign.uploadId);
+    expect(file).toMatchObject({
+      kind: 'file',
+      name: 'roundtrip.txt',
+      contentType: 'text/plain',
+      sizeBytes: content.length,
+    });
+
+    const download = await fileDownloadService.createDownloadUrl(user, file.id);
+    const downloadResponse = await fetch(download.downloadUrl);
+    expect(downloadResponse.status).toBe(200);
+    expect(Buffer.from(await downloadResponse.arrayBuffer())).toStrictEqual(content);
+
+    const [intent] = await database
+      .select({ objectKey: uploadIntents.objectKey })
+      .from(uploadIntents)
+      .where(eq(uploadIntents.uploadId, presign.uploadId));
+    if (!intent) {
+      throw new Error('Completed upload intent is missing');
+    }
+
+    await entryRepository.deleteEntry({
+      ownerId: user.id,
+      entryId: file.id,
+      deletedAt: new Date(),
+    });
+    await expect(deletionProcessor.processNext()).resolves.toBe(true);
+
+    const [job] = await database
+      .select()
+      .from(objectDeletionJobs)
+      .where(eq(objectDeletionJobs.objectKey, intent.objectKey));
+    expect(job).toMatchObject({
+      reason: 'deleted_file',
+      attemptCount: 1,
+      lastErrorCode: null,
+    });
+    expect(job?.completedAt).not.toBeNull();
+    await expect(storage.getObjectStream(intent.objectKey)).rejects.toBeInstanceOf(
+      StorageObjectNotFoundError,
+    );
+  });
+
+  async function createUser(): Promise<User> {
+    const [user] = await database
+      .insert(users)
+      .values({
+        issuer: ISSUER,
+        subject: randomUUID(),
+        username: 'roundtrip-test',
+      })
+      .returning();
+
+    if (!user) {
+      throw new Error('Failed to create LocalStack integration test user');
+    }
+
+    return user;
+  }
+});
