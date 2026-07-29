@@ -46,6 +46,11 @@ export const errorCatalog = {
     },
   },
 
+  authorization_denied: {
+    status: 403,
+    message: 'Nemate dopuštenje za ovu randju',
+  },
+
   authentication_service_unavailable: {
     status: 503,
     message: 'Usluga za prijavu nije dostupna.',
