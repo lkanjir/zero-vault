@@ -171,6 +171,7 @@ export const files = pgTable(
       .references(() => entries.id, { onDelete: 'restrict' }),
     objectKey: text('object_key').notNull(),
     contentType: text('content_type').default('application/octet-stream').notNull(),
+    contentVersion: integer('content_version').default(1).notNull(),
     sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
     sha256: text('sha256').notNull(),
   },
@@ -181,6 +182,7 @@ export const files = pgTable(
       'files_content_type_check',
       sql`char_length(btrim(${table.contentType})) between 1 and 500`,
     ),
+    check('files_content_version_check', sql`${table.contentVersion} > 0`),
     check('files_size_check', sql`${table.sizeBytes} > 0`),
     check('files_sha256_check', sql`${table.sha256} ~ '^[0-9a-f]{64}$'`),
   ],
@@ -270,5 +272,46 @@ export const objectDeletionJobs = pgTable(
     index('object_deletion_jobs_claim_idx')
       .on(table.availableAt, table.id)
       .where(sql`${table.completedAt} is null`),
+  ],
+);
+
+export const fileGrantPermission = pgEnum('file_grant_permission', ['viewer', 'editor']);
+
+export const fileGrants = pgTable(
+  'file_grants',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    publicId: uuid('public_id').defaultRandom().notNull(),
+    fileId: bigint('file_id', { mode: 'number' })
+      .notNull()
+      .references(() => files.entryId, { onDelete: 'cascade' }),
+    recipientUserId: bigint('recipient_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdByUserId: bigint('created_by_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    permission: fileGrantPermission('permission').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('file_grants_public_id_key').on(table.publicId),
+    unique('file_grants_file_recipient_key').on(table.fileId, table.recipientUserId),
+    check(
+      'file_grants_recipient_not_owner_check',
+      sql`${table.createdByUserId} <> ${table.recipientUserId}`,
+    ),
+    check(
+      'file_grants_expiry_after_creation_check',
+      sql`${table.expiresAt} is null or ${table.expiresAt} > ${table.createdAt}`,
+    ),
+    index('file_grants_recipient_file_idx').on(table.recipientUserId, table.fileId),
+    foreignKey({
+      name: 'file_grants_file_owner_fk',
+      columns: [table.fileId, table.createdByUserId],
+      foreignColumns: [entries.id, entries.ownerId],
+    }).onDelete('restrict'),
   ],
 );
