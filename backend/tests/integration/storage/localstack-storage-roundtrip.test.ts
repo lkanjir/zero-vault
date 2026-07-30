@@ -6,7 +6,13 @@ import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { objectDeletionJobs, uploadIntents, users } from '../../../src/db/schema.js';
+import {
+  entries,
+  fileGrants,
+  objectDeletionJobs,
+  uploadIntents,
+  users,
+} from '../../../src/db/schema.js';
 import type { Database } from '../../../src/db/db-client.js';
 import type { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
 import type { FileDownloadService } from '../../../src/files/file-download-service.js';
@@ -97,6 +103,9 @@ describe('LocalStack storage round-trip', () => {
       entryRepositoryModule,
       deletionRepositoryModule,
       deletionProcessorModule,
+      authorizationContextResolverModule,
+      authorizationPolicyModule,
+      authorizationServiceModule,
     ] = await Promise.all([
       import('../../../src/db/db-client.js'),
       import('../../../src/storage/s3-object-storage.js'),
@@ -108,6 +117,9 @@ describe('LocalStack storage round-trip', () => {
       import('../../../src/entry/postgres-entry-repository.js'),
       import('../../../src/object-deletion/postgres-object-deletion-repository.js'),
       import('../../../src/object-deletion/object-deletion-processor.js'),
+      import('../../../src/authorization/postgres-authorization-context-resolver.js'),
+      import('../../../src/authorization/authorization-policy.js'),
+      import('../../../src/authorization/authorization-service.js'),
     ]);
 
     database = databaseModule.db;
@@ -121,7 +133,15 @@ describe('LocalStack storage round-trip', () => {
       new intentRepositoryModule.PostgresIntentRepository();
     uploadService = new uploadServiceModule.UploadService(storage, intentRepository);
     completeUpload = new completeUploadModule.CompleteUploadUseCase(uploadService);
+    const authorizationContextResolver =
+      new authorizationContextResolverModule.PostgresAuthorizationContextResolver();
+    const authorizationPolicy = new authorizationPolicyModule.AuthorizationPolicy();
+    const authorizationService = new authorizationServiceModule.AuthorizationService(
+      authorizationContextResolver,
+      authorizationPolicy,
+    );
     fileDownloadService = new fileDownloadModule.FileDownloadService(
+      authorizationService,
       new fileRepositoryModule.PostgresFileRepository(),
       storage,
     );
@@ -138,8 +158,9 @@ describe('LocalStack storage round-trip', () => {
     await Promise.all([postgres.stop(), localstack.stop()]);
   });
 
-  it('uploads, completes, downloads and physically deletes one file', async () => {
-    const user = await createUser();
+  it('uploads, authorizes owner and viewer downloads, expires access and deletes one file', async () => {
+    const user = await createUser('roundtrip-owner');
+    const recipient = await createUser('roundtrip-recipient');
     const content = Buffer.from('LocalStack storage round-trip');
     const sha256 = createHash('sha256').update(content).digest('hex');
 
@@ -164,6 +185,44 @@ describe('LocalStack storage round-trip', () => {
       name: 'roundtrip.txt',
       contentType: 'text/plain',
       sizeBytes: content.length,
+    });
+
+    await expect(fileDownloadService.createDownloadUrl(recipient, file.id)).rejects.toMatchObject({
+      code: 'entry_not_found',
+    });
+
+    const [fileEntry] = await database
+      .select({ id: entries.id })
+      .from(entries)
+      .where(eq(entries.publicId, file.id));
+    if (!fileEntry) {
+      throw new Error('Completed file entry is missing');
+    }
+
+    const grantCreatedAt = new Date('2020-01-01T00:00:00Z');
+    await database.insert(fileGrants).values({
+      fileId: fileEntry.id,
+      recipientUserId: recipient.id,
+      createdByUserId: user.id,
+      permission: 'viewer',
+      createdAt: grantCreatedAt,
+      updatedAt: grantCreatedAt,
+    });
+
+    const sharedDownload = await fileDownloadService.createDownloadUrl(recipient, file.id);
+    const sharedDownloadResponse = await fetch(sharedDownload.downloadUrl);
+    expect(sharedDownloadResponse.status).toBe(200);
+    expect(Buffer.from(await sharedDownloadResponse.arrayBuffer())).toStrictEqual(content);
+
+    await database
+      .update(fileGrants)
+      .set({
+        expiresAt: new Date('2021-01-01T00:00:00Z'),
+        updatedAt: new Date(),
+      })
+      .where(eq(fileGrants.fileId, fileEntry.id));
+    await expect(fileDownloadService.createDownloadUrl(recipient, file.id)).rejects.toMatchObject({
+      code: 'entry_not_found',
     });
 
     const download = await fileDownloadService.createDownloadUrl(user, file.id);
@@ -201,13 +260,13 @@ describe('LocalStack storage round-trip', () => {
     );
   });
 
-  async function createUser(): Promise<User> {
+  async function createUser(username: string): Promise<User> {
     const [user] = await database
       .insert(users)
       .values({
         issuer: ISSUER,
         subject: randomUUID(),
-        username: 'roundtrip-test',
+        username,
       })
       .returning();
 

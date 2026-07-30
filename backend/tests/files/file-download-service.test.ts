@@ -1,13 +1,20 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
+import type {
+  AuthorizationEntryResult,
+  AuthorizationService,
+} from '../../src/authorization/authorization-service.js';
 import { FileDownloadService } from '../../src/files/file-download-service.js';
 import type { DownloadableFile } from '../../src/files/file.js';
 import type { FileRepository } from '../../src/files/file-repository.js';
+import { AppError } from '../../src/shared/errors/api/app-error.js';
+import { StorageUnavailableError } from '../../src/shared/errors/storage/storage-unavailable-error.js';
 import type { ObjectStorage } from '../../src/storage/object-storage.js';
 import type { User } from '../../src/user/user.js';
-import { StorageUnavailableError } from '../../src/shared/errors/storage/storage-unavailable-error.js';
 
 const DOWNLOAD_URL = 'https://storage.example.test/download';
+const FILE_PUBLIC_ID = '20000000-0000-4000-8000-000000000001';
+const FILE_ENTRY_ID = 10;
 const USER: User = {
   id: 1,
   publicId: '10000000-0000-4000-8000-000000000001',
@@ -19,20 +26,23 @@ const USER: User = {
 };
 
 describe('FileDownloadService', () => {
+  let authorizationService: MockProxy<AuthorizationService>;
   let repo: MockProxy<FileRepository>;
   let storage: MockProxy<ObjectStorage>;
   let service: FileDownloadService;
 
   beforeEach(() => {
+    authorizationService = mock<AuthorizationService>();
     repo = mock<FileRepository>();
     storage = mock<ObjectStorage>();
-    service = new FileDownloadService(repo, storage);
+    authorizationService.authorizeEntry.mockResolvedValue(makeAuthorizationResult());
+    service = new FileDownloadService(authorizationService, repo, storage);
   });
 
-  it('creates a short-lived download URL for an available owned file', async () => {
+  it('creates a short-lived download URL for an authorized available file', async () => {
     const file = makeDownloadableFile();
 
-    repo.findAvailableFileByPublicIdForOwner.mockResolvedValue(file);
+    repo.findAvailableFileByEntryId.mockResolvedValue(file);
     storage.createPresignedDownloadUrl.mockResolvedValue(DOWNLOAD_URL);
 
     const result = await service.createDownloadUrl(USER, file.publicId);
@@ -45,10 +55,12 @@ describe('FileDownloadService', () => {
       downloadUrl: DOWNLOAD_URL,
       expiresInSeconds: 60,
     });
-    expect(repo.findAvailableFileByPublicIdForOwner).toHaveBeenCalledExactlyOnceWith(
-      file.publicId,
-      USER.id,
-    );
+    expect(authorizationService.authorizeEntry).toHaveBeenCalledExactlyOnceWith({
+      actorUserId: USER.id,
+      entryPublicId: file.publicId,
+      action: 'file:download',
+    });
+    expect(repo.findAvailableFileByEntryId).toHaveBeenCalledExactlyOnceWith(FILE_ENTRY_ID);
     expect(storage.createPresignedDownloadUrl).toHaveBeenCalledExactlyOnceWith({
       objectKey: file.objectKey,
       contentType: file.contentType,
@@ -57,12 +69,21 @@ describe('FileDownloadService', () => {
     });
   });
 
-  it('does not create a signed URL when the owner-scoped lookup fails', async () => {
-    repo.findAvailableFileByPublicIdForOwner.mockResolvedValue(null);
+  it('does not access file metadata or storage when authorization fails', async () => {
+    const authorizationError = new AppError('entry_not_found');
+    authorizationService.authorizeEntry.mockRejectedValue(authorizationError);
 
-    await expect(
-      service.createDownloadUrl(USER, '20000000-0000-4000-8000-000000000001'),
-    ).rejects.toMatchObject({ code: 'file_not_found' });
+    await expect(service.createDownloadUrl(USER, FILE_PUBLIC_ID)).rejects.toBe(authorizationError);
+    expect(repo.findAvailableFileByEntryId).not.toHaveBeenCalled();
+    expect(storage.createPresignedDownloadUrl).not.toHaveBeenCalled();
+  });
+
+  it('does not create a signed URL when the authorized file is no longer available', async () => {
+    repo.findAvailableFileByEntryId.mockResolvedValue(null);
+
+    await expect(service.createDownloadUrl(USER, FILE_PUBLIC_ID)).rejects.toMatchObject({
+      code: 'file_not_found',
+    });
     expect(storage.createPresignedDownloadUrl).not.toHaveBeenCalled();
   });
 
@@ -76,7 +97,7 @@ describe('FileDownloadService', () => {
       { cause: new Error('S3 unavailable') },
     );
 
-    repo.findAvailableFileByPublicIdForOwner.mockResolvedValue(file);
+    repo.findAvailableFileByEntryId.mockResolvedValue(file);
     storage.createPresignedDownloadUrl.mockRejectedValue(storageError);
 
     await expect(service.createDownloadUrl(USER, file.publicId)).rejects.toMatchObject({
@@ -93,10 +114,34 @@ describe('FileDownloadService', () => {
   });
 });
 
+function makeAuthorizationResult(): AuthorizationEntryResult {
+  return {
+    context: {
+      scope: 'entry',
+      actor: {
+        userId: USER.id,
+      },
+      resource: {
+        id: FILE_ENTRY_ID,
+        ownerId: USER.id,
+        kind: 'file',
+        deletedAt: null,
+      },
+      relationship: {
+        grant: null,
+      },
+      environment: {
+        now: new Date('2026-07-30T12:00:00Z'),
+      },
+    },
+    effectivePermission: 'owner',
+  };
+}
+
 function makeDownloadableFile(overrides: Partial<DownloadableFile> = {}): DownloadableFile {
   return {
-    entryId: 10,
-    publicId: '20000000-0000-4000-8000-000000000001',
+    entryId: FILE_ENTRY_ID,
+    publicId: FILE_PUBLIC_ID,
     ownerId: USER.id,
     name: 'document.txt',
     objectKey: 'users/10000000-0000-4000-8000-000000000001/objects/object-id',
