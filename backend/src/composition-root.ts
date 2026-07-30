@@ -17,8 +17,18 @@ import { FolderDownloadProcessor } from './folder/download/folder-download-proce
 import { PostgresObjectDeletionRepository } from './object-deletion/postgres-object-deletion-repository.js';
 import { ObjectDeletionProcessor } from './object-deletion/object-deletion-processor.js';
 import { FolderDownloadCleanupService } from './folder/download/folder-download-cleanup-service.js';
+import { PostgresAuthorizationContextResolver } from './authorization/postgres-authorization-context-resolver.js';
+import { AuthorizationPolicy } from './authorization/authorization-policy.js';
+import { AuthorizationService } from './authorization/authorization-service.js';
 
 export function createCompositionRoot() {
+  const authorizationContextResolver = new PostgresAuthorizationContextResolver();
+  const authorizationPolicy = new AuthorizationPolicy();
+  const authorizationService = new AuthorizationService(
+    authorizationContextResolver,
+    authorizationPolicy,
+  );
+
   const storage = new S3ObjectStorage();
 
   const userRepository = new PostgresUserRepository();
@@ -29,7 +39,7 @@ export function createCompositionRoot() {
   const uploadCleanupService = new UploadCleanupService(intentRepository);
 
   const fileRepository = new PostgresFileRepository();
-  const downloadService = new FileDownloadService(fileRepository, storage);
+  const downloadService = new FileDownloadService(authorizationService, fileRepository, storage);
 
   const entryRepository = new PostgresEntryRepository();
   const entryService = new EntryService(entryRepository);

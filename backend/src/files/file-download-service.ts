@@ -1,3 +1,4 @@
+import type { AuthorizationService } from '../authorization/authorization-service.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 import { StorageError } from '../shared/errors/storage/storage-error.js';
 import type { ObjectStorage } from '../storage/object-storage.js';
@@ -10,12 +11,19 @@ export class FileDownloadService {
   private readonly EXPIRES_IN_SECONDS = 60;
 
   constructor(
+    private readonly authzService: AuthorizationService,
     private readonly repo: FileRepository,
     private readonly storage: ObjectStorage,
   ) {}
 
   async createDownloadUrl(user: User, fileId: string): Promise<FileDownloadResponse> {
-    const file = await this.repo.findAvailableFileByPublicIdForOwner(fileId, user.id);
+    const authorization = await this.authzService.authorizeEntry({
+      actorUserId: user.id,
+      entryPublicId: fileId,
+      action: 'file:download',
+    });
+
+    const file = await this.repo.findAvailableFileByEntryId(authorization.context.resource.id);
 
     if (!file) {
       throw new AppError('file_not_found');

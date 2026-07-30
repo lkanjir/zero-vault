@@ -7,7 +7,7 @@ import type {
   EntryAuthorizationContext,
 } from './authorization.js';
 
-export type AuthorizationEntryCommand = {
+export type AuthorizeEntryCommand = {
   actorUserId: number;
   entryPublicId: string;
   action: AuthorizationAction;
@@ -24,7 +24,7 @@ export class AuthorizationService {
     private readonly policy: AuthorizationPolicy,
   ) {}
 
-  async authorizeEntry(command: AuthorizationEntryCommand): Promise<AuthorizationEntryResult> {
+  async authorizeEntry(command: AuthorizeEntryCommand): Promise<AuthorizationEntryResult> {
     const context = await this.contextResolver.resolveEntry({
       actorUserId: command.actorUserId,
       entryPublicId: command.entryPublicId,

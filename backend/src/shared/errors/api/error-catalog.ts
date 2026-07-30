@@ -48,7 +48,7 @@ export const errorCatalog = {
 
   authorization_denied: {
     status: 403,
-    message: 'Nemate dopuštenje za ovu randju',
+    message: 'Nemate dopuštenje za ovu radnju.',
   },
 
   authentication_service_unavailable: {

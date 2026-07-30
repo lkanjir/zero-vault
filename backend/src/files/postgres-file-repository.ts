@@ -11,10 +11,7 @@ export class PostgresFileRepository implements FileRepository {
     return row ?? null;
   }
 
-  async findAvailableFileByPublicIdForOwner(
-    fileId: string,
-    ownerId: number,
-  ): Promise<DownloadableFile | null> {
+  async findAvailableFileByEntryId(entryId: number): Promise<DownloadableFile | null> {
     const [row] = await db
       .select({
         entryId: entries.id,
@@ -27,14 +24,7 @@ export class PostgresFileRepository implements FileRepository {
       })
       .from(entries)
       .innerJoin(files, eq(entries.id, files.entryId))
-      .where(
-        and(
-          eq(entries.publicId, fileId),
-          eq(entries.ownerId, ownerId),
-          eq(entries.kind, 'file'),
-          isNull(entries.deletedAt),
-        ),
-      )
+      .where(and(eq(entries.id, entryId), eq(entries.kind, 'file'), isNull(entries.deletedAt)))
       .limit(1);
 
     return row ?? null;
