@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
+import { EntryAccessProjector } from '../../src/authorization/entry-access-projector.js';
+import { AuthorizationPolicy } from '../../src/authorization/authorization-policy.js';
 import { decodeCursor, encodeCursor } from '../../src/entry/entry-list-cursor.js';
 import type { EntryRepository } from '../../src/entry/entry-repository.js';
 import { EntryService } from '../../src/entry/entry-service.js';
@@ -24,7 +26,7 @@ describe('EntryService', () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
     repository = mock<EntryRepository>();
-    service = new EntryService(repository);
+    service = new EntryService(repository, new EntryAccessProjector(new AuthorizationPolicy()));
   });
 
   afterEach(() => {
@@ -55,6 +57,30 @@ describe('EntryService', () => {
       limit: 3,
     });
     expect(response.items.map((entry) => entry.name)).toStrictEqual(['Alpha', 'Beta']);
+    expect(response.items.map((entry) => entry.access)).toStrictEqual([
+      {
+        effectivePermission: 'owner',
+        capabilities: {
+          download: true,
+          rename: true,
+          replaceContent: false,
+          move: true,
+          delete: true,
+          manageSharing: false,
+        },
+      },
+      {
+        effectivePermission: 'owner',
+        capabilities: {
+          download: true,
+          rename: true,
+          replaceContent: false,
+          move: true,
+          delete: true,
+          manageSharing: false,
+        },
+      },
+    ]);
     expect(response.path).toStrictEqual([{ id: parentId, name: 'Documents' }]);
     expect(response.page).toMatchObject({
       limit: 2,
