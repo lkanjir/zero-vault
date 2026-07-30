@@ -1,14 +1,19 @@
 import type { User } from '../user/user.js';
 import { decodeCursor, encodeCursor } from './entry-list-cursor.js';
-import type { EntryRepository, ListedEntry } from './entry-repository.js';
-import type { EntryResponse, EntryListResponse } from './dto.js';
+import type { EntryListRecord, EntryRepository, ListedEntry } from './entry-repository.js';
+import type { EntryResponse, EntryListResponse, EntryListItemResponse } from './dto.js';
 import type { EntriesListRequest, EntryUpdateRequest } from './validation-schemas.js';
 import { AppError } from '../shared/errors/api/app-error.js';
+import type { EntryAccessProjector } from '../authorization/entry-access-projector.js';
 
 export class EntryService {
-  constructor(private readonly entryRepository: EntryRepository) {}
+  constructor(
+    private readonly entryRepository: EntryRepository,
+    private readonly accessProjector: EntryAccessProjector,
+  ) {}
 
   async listEntries(user: User, request: EntriesListRequest): Promise<EntryListResponse> {
+    const projectedAt = new Date();
     const cursor = request.cursor ? decodeCursor(request.cursor) : null;
 
     if (cursor && cursor.parentId !== request.parentId) {
@@ -37,7 +42,7 @@ export class EntryService {
         : null;
 
     return {
-      items: pageEntries.map((row) => this.toResponseItem(row.entry)),
+      items: pageEntries.map((record) => this.toListResponseItem(user.id, record, projectedAt)),
       path: entriesResult.path,
       page: {
         hasMore: hasMore,
@@ -88,5 +93,26 @@ export class EntryService {
       sizeBytes: entry.sizeBytes,
       updatedAt: entry.updatedAt.toISOString(),
     };
+  }
+
+  private toListResponseItem(
+    actorUserId: number,
+    record: EntryListRecord,
+    now: Date,
+  ): EntryListItemResponse {
+    const access = this.accessProjector.project({
+      scope: 'entry',
+      actor: { userId: actorUserId },
+      resource: {
+        id: record.cursor.entryId,
+        ownerId: actorUserId,
+        kind: record.entry.kind,
+        deletedAt: null,
+      },
+      relationship: { grant: null },
+      environment: { now },
+    });
+
+    return { ...this.toResponseItem(record.entry), access };
   }
 }

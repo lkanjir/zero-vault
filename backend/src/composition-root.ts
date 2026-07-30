@@ -20,6 +20,7 @@ import { FolderDownloadCleanupService } from './folder/download/folder-download-
 import { PostgresAuthorizationContextResolver } from './authorization/postgres-authorization-context-resolver.js';
 import { AuthorizationPolicy } from './authorization/authorization-policy.js';
 import { AuthorizationService } from './authorization/authorization-service.js';
+import { EntryAccessProjector } from './authorization/entry-access-projector.js';
 
 export function createCompositionRoot() {
   const authorizationContextResolver = new PostgresAuthorizationContextResolver();
@@ -28,6 +29,7 @@ export function createCompositionRoot() {
     authorizationContextResolver,
     authorizationPolicy,
   );
+  const authorizationEntryAccessProjector = new EntryAccessProjector(authorizationPolicy);
 
   const storage = new S3ObjectStorage();
 
@@ -42,7 +44,7 @@ export function createCompositionRoot() {
   const downloadService = new FileDownloadService(authorizationService, fileRepository, storage);
 
   const entryRepository = new PostgresEntryRepository();
-  const entryService = new EntryService(entryRepository);
+  const entryService = new EntryService(entryRepository, authorizationEntryAccessProjector);
 
   const folderService = new FolderService(entryRepository);
   const folderDownloadRepository = new PostgresFolderDownloadRepository();
