@@ -1,3 +1,4 @@
+import type { EntryKind } from '../entry/entry.js';
 import type {
   AuthorizationAction,
   DriveRootAuthorizationContext,
@@ -6,7 +7,7 @@ import type {
 } from './authorization.js';
 import { permissionMatrix } from './permission-matrix.js';
 
-type AuthorizationResourceScope = 'drive-root' | 'file' | 'folder';
+type AuthorizationResourceScope = 'drive-root' | EntryKind;
 
 type PolicyContext = DriveRootAuthorizationContext | EntryAuthorizationContext;
 
