@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   authorizationActions,
   type AuthorizationAction,
-  type AuthorizationGrantFacts,
   type DriveRootAuthorizationContext,
   type EntryAuthorizationContext,
 } from '../../src/authorization/authorization.js';
@@ -290,7 +289,7 @@ function makeEntryContext(options: {
   ownerId?: number;
   kind: 'file' | 'folder';
   deletedAt?: Date | null;
-  grant?: AuthorizationGrantFacts | null;
+  grant?: EntryAuthorizationContext['relationship']['grant'];
   now?: Date;
 }): EntryAuthorizationContext {
   return {

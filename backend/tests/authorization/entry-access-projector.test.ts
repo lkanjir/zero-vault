@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EntryAccessProjector } from '../../src/authorization/entry-access-projector.js';
 import { AuthorizationPolicy } from '../../src/authorization/authorization-policy.js';
-import type {
-  AuthorizationGrantFacts,
-  EntryAuthorizationContext,
-} from '../../src/authorization/authorization.js';
+import type { EntryAuthorizationContext } from '../../src/authorization/authorization.js';
 
 const NOW = new Date('2026-07-30T12:00:00Z');
 const OWNER_ID = 1;
@@ -96,7 +93,7 @@ describe('EntryAccessProjector', () => {
 function makeContext(options: {
   actorUserId?: number;
   kind: 'file' | 'folder';
-  grant?: AuthorizationGrantFacts | null;
+  grant?: EntryAuthorizationContext['relationship']['grant'];
 }): EntryAuthorizationContext {
   return {
     scope: 'entry',

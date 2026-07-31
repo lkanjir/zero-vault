@@ -1,5 +1,5 @@
 import type { Entry } from '../entry/entry.js';
-import type { FileGrantPermission } from '../sharing/file-grant.js';
+import type { FileGrant, FileGrantPermission } from '../sharing/file-grant.js';
 
 export const authorizationActions = [
   'entry:list',
@@ -17,11 +17,6 @@ export const authorizationActions = [
 ] as const;
 
 export type AuthorizationAction = (typeof authorizationActions)[number];
-
-export type AuthorizationGrantFacts = {
-  permission: FileGrantPermission;
-  expiresAt: Date | null;
-};
 
 type AuthorizationContextBase = {
   actor: {
@@ -43,7 +38,7 @@ export type EntryAuthorizationContext = AuthorizationContextBase & {
   scope: 'entry';
   resource: Pick<Entry, 'id' | 'ownerId' | 'kind' | 'deletedAt'>;
   relationship: {
-    grant: AuthorizationGrantFacts | null;
+    grant: Pick<FileGrant, 'permission' | 'expiresAt'> | null;
   };
 };
 
