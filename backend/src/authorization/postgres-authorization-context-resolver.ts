@@ -3,14 +3,12 @@ import { db } from '../db/db-client.js';
 import { entries, fileGrants } from '../db/schema.js';
 import type {
   AuthorizationContextResolver,
-  ResolveEntryAuthorizationContextCommand,
+  ResolveEntryContextInput,
 } from './authorization-context-resolver.js';
 import type { EntryAuthorizationContext } from './authorization.js';
 
 export class PostgresAuthorizationContextResolver implements AuthorizationContextResolver {
-  async resolveEntry(
-    command: ResolveEntryAuthorizationContextCommand,
-  ): Promise<EntryAuthorizationContext | null> {
+  async resolveEntry(input: ResolveEntryContextInput): Promise<EntryAuthorizationContext | null> {
     const [row] = await db
       .select({
         id: entries.id,
@@ -23,9 +21,9 @@ export class PostgresAuthorizationContextResolver implements AuthorizationContex
       .from(entries)
       .leftJoin(
         fileGrants,
-        and(eq(fileGrants.fileId, entries.id), eq(fileGrants.recipientUserId, command.actorUserId)),
+        and(eq(fileGrants.fileId, entries.id), eq(fileGrants.recipientUserId, input.actorUserId)),
       )
-      .where(eq(entries.publicId, command.entryPublicId))
+      .where(eq(entries.publicId, input.entryPublicId))
       .limit(1);
 
     if (!row) {
@@ -43,7 +41,7 @@ export class PostgresAuthorizationContextResolver implements AuthorizationContex
     return {
       scope: 'entry',
       actor: {
-        userId: command.actorUserId,
+        userId: input.actorUserId,
       },
       resource: {
         id: row.id,
@@ -55,7 +53,7 @@ export class PostgresAuthorizationContextResolver implements AuthorizationContex
         grant,
       },
       environment: {
-        now: command.now,
+        now: input.now,
       },
     };
   }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import type {
-  AuthorizationEntryResult,
+  AuthorizedEntry,
   AuthorizationService,
 } from '../../src/authorization/authorization-service.js';
 import { FileDownloadService } from '../../src/files/file-download-service.js';
@@ -114,7 +114,7 @@ describe('FileDownloadService', () => {
   });
 });
 
-function makeAuthorizationResult(): AuthorizationEntryResult {
+function makeAuthorizationResult(): AuthorizedEntry {
   return {
     context: {
       scope: 'entry',

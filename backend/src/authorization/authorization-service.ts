@@ -7,7 +7,7 @@ import type {
   EntryAuthorizationContext,
 } from './authorization.js';
 
-export type AuthorizationEntryResult = {
+export type AuthorizedEntry = {
   context: EntryAuthorizationContext;
   effectivePermission: EffectivePermission;
 };
@@ -22,7 +22,7 @@ export class AuthorizationService {
     actorUserId: number;
     entryPublicId: string;
     action: AuthorizationAction;
-  }): Promise<AuthorizationEntryResult> {
+  }): Promise<AuthorizedEntry> {
     const context = await this.contextResolver.resolveEntry({
       actorUserId: input.actorUserId,
       entryPublicId: input.entryPublicId,

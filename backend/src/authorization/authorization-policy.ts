@@ -1,8 +1,7 @@
 import type {
   AuthorizationAction,
-  AuthorizationDecision,
-  AuthorizationDenialReason,
   DriveRootAuthorizationContext,
+  EffectivePermission,
   EntryAuthorizationContext,
 } from './authorization.js';
 import { permissionMatrix } from './permission-matrix.js';
@@ -10,6 +9,24 @@ import { permissionMatrix } from './permission-matrix.js';
 type AuthorizationResourceScope = 'drive-root' | 'file' | 'folder';
 
 type PolicyContext = DriveRootAuthorizationContext | EntryAuthorizationContext;
+
+type DenialReason =
+  | 'resource_deleted'
+  | 'no_active_permission'
+  | 'grant_expired'
+  | 'action_not_allowed'
+  | 'action_not_applicable';
+
+type PolicyDecision =
+  | {
+      allowed: true;
+      effectivePermission: EffectivePermission;
+    }
+  | {
+      allowed: false;
+      reason: DenialReason;
+      disclosure: 'hidden' | 'visible';
+    };
 
 const actionScopes = {
   'entry:list': ['drive-root', 'folder'],
@@ -27,7 +44,7 @@ const actionScopes = {
 } as const satisfies Record<AuthorizationAction, readonly AuthorizationResourceScope[]>;
 
 export class AuthorizationPolicy {
-  can(action: AuthorizationAction, context: PolicyContext): AuthorizationDecision {
+  can(action: AuthorizationAction, context: PolicyContext): PolicyDecision {
     const permissionResolution = this.resolveEffectivePermission(context);
 
     if (!permissionResolution.allowed) {
@@ -45,7 +62,7 @@ export class AuthorizationPolicy {
     return permissionResolution;
   }
 
-  private resolveEffectivePermission(context: PolicyContext): AuthorizationDecision {
+  private resolveEffectivePermission(context: PolicyContext): PolicyDecision {
     if (context.scope === 'entry' && context.resource.deletedAt !== null) {
       return this.deny('resource_deleted', 'hidden');
     }
@@ -80,10 +97,7 @@ export class AuthorizationPolicy {
     };
   }
 
-  private deny(
-    reason: AuthorizationDenialReason,
-    disclosure: 'hidden' | 'visible',
-  ): AuthorizationDecision {
+  private deny(reason: DenialReason, disclosure: 'hidden' | 'visible'): PolicyDecision {
     return {
       allowed: false,
       reason,

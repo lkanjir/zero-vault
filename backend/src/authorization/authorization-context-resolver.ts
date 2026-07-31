@@ -1,13 +1,11 @@
 import type { EntryAuthorizationContext } from './authorization.js';
 
-export type ResolveEntryAuthorizationContextCommand = {
+export type ResolveEntryContextInput = {
   actorUserId: number;
   entryPublicId: string;
   now: Date;
 };
 
 export interface AuthorizationContextResolver {
-  resolveEntry(
-    command: ResolveEntryAuthorizationContextCommand,
-  ): Promise<EntryAuthorizationContext | null>;
+  resolveEntry(input: ResolveEntryContextInput): Promise<EntryAuthorizationContext | null>;
 }

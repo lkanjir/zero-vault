@@ -42,22 +42,4 @@ export type EntryAuthorizationContext = AuthorizationContextBase & {
   };
 };
 
-export type AuthorizationDenialReason =
-  | 'resource_deleted'
-  | 'no_active_permission'
-  | 'grant_expired'
-  | 'action_not_allowed'
-  | 'action_not_applicable';
-
 export type EffectivePermission = FileGrantPermission | 'owner';
-
-export type AuthorizationDecision =
-  | {
-      allowed: true;
-      effectivePermission: EffectivePermission;
-    }
-  | {
-      allowed: false;
-      reason: AuthorizationDenialReason;
-      disclosure: 'hidden' | 'visible';
-    };
