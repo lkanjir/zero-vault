@@ -7,12 +7,6 @@ import type {
   EntryAuthorizationContext,
 } from './authorization.js';
 
-export type AuthorizeEntryCommand = {
-  actorUserId: number;
-  entryPublicId: string;
-  action: AuthorizationAction;
-};
-
 export type AuthorizationEntryResult = {
   context: EntryAuthorizationContext;
   effectivePermission: EffectivePermission;
@@ -24,10 +18,14 @@ export class AuthorizationService {
     private readonly policy: AuthorizationPolicy,
   ) {}
 
-  async authorizeEntry(command: AuthorizeEntryCommand): Promise<AuthorizationEntryResult> {
+  async authorizeEntry(input: {
+    actorUserId: number;
+    entryPublicId: string;
+    action: AuthorizationAction;
+  }): Promise<AuthorizationEntryResult> {
     const context = await this.contextResolver.resolveEntry({
-      actorUserId: command.actorUserId,
-      entryPublicId: command.entryPublicId,
+      actorUserId: input.actorUserId,
+      entryPublicId: input.entryPublicId,
       now: new Date(),
     });
 
@@ -35,17 +33,17 @@ export class AuthorizationService {
       throw new AppError('entry_not_found');
     }
 
-    const decision = this.policy.can(command.action, context);
+    const decision = this.policy.can(input.action, context);
 
     if (!decision.allowed) {
       throw new AppError(
         decision.disclosure === 'hidden' ? 'entry_not_found' : 'authorization_denied',
         {
           context: {
-            action: command.action,
+            action: input.action,
             reason: decision.reason,
-            actorUserId: command.actorUserId,
-            entryPublicId: command.entryPublicId,
+            actorUserId: input.actorUserId,
+            entryPublicId: input.entryPublicId,
           },
         },
       );

@@ -42,8 +42,6 @@ export type EntryAuthorizationContext = AuthorizationContextBase & {
   };
 };
 
-export type AuthorizationContext = DriveRootAuthorizationContext | EntryAuthorizationContext;
-
 export type AuthorizationDenialReason =
   | 'resource_deleted'
   | 'no_active_permission'

@@ -1,12 +1,15 @@
 import type {
   AuthorizationAction,
-  AuthorizationContext,
   AuthorizationDecision,
   AuthorizationDenialReason,
+  DriveRootAuthorizationContext,
+  EntryAuthorizationContext,
 } from './authorization.js';
 import { permissionMatrix } from './permission-matrix.js';
 
 type AuthorizationResourceScope = 'drive-root' | 'file' | 'folder';
+
+type PolicyContext = DriveRootAuthorizationContext | EntryAuthorizationContext;
 
 const actionScopes = {
   'entry:list': ['drive-root', 'folder'],
@@ -24,7 +27,7 @@ const actionScopes = {
 } as const satisfies Record<AuthorizationAction, readonly AuthorizationResourceScope[]>;
 
 export class AuthorizationPolicy {
-  can(action: AuthorizationAction, context: AuthorizationContext): AuthorizationDecision {
+  can(action: AuthorizationAction, context: PolicyContext): AuthorizationDecision {
     const permissionResolution = this.resolveEffectivePermission(context);
 
     if (!permissionResolution.allowed) {
@@ -42,7 +45,7 @@ export class AuthorizationPolicy {
     return permissionResolution;
   }
 
-  private resolveEffectivePermission(context: AuthorizationContext): AuthorizationDecision {
+  private resolveEffectivePermission(context: PolicyContext): AuthorizationDecision {
     if (context.scope === 'entry' && context.resource.deletedAt !== null) {
       return this.deny('resource_deleted', 'hidden');
     }
@@ -88,7 +91,7 @@ export class AuthorizationPolicy {
     };
   }
 
-  private isActionApplicable(action: AuthorizationAction, context: AuthorizationContext): boolean {
+  private isActionApplicable(action: AuthorizationAction, context: PolicyContext): boolean {
     const resourceScope: AuthorizationResourceScope =
       context.scope === 'drive-root' ? 'drive-root' : context.resource.kind;
 
