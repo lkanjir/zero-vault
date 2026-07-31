@@ -1,4 +1,4 @@
-import type { GrantPermission } from '../authorization/authorization.js';
+export type FileGrantPermission = 'viewer' | 'editor';
 
 export type FileGrant = {
   id: number;
@@ -6,7 +6,7 @@ export type FileGrant = {
   fileId: number;
   recipientUserId: number;
   createdByUserId: number;
-  permission: GrantPermission;
+  permission: FileGrantPermission;
   expiresAt: Date | null;
   createdAt: Date;
   updatedAt: Date;

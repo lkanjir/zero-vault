@@ -5,9 +5,9 @@ import {
   type AuthorizationGrantFacts,
   type DriveRootAuthorizationContext,
   type EntryAuthorizationContext,
-  type GrantPermission,
 } from '../../src/authorization/authorization.js';
 import { AuthorizationPolicy } from '../../src/authorization/authorization-policy.js';
+import type { FileGrantPermission } from '../../src/sharing/file-grant.js';
 
 const NOW = new Date('2026-07-29T12:00:00.000Z');
 const OWNER_ID = 1;
@@ -39,7 +39,7 @@ const FOLDER_ACTIONS = new Set<AuthorizationAction>([
 ]);
 
 const GRANTEE_PERMISSION_CASES: ReadonlyArray<{
-  permission: GrantPermission;
+  permission: FileGrantPermission;
   allowedActions: ReadonlySet<AuthorizationAction>;
 }> = [
   {

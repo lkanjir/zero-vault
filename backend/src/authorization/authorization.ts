@@ -1,4 +1,5 @@
-import type { EntryKind } from '../entry/entry.js';
+import type { Entry } from '../entry/entry.js';
+import type { FileGrantPermission } from '../sharing/file-grant.js';
 
 export const authorizationActions = [
   'entry:list',
@@ -17,10 +18,8 @@ export const authorizationActions = [
 
 export type AuthorizationAction = (typeof authorizationActions)[number];
 
-export type GrantPermission = 'viewer' | 'editor';
-
 export type AuthorizationGrantFacts = {
-  permission: GrantPermission;
+  permission: FileGrantPermission;
   expiresAt: Date | null;
 };
 
@@ -42,12 +41,7 @@ export type DriveRootAuthorizationContext = AuthorizationContextBase & {
 
 export type EntryAuthorizationContext = AuthorizationContextBase & {
   scope: 'entry';
-  resource: {
-    id: number;
-    ownerId: number;
-    kind: EntryKind;
-    deletedAt: Date | null;
-  };
+  resource: Pick<Entry, 'id' | 'ownerId' | 'kind' | 'deletedAt'>;
   relationship: {
     grant: AuthorizationGrantFacts | null;
   };
@@ -62,7 +56,7 @@ export type AuthorizationDenialReason =
   | 'action_not_allowed'
   | 'action_not_applicable';
 
-export type EffectivePermission = GrantPermission | 'owner';
+export type EffectivePermission = FileGrantPermission | 'owner';
 
 export type AuthorizationDecision =
   | {
