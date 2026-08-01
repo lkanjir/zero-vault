@@ -9,16 +9,24 @@ import type { FolderDownloadRepository } from './folder-download-repository.js';
 import { AppError } from '../../shared/errors/api/app-error.js';
 import type { ObjectStorage } from '../../storage/object-storage.js';
 import { StorageError } from '../../shared/errors/storage/storage-error.js';
+import type { AuthorizationService } from '../../authorization/authorization-service.js';
 
 const DOWNLOAD_URL_EXPIRES_IN_SECONDS = 60;
 
 export class FolderDownloadService {
   constructor(
+    private readonly authz: AuthorizationService,
     private readonly repository: FolderDownloadRepository,
     private readonly storage: ObjectStorage,
   ) {}
 
   async createDownload(user: User, folderPublicId: string): Promise<CreateFolderDownloadResponse> {
+    await this.authz.authorizeEntryByPublicId({
+      actorUserId: user.id,
+      entryPublicId: folderPublicId,
+      action: 'folder:download',
+    });
+
     const downloadId = randomUUID();
     const createdAt = new Date();
     const archiveObjectKey = `folder-downloads/${user.publicId}/${downloadId}`;

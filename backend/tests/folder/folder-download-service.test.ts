@@ -6,6 +6,8 @@ import type { FolderDownload } from '../../src/folder/download/folder-download.j
 import type { ObjectStorage } from '../../src/storage/object-storage.js';
 import { StorageUnavailableError } from '../../src/shared/errors/storage/storage-unavailable-error.js';
 import type { User } from '../../src/user/user.js';
+import type { AuthorizationService } from '../../src/authorization/authorization-service.js';
+import { AppError } from '../../src/shared/errors/api/app-error.js';
 
 const NOW = new Date('2026-07-28T10:00:00.000Z');
 const DOWNLOAD_URL = 'https://storage.example.test/archive';
@@ -20,6 +22,7 @@ const USER: User = {
 };
 
 describe('FolderDownloadService', () => {
+  let authz: MockProxy<AuthorizationService>;
   let repository: MockProxy<FolderDownloadRepository>;
   let storage: MockProxy<ObjectStorage>;
   let service: FolderDownloadService;
@@ -27,9 +30,10 @@ describe('FolderDownloadService', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
+    authz = mock<AuthorizationService>();
     repository = mock<FolderDownloadRepository>();
     storage = mock<ObjectStorage>();
-    service = new FolderDownloadService(repository, storage);
+    service = new FolderDownloadService(authz, repository, storage);
   });
 
   afterEach(() => {
@@ -55,6 +59,11 @@ describe('FolderDownloadService', () => {
       fileName: 'Documents.zip',
       status: 'queued',
     });
+    expect(authz.authorizeEntryByPublicId).toHaveBeenCalledExactlyOnceWith({
+      actorUserId: USER.id,
+      entryPublicId: '20000000-0000-4000-8000-000000000001',
+      action: 'folder:download',
+    });
     expect(repository.create).toHaveBeenCalledOnce();
     const [command] = repository.create.mock.lastCall!;
     expect(command).toStrictEqual({
@@ -65,6 +74,17 @@ describe('FolderDownloadService', () => {
       createdAt: NOW,
     });
     expect(command.archiveObjectKey).not.toContain(`/${USER.id}/`);
+  });
+
+  it('does not create a download job when authorization is denied', async () => {
+    const authorizationError = new AppError('entry_not_found');
+    authz.authorizeEntryByPublicId.mockRejectedValue(authorizationError);
+
+    await expect(service.createDownload(USER, '20000000-0000-4000-8000-000000000001')).rejects.toBe(
+      authorizationError,
+    );
+
+    expect(repository.create).not.toHaveBeenCalled();
   });
 
   it.each(['queued', 'processing'] as const)(
