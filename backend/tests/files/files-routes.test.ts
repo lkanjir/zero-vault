@@ -10,6 +10,8 @@ import type { User } from '../../src/user/user.js';
 import type { UserService } from '../../src/user/user-service.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
 import type { ErrorResponse } from '../../src/shared/errors/api/error-response.js';
+import type { FileSharingService } from '../../src/sharing/file-sharing-service.js';
+import { AppError } from '../../src/shared/errors/api/app-error.js';
 
 const FILE_ID = '20000000-0000-4000-8000-000000000001';
 const DOWNLOAD_URL = 'https://storage.example.test/download';
@@ -36,10 +38,12 @@ const USER: User = {
 describe('files routes', () => {
   let userService: MockProxy<UserService>;
   let downloadService: MockProxy<FileDownloadService>;
+  let sharingService: MockProxy<FileSharingService>;
 
   beforeEach(() => {
     userService = mock<UserService>();
     downloadService = mock<FileDownloadService>();
+    sharingService = mock<FileSharingService>();
 
     userService.resolveUser.mockResolvedValue(USER);
     downloadService.createDownloadUrl.mockResolvedValue({
@@ -53,9 +57,9 @@ describe('files routes', () => {
   });
 
   it('creates a download URL for the fileId route parameter', async () => {
-    const response = await request(createTestApp(userService, downloadService)).post(
-      `/files/${FILE_ID}/download-url`,
-    );
+    const response = await request(
+      createTestApp(userService, downloadService, sharingService),
+    ).post(`/files/${FILE_ID}/download-url`);
 
     expect(response.status).toBe(200);
     expect(response.body).toStrictEqual({
@@ -70,9 +74,9 @@ describe('files routes', () => {
   });
 
   it('rejects invalid fileId before calling the download service', async () => {
-    const response = await request(createTestApp(userService, downloadService)).post(
-      '/files/not-a-uuid/download-url',
-    );
+    const response = await request(
+      createTestApp(userService, downloadService, sharingService),
+    ).post('/files/not-a-uuid/download-url');
     const body = response.body as ErrorResponse;
 
     expect(response.status).toBe(400);
@@ -84,17 +88,110 @@ describe('files routes', () => {
     expect(Array.isArray(body.details?.issues)).toBe(true);
     expect(downloadService.createDownloadUrl).not.toHaveBeenCalled();
   });
+
+  it('accepts a share request without disclosing recipient state', async () => {
+    const response = await request(createTestApp(userService, downloadService, sharingService))
+      .post(`/files/${FILE_ID}/shares`)
+      .send({
+        recipientEmail: ' Recipient@Example.COM ',
+        permission: 'viewer',
+      });
+
+    expect(response.status).toBe(202);
+    expect(response.body).toStrictEqual({ status: 'accepted' });
+    expect(sharingService.shareFile).toHaveBeenCalledExactlyOnceWith(USER, FILE_ID, {
+      recipientEmail: 'recipient@example.com',
+      permission: 'viewer',
+      expiresAt: null,
+    });
+  });
+
+  it('converts an ISO expiry with an offset to a Date', async () => {
+    const response = await request(createTestApp(userService, downloadService, sharingService))
+      .post(`/files/${FILE_ID}/shares`)
+      .send({
+        recipientEmail: 'recipient@example.com',
+        permission: 'editor',
+        expiresAt: '2026-08-10T12:30:00+02:00',
+      });
+
+    expect(response.status).toBe(202);
+    expect(sharingService.shareFile).toHaveBeenCalledExactlyOnceWith(USER, FILE_ID, {
+      recipientEmail: 'recipient@example.com',
+      permission: 'editor',
+      expiresAt: new Date('2026-08-10T10:30:00.000Z'),
+    });
+  });
+
+  it.each([
+    ['invalid email', { recipientEmail: 'invalid', permission: 'viewer' }],
+    ['invalid permission', { recipientEmail: 'recipient@example.com', permission: 'owner' }],
+    [
+      'invalid expiry',
+      {
+        recipientEmail: 'recipient@example.com',
+        permission: 'viewer',
+        expiresAt: 'tomorrow',
+      },
+    ],
+  ])('rejects an %s before calling the sharing service', async (_case, body) => {
+    const response = await request(createTestApp(userService, downloadService, sharingService))
+      .post(`/files/${FILE_ID}/shares`)
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      code: 'invalid_request_body',
+    });
+    expect(sharingService.shareFile).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid share fileId before calling the sharing service', async () => {
+    const response = await request(createTestApp(userService, downloadService, sharingService))
+      .post('/files/not-a-uuid/shares')
+      .send({
+        recipientEmail: 'recipient@example.com',
+        permission: 'viewer',
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      code: 'invalid_request_params',
+    });
+    expect(sharingService.shareFile).not.toHaveBeenCalled();
+  });
+
+  it('preserves a hidden authorization failure from the sharing service', async () => {
+    sharingService.shareFile.mockRejectedValue(new AppError('entry_not_found'));
+
+    const response = await request(createTestApp(userService, downloadService, sharingService))
+      .post(`/files/${FILE_ID}/shares`)
+      .send({
+        recipientEmail: 'recipient@example.com',
+        permission: 'viewer',
+      });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({
+      code: 'entry_not_found',
+    });
+  });
 });
 
-function createTestApp(userService: UserService, downloadService: FileDownloadService) {
+function createTestApp(
+  userService: UserService,
+  downloadService: FileDownloadService,
+  sharingService: FileSharingService,
+) {
   const app = express();
 
   app.use(requestContext);
+  app.use(express.json({ limit: '16kb' }));
   app.use((req, _res, next) => {
     req.principal = PRINCIPAL;
     next();
   });
-  app.use('/files', createFilesRouter({ userService, downloadService }));
+  app.use('/files', createFilesRouter({ userService, downloadService, sharingService }));
   app.use(errorHandler);
 
   return app;
