@@ -3,13 +3,13 @@ import type { AuthorizationContextResolver } from './authorization-context-resol
 import type { AuthorizationPolicy } from './authorization-policy.js';
 import type {
   AuthorizationAction,
-  EffectivePermission,
+  AccessLevel,
   EntryAuthorizationContext,
 } from './authorization.js';
 
-export type AuthorizedEntry = {
+export type AuthorizationResult = {
   context: EntryAuthorizationContext;
-  effectivePermission: EffectivePermission;
+  accessLevel: AccessLevel;
 };
 
 export class AuthorizationService {
@@ -22,7 +22,7 @@ export class AuthorizationService {
     actorUserId: number;
     entryPublicId: string;
     action: AuthorizationAction;
-  }): Promise<AuthorizedEntry> {
+  }): Promise<AuthorizationResult> {
     const context = await this.contextResolver.resolveEntry({
       actorUserId: input.actorUserId,
       entryPublicId: input.entryPublicId,
@@ -33,7 +33,19 @@ export class AuthorizationService {
       throw new AppError('entry_not_found');
     }
 
-    const decision = this.policy.can(input.action, context);
+    return this.authorizeEntryContext({
+      action: input.action,
+      entryPublicId: input.entryPublicId,
+      context,
+    });
+  }
+
+  authorizeEntryContext(input: {
+    action: AuthorizationAction;
+    entryPublicId: string;
+    context: EntryAuthorizationContext;
+  }): AuthorizationResult {
+    const decision = this.policy.can(input.action, input.context);
 
     if (!decision.allowed) {
       throw new AppError(
@@ -42,7 +54,7 @@ export class AuthorizationService {
           context: {
             action: input.action,
             reason: decision.reason,
-            actorUserId: input.actorUserId,
+            actorUserId: input.context.actor.userId,
             entryPublicId: input.entryPublicId,
           },
         },
@@ -50,8 +62,8 @@ export class AuthorizationService {
     }
 
     return {
-      context,
-      effectivePermission: decision.effectivePermission,
+      context: input.context,
+      accessLevel: decision.accessLevel,
     };
   }
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
-import { EntryAccessProjector } from '../../src/authorization/entry-access-projector.js';
+import { EntryAccessMapper } from '../../src/authorization/entry-access-mapper.js';
 import { AuthorizationPolicy } from '../../src/authorization/authorization-policy.js';
 import { decodeCursor, encodeCursor } from '../../src/entry/entry-list-cursor.js';
 import type { EntryRepository } from '../../src/entry/entry-repository.js';
@@ -26,7 +26,7 @@ describe('EntryService', () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
     repository = mock<EntryRepository>();
-    service = new EntryService(repository, new EntryAccessProjector(new AuthorizationPolicy()));
+    service = new EntryService(repository, new EntryAccessMapper(new AuthorizationPolicy()));
   });
 
   afterEach(() => {
@@ -59,7 +59,7 @@ describe('EntryService', () => {
     expect(response.items.map((entry) => entry.name)).toStrictEqual(['Alpha', 'Beta']);
     expect(response.items.map((entry) => entry.access)).toStrictEqual([
       {
-        effectivePermission: 'owner',
+        accessLevel: 'owner',
         capabilities: {
           download: true,
           rename: true,
@@ -70,7 +70,7 @@ describe('EntryService', () => {
         },
       },
       {
-        effectivePermission: 'owner',
+        accessLevel: 'owner',
         capabilities: {
           download: true,
           rename: true,

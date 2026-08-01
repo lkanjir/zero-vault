@@ -4,12 +4,12 @@ import type { EntryListRecord, EntryRepository, ListedEntry } from './entry-repo
 import type { EntryResponse, EntryListResponse, EntryListItemResponse } from './dto.js';
 import type { EntriesListRequest, EntryUpdateRequest } from './validation-schemas.js';
 import { AppError } from '../shared/errors/api/app-error.js';
-import type { EntryAccessProjector } from '../authorization/entry-access-projector.js';
+import type { EntryAccessMapper } from '../authorization/entry-access-mapper.js';
 
 export class EntryService {
   constructor(
     private readonly entryRepository: EntryRepository,
-    private readonly accessProjector: EntryAccessProjector,
+    private readonly accessMapper: EntryAccessMapper,
   ) {}
 
   async listEntries(user: User, request: EntriesListRequest): Promise<EntryListResponse> {
@@ -100,7 +100,7 @@ export class EntryService {
     record: EntryListRecord,
     now: Date,
   ): EntryListItemResponse {
-    const access = this.accessProjector.project({
+    const access = this.accessMapper.map({
       scope: 'entry',
       actor: { userId: actorUserId },
       resource: {

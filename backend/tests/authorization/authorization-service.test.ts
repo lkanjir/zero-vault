@@ -26,12 +26,12 @@ describe('AuthorizationService', () => {
     vi.useRealTimers();
   });
 
-  it('returns the trusted context and effective permission when access is allowed', async () => {
+  it('returns the trusted context and access level when access is allowed', async () => {
     const context = makeContext();
     contextResolver.resolveEntry.mockResolvedValue(context);
     policy.can.mockReturnValue({
       allowed: true,
-      effectivePermission: 'viewer',
+      accessLevel: 'viewer',
     });
 
     await expect(
@@ -42,7 +42,7 @@ describe('AuthorizationService', () => {
       }),
     ).resolves.toStrictEqual({
       context,
-      effectivePermission: 'viewer',
+      accessLevel: 'viewer',
     });
     expect(contextResolver.resolveEntry).toHaveBeenCalledExactlyOnceWith({
       actorUserId: ACTOR_USER_ID,
@@ -50,6 +50,27 @@ describe('AuthorizationService', () => {
       now: NOW,
     });
     expect(policy.can).toHaveBeenCalledExactlyOnceWith('file:download', context);
+  });
+
+  it('authorizes an already loaded entry context without resolving it again', () => {
+    const context = makeContext();
+    policy.can.mockReturnValue({
+      allowed: true,
+      accessLevel: 'editor',
+    });
+
+    expect(
+      service.authorizeEntryContext({
+        action: 'entry:rename',
+        entryPublicId: ENTRY_PUBLIC_ID,
+        context,
+      }),
+    ).toStrictEqual({
+      context,
+      accessLevel: 'editor',
+    });
+    expect(contextResolver.resolveEntry).not.toHaveBeenCalled();
+    expect(policy.can).toHaveBeenCalledExactlyOnceWith('entry:rename', context);
   });
 
   it('returns the same hidden not-found response when the entry does not exist', async () => {

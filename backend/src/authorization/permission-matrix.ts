@@ -1,7 +1,7 @@
-import type { AuthorizationAction, EffectivePermission } from './authorization.js';
+import type { AuthorizationAction, AccessLevel } from './authorization.js';
 
 type PermissionMatrix = Readonly<
-  Record<EffectivePermission, Readonly<Record<AuthorizationAction, boolean>>>
+  Record<AccessLevel, Readonly<Record<AuthorizationAction, boolean>>>
 >;
 
 export const permissionMatrix = {

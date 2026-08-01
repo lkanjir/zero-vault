@@ -1,7 +1,7 @@
-import type { EffectivePermission } from './authorization.js';
+import type { AccessLevel } from './authorization.js';
 
 export type EntryAccessResponse = {
-  effectivePermission: EffectivePermission;
+  accessLevel: AccessLevel;
   capabilities: {
     download: boolean;
     rename: boolean;

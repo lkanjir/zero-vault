@@ -89,7 +89,7 @@ describe('AuthorizationPolicy', () => {
         if (applicableActions.has(action)) {
           expect(decision, action).toStrictEqual({
             allowed: true,
-            effectivePermission: 'owner',
+            accessLevel: 'owner',
           });
         } else {
           expect(decision, action).toStrictEqual({
@@ -126,7 +126,7 @@ describe('AuthorizationPolicy', () => {
         } else if (allowedActions.has(action)) {
           expect(decision, action).toStrictEqual({
             allowed: true,
-            effectivePermission: permission,
+            accessLevel: permission,
           });
         } else {
           expect(decision, action).toStrictEqual({
@@ -196,7 +196,7 @@ describe('AuthorizationPolicy', () => {
 
     expect(policy.can('file:download', context)).toStrictEqual({
       allowed: true,
-      effectivePermission: 'viewer',
+      accessLevel: 'viewer',
     });
   });
 
@@ -258,7 +258,7 @@ describe('AuthorizationPolicy', () => {
 
     expect(policy.can('file:download', context)).toStrictEqual({
       allowed: true,
-      effectivePermission: 'owner',
+      accessLevel: 'owner',
     });
   });
 });
@@ -289,7 +289,10 @@ function makeEntryContext(options: {
   ownerId?: number;
   kind: 'file' | 'folder';
   deletedAt?: Date | null;
-  grant?: EntryAuthorizationContext['relationship']['grant'];
+  grant?: {
+    permission: FileGrantPermission;
+    expiresAt: Date | null;
+  } | null;
   now?: Date;
 }): EntryAuthorizationContext {
   return {

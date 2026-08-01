@@ -2,7 +2,7 @@ import type { EntryKind } from '../entry/entry.js';
 import type {
   AuthorizationAction,
   DriveRootAuthorizationContext,
-  EffectivePermission,
+  AccessLevel,
   EntryAuthorizationContext,
 } from './authorization.js';
 import { permissionMatrix } from './permission-matrix.js';
@@ -21,7 +21,7 @@ type DenialReason =
 type PolicyDecision =
   | {
       allowed: true;
-      effectivePermission: EffectivePermission;
+      accessLevel: AccessLevel;
     }
   | {
       allowed: false;
@@ -46,24 +46,24 @@ const actionScopes = {
 
 export class AuthorizationPolicy {
   can(action: AuthorizationAction, context: PolicyContext): PolicyDecision {
-    const permissionResolution = this.resolveEffectivePermission(context);
+    const access = this.resolveAccessLevel(context);
 
-    if (!permissionResolution.allowed) {
-      return permissionResolution;
+    if (!access.allowed) {
+      return access;
     }
 
     if (!this.isActionApplicable(action, context)) {
       return this.deny('action_not_applicable', 'visible');
     }
 
-    if (!permissionMatrix[permissionResolution.effectivePermission][action]) {
+    if (!permissionMatrix[access.accessLevel][action]) {
       return this.deny('action_not_allowed', 'visible');
     }
 
-    return permissionResolution;
+    return access;
   }
 
-  private resolveEffectivePermission(context: PolicyContext): PolicyDecision {
+  private resolveAccessLevel(context: PolicyContext): PolicyDecision {
     if (context.scope === 'entry' && context.resource.deletedAt !== null) {
       return this.deny('resource_deleted', 'hidden');
     }
@@ -71,7 +71,7 @@ export class AuthorizationPolicy {
     if (context.actor.userId === context.resource.ownerId) {
       return {
         allowed: true,
-        effectivePermission: 'owner',
+        accessLevel: 'owner',
       };
     }
 
@@ -94,7 +94,7 @@ export class AuthorizationPolicy {
 
     return {
       allowed: true,
-      effectivePermission: grant.permission,
+      accessLevel: grant.permission,
     };
   }
 

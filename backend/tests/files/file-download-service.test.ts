@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import type {
-  AuthorizedEntry,
+  AuthorizationResult,
   AuthorizationService,
 } from '../../src/authorization/authorization-service.js';
 import { FileDownloadService } from '../../src/files/file-download-service.js';
@@ -114,7 +114,7 @@ describe('FileDownloadService', () => {
   });
 });
 
-function makeAuthorizationResult(): AuthorizedEntry {
+function makeAuthorizationResult(): AuthorizationResult {
   return {
     context: {
       scope: 'entry',
@@ -134,7 +134,7 @@ function makeAuthorizationResult(): AuthorizedEntry {
         now: new Date('2026-07-30T12:00:00Z'),
       },
     },
-    effectivePermission: 'owner',
+    accessLevel: 'owner',
   };
 }
 

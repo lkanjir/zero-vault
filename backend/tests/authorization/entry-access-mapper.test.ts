@@ -1,18 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { EntryAccessProjector } from '../../src/authorization/entry-access-projector.js';
 import { AuthorizationPolicy } from '../../src/authorization/authorization-policy.js';
 import type { EntryAuthorizationContext } from '../../src/authorization/authorization.js';
+import { EntryAccessMapper } from '../../src/authorization/entry-access-mapper.js';
+import type { FileGrantPermission } from '../../src/sharing/file-grant.js';
 
 const NOW = new Date('2026-07-30T12:00:00Z');
 const OWNER_ID = 1;
 const RECIPIENT_ID = 2;
 
-describe('EntryAccessProjector', () => {
-  const projector = new EntryAccessProjector(new AuthorizationPolicy());
+describe('EntryAccessMapper', () => {
+  const mapper = new EntryAccessMapper(new AuthorizationPolicy());
 
-  it('projects every owner file capability from the authorization policy', () => {
-    expect(projector.project(makeContext({ kind: 'file' }))).toStrictEqual({
-      effectivePermission: 'owner',
+  it('maps every owner file capability from the authorization policy', () => {
+    expect(mapper.map(makeContext({ kind: 'file' }))).toStrictEqual({
+      accessLevel: 'owner',
       capabilities: {
         download: true,
         rename: true,
@@ -24,9 +25,9 @@ describe('EntryAccessProjector', () => {
     });
   });
 
-  it('projects folder-applicable owner capabilities without file-only actions', () => {
-    expect(projector.project(makeContext({ kind: 'folder' }))).toStrictEqual({
-      effectivePermission: 'owner',
+  it('maps folder-applicable owner capabilities without file-only actions', () => {
+    expect(mapper.map(makeContext({ kind: 'folder' }))).toStrictEqual({
+      accessLevel: 'owner',
       capabilities: {
         download: true,
         rename: true,
@@ -61,7 +62,7 @@ describe('EntryAccessProjector', () => {
         manageSharing: false,
       },
     },
-  ])('projects $permission file capabilities', ({ permission, expected }) => {
+  ])('maps $permission file capabilities', ({ permission, expected }) => {
     const context = makeContext({
       actorUserId: RECIPIENT_ID,
       kind: 'file',
@@ -71,29 +72,30 @@ describe('EntryAccessProjector', () => {
       },
     });
 
-    expect(projector.project(context)).toStrictEqual({
-      effectivePermission: permission,
+    expect(mapper.map(context)).toStrictEqual({
+      accessLevel: permission,
       capabilities: expected,
     });
   });
 
-  it('rejects projection when the entry is not readable', () => {
+  it('rejects mapping when the entry is not readable', () => {
     const context = makeContext({
       actorUserId: RECIPIENT_ID,
       kind: 'file',
       grant: null,
     });
 
-    expect(() => projector.project(context)).toThrow(
-      'Cannot project access for an unauthorized entry.',
-    );
+    expect(() => mapper.map(context)).toThrow('Cannot map access for an unauthorized entry.');
   });
 });
 
 function makeContext(options: {
   actorUserId?: number;
   kind: 'file' | 'folder';
-  grant?: EntryAuthorizationContext['relationship']['grant'];
+  grant?: {
+    permission: FileGrantPermission;
+    expiresAt: Date | null;
+  } | null;
 }): EntryAuthorizationContext {
   return {
     scope: 'entry',

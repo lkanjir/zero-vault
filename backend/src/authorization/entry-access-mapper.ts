@@ -2,13 +2,13 @@ import type { AuthorizationPolicy } from './authorization-policy.js';
 import type { AuthorizationAction, EntryAuthorizationContext } from './authorization.js';
 import type { EntryAccessResponse } from './dto.js';
 
-export class EntryAccessProjector {
+export class EntryAccessMapper {
   constructor(private readonly policy: AuthorizationPolicy) {}
 
-  project(context: EntryAuthorizationContext): EntryAccessResponse {
+  map(context: EntryAuthorizationContext): EntryAccessResponse {
     const readDecision = this.policy.can('entry:read', context);
     if (!readDecision.allowed) {
-      throw new Error('Cannot project access for an unauthorized entry.');
+      throw new Error('Cannot map access for an unauthorized entry.');
     }
 
     const can = (action: AuthorizationAction): boolean => this.policy.can(action, context).allowed;
@@ -17,7 +17,7 @@ export class EntryAccessProjector {
       context.resource.kind === 'file' ? 'file:download' : 'folder:download';
 
     return {
-      effectivePermission: readDecision.effectivePermission,
+      accessLevel: readDecision.accessLevel,
       capabilities: {
         download: can(downloadAction),
         rename: can('entry:rename'),
