@@ -1,3 +1,6 @@
+import type { CursorPage } from '../shared/types/cursor-page.js';
+import type { FileGrantPermission } from '../sharing/file-grant.js';
+
 export type FileDownloadResponse = {
   fileId: string;
   fileName: string;
@@ -19,3 +22,12 @@ export type FileResponse = {
 export type ShareFileAcceptedResponse = {
   status: 'accepted';
 };
+
+export type FileShareResponse = {
+  shareId: string;
+  recipientEmail: string;
+  permission: FileGrantPermission;
+  expiresAt: string | null;
+};
+
+export type FileShareListResponse = CursorPage<FileShareResponse>;

@@ -1,8 +1,12 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
 import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
 import { db } from '../db/db-client.js';
 import { fileGrants, users } from '../db/schema.js';
-import type { FileGrantRepository, SaveFileGrantCommand } from './file-grant-repository.js';
+import type {
+  FileGrantRepository,
+  ListFileGrantsQuery,
+  SaveFileGrantCommand,
+} from './file-grant-repository.js';
 import type { FileGrant } from './file-grant.js';
 
 export class PostgresFileGrantRepository implements FileGrantRepository {
@@ -103,5 +107,25 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
 
       return savedGrant;
     });
+  }
+
+  async listByFileId(query: ListFileGrantsQuery): Promise<FileGrant[]> {
+    const cursorFilter =
+      query.cursor === null
+        ? undefined
+        : or(
+            gt(fileGrants.recipientEmail, query.cursor.recipientEmail),
+            and(
+              eq(fileGrants.recipientEmail, query.cursor.recipientEmail),
+              gt(fileGrants.id, query.cursor.grantDbId),
+            ),
+          );
+
+    return db
+      .select()
+      .from(fileGrants)
+      .where(and(eq(fileGrants.fileId, query.fileId), cursorFilter))
+      .orderBy(fileGrants.recipientEmail, fileGrants.id)
+      .limit(query.limit);
   }
 }

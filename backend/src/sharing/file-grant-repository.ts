@@ -10,6 +10,16 @@ export type SaveFileGrantCommand = {
   pendingActivationDeadline: Date;
 };
 
+export type ListFileGrantsQuery = {
+  fileId: number;
+  cursor: {
+    recipientEmail: string;
+    grantDbId: number;
+  } | null;
+  limit: number;
+};
+
 export interface FileGrantRepository {
   save(command: SaveFileGrantCommand): Promise<FileGrant>;
+  listByFileId(query: ListFileGrantsQuery): Promise<FileGrant[]>;
 }

@@ -15,3 +15,16 @@ export const shareFileBodySchema = z.object({
     .optional()
     .default(null),
 });
+
+export const listFileSharesQuerySchema = z.object({
+  cursor: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .transform((value) => value ?? null),
+
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListFileSharesRequest = z.infer<typeof listFileSharesQuerySchema>;
