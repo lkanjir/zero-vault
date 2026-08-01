@@ -15,3 +15,7 @@ export type FileResponse = {
   sizeBytes: number;
   updatedAt: string;
 };
+
+export type ShareFileAcceptedResponse = {
+  status: 'accepted';
+};

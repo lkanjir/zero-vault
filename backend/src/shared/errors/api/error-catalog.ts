@@ -66,6 +66,11 @@ export const errorCatalog = {
     message: 'Korisnički račun nije moguće povezati.',
   },
 
+  invalid_grant_expiry: {
+    status: 400,
+    message: 'Vrijeme isteka dijeljenja mora biti u budućnosti.',
+  },
+
   authentication_service_unavailable: {
     status: 503,
     message: 'Usluga za prijavu nije dostupna.',
