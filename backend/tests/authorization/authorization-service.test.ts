@@ -73,6 +73,43 @@ describe('AuthorizationService', () => {
     expect(policy.can).toHaveBeenCalledExactlyOnceWith('entry:rename', context);
   });
 
+  it('authorizes an action against the owner drive root', () => {
+    policy.can.mockReturnValue({
+      allowed: true,
+      accessLevel: 'owner',
+    });
+
+    expect(
+      service.authorizeDriveRoot({
+        actorUserId: ACTOR_USER_ID,
+        ownerId: ACTOR_USER_ID,
+        action: 'entry:create',
+      }),
+    ).toBe('owner');
+    expect(policy.can).toHaveBeenCalledExactlyOnceWith('entry:create', {
+      scope: 'drive-root',
+      actor: { userId: ACTOR_USER_ID },
+      resource: { ownerId: ACTOR_USER_ID },
+      environment: { now: NOW },
+    });
+  });
+
+  it('maps a hidden drive root denial to entry_not_found', () => {
+    policy.can.mockReturnValue({
+      allowed: false,
+      reason: 'no_active_permission',
+      disclosure: 'hidden',
+    });
+
+    expect(() =>
+      service.authorizeDriveRoot({
+        actorUserId: ACTOR_USER_ID,
+        ownerId: 1,
+        action: 'entry:create',
+      }),
+    ).toThrow(expect.objectContaining({ code: 'entry_not_found' }));
+  });
+
   it('returns the same hidden not-found response when the entry does not exist', async () => {
     contextResolver.resolveEntry.mockResolvedValue(null);
 

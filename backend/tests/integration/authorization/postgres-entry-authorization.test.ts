@@ -137,6 +137,21 @@ describe('PostgreSQL entry authorization', () => {
     expect(stored?.updatedAt.getTime()).toBeGreaterThan(file.updatedAt.getTime());
   });
 
+  it('authorizes the owner drive root when moving an entry out of a folder', async () => {
+    const owner = await createUser('owner');
+    const sourceFolder = await createFolder(owner.id, 'Source');
+    const file = await createFile(owner.id, 'nested.txt', sourceFolder.id);
+
+    await entryRepository.updateEntry({
+      actorUserId: owner.id,
+      entryId: file.publicId,
+      parentId: null,
+    });
+
+    const [stored] = await database.select().from(entries).where(eq(entries.id, file.id));
+    expect(stored?.parentId).toBeNull();
+  });
+
   it('does not delete or enqueue object deletion when an editor lacks delete access', async () => {
     const owner = await createUser('owner');
     const editor = await createUser('editor');
@@ -174,11 +189,12 @@ describe('PostgreSQL entry authorization', () => {
     return user;
   }
 
-  async function createFile(ownerId: number, name: string) {
+  async function createFile(ownerId: number, name: string, parentId: number | null = null) {
     const [entry] = await database
       .insert(entries)
       .values({
         ownerId,
+        parentId,
         kind: 'file',
         name,
         updatedAt: new Date('2020-01-01T00:00:00.000Z'),
