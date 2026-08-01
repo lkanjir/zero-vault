@@ -206,6 +206,7 @@ describe('LocalStack storage round-trip', () => {
     await database.insert(fileGrants).values({
       fileId: fileEntry.id,
       recipientUserId: recipient.id,
+      recipientEmail: recipient.email,
       createdByUserId: user.id,
       permission: 'viewer',
       createdAt: grantCreatedAt,

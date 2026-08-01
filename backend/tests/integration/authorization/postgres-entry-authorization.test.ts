@@ -73,7 +73,7 @@ describe('PostgreSQL entry authorization', () => {
     const owner = await createUser('owner');
     const editor = await createUser('editor');
     const file = await createFile(owner.id, 'original.txt');
-    await createGrant(file.id, owner.id, editor.id, 'editor');
+    await createGrant(file.id, owner.id, editor, 'editor');
 
     await expect(
       entryRepository.updateEntry({
@@ -92,7 +92,7 @@ describe('PostgreSQL entry authorization', () => {
     const editor = await createUser('editor');
     const file = await createFile(owner.id, 'original.txt');
     const destination = await createFolder(owner.id, 'Destination');
-    await createGrant(file.id, owner.id, editor.id, 'editor');
+    await createGrant(file.id, owner.id, editor, 'editor');
 
     await expect(
       entryRepository.updateEntry({
@@ -156,7 +156,7 @@ describe('PostgreSQL entry authorization', () => {
     const owner = await createUser('owner');
     const editor = await createUser('editor');
     const file = await createFile(owner.id, 'original.txt');
-    await createGrant(file.id, owner.id, editor.id, 'editor');
+    await createGrant(file.id, owner.id, editor, 'editor');
 
     await expect(
       entryRepository.deleteEntry({
@@ -283,12 +283,13 @@ describe('PostgreSQL entry authorization', () => {
   async function createGrant(
     fileId: number,
     ownerId: number,
-    recipientUserId: number,
+    recipient: { id: number; email: string },
     permission: 'viewer' | 'editor',
   ) {
     await database.insert(fileGrants).values({
       fileId,
-      recipientUserId,
+      recipientUserId: recipient.id,
+      recipientEmail: recipient.email,
       createdByUserId: ownerId,
       permission,
     });
