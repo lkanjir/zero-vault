@@ -5,6 +5,7 @@ import type {
   AuthorizationAction,
   AccessLevel,
   EntryAuthorizationContext,
+  DriveRootAuthorizationContext,
 } from './authorization.js';
 
 export type AuthorizationResult = {
@@ -38,6 +39,43 @@ export class AuthorizationService {
       entryPublicId: input.entryPublicId,
       context,
     });
+  }
+
+  authorizeDriveRoot(input: {
+    actorUserId: number;
+    ownerId: number;
+    action: AuthorizationAction;
+  }): AccessLevel {
+    const context: DriveRootAuthorizationContext = {
+      scope: 'drive-root',
+      actor: {
+        userId: input.actorUserId,
+      },
+      resource: {
+        ownerId: input.ownerId,
+      },
+      environment: {
+        now: new Date(),
+      },
+    };
+
+    const decision = this.policy.can(input.action, context);
+
+    if (!decision.allowed) {
+      throw new AppError(
+        decision.disclosure === 'hidden' ? 'entry_not_found' : 'authorization_denied',
+        {
+          context: {
+            action: input.action,
+            reason: decision.reason,
+            actorUserId: input.actorUserId,
+            ownerId: input.ownerId,
+          },
+        },
+      );
+    }
+
+    return decision.accessLevel;
   }
 
   authorizeEntryContext(input: {

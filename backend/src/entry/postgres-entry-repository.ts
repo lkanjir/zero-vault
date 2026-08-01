@@ -139,7 +139,7 @@ export class PostgresEntryRepository implements EntryRepository {
 
     try {
       return await db.transaction(async (tx) => {
-        const target = await this.authorizer.authorizeForUpdate(tx, {
+        const sourceEntry = await this.authorizer.authorizeForUpdate(tx, {
           actorUserId: command.actorUserId,
           entryPublicId: command.entryId,
           actions,
@@ -147,11 +147,15 @@ export class PostgresEntryRepository implements EntryRepository {
 
         const nextParentId =
           command.parentId === undefined
-            ? target.parentId
-            : await resolveParentIdInTransaction(tx, target.ownerId, command.parentId);
+            ? sourceEntry.parentId
+            : await this.authorizer.authorizeParentForCreate(tx, {
+                actorUserId: command.actorUserId,
+                ownerId: sourceEntry.ownerId,
+                parentPublicId: command.parentId,
+              });
 
-        if (target.kind === 'folder' && command.parentId !== undefined) {
-          await this.assertFolderCanMove(tx, target.id, nextParentId);
+        if (sourceEntry.kind === 'folder' && command.parentId !== undefined) {
+          await this.assertFolderCanMove(tx, sourceEntry.id, nextParentId);
         }
 
         const updatedData: Partial<Entry> = {
@@ -171,8 +175,8 @@ export class PostgresEntryRepository implements EntryRepository {
           .set(updatedData)
           .where(
             and(
-              eq(entries.id, target.id),
-              eq(entries.ownerId, target.ownerId),
+              eq(entries.id, sourceEntry.id),
+              eq(entries.ownerId, sourceEntry.ownerId),
               isNull(entries.deletedAt),
             ),
           )
