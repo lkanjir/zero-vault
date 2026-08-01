@@ -1,4 +1,4 @@
-import { and, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
 import { db } from '../db/db-client.js';
 import { fileGrants, users } from '../db/schema.js';
@@ -26,6 +26,51 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
       const recipientUserId = recipient?.id ?? null;
       const activationDeadline =
         recipientUserId === null ? command.pendingActivationDeadline : null;
+
+      const [existingRecipientGrant] =
+        recipientUserId === null
+          ? []
+          : await tx
+              .select({ id: fileGrants.id })
+              .from(fileGrants)
+              .where(
+                and(
+                  eq(fileGrants.fileId, file.id),
+                  eq(fileGrants.recipientUserId, recipientUserId),
+                ),
+              )
+              .for('update')
+              .limit(1);
+
+      if (existingRecipientGrant) {
+        await tx
+          .delete(fileGrants)
+          .where(
+            and(
+              eq(fileGrants.fileId, file.id),
+              eq(fileGrants.recipientEmail, command.recipientEmail),
+              isNull(fileGrants.recipientUserId),
+            ),
+          );
+
+        const [updatedGrant] = await tx
+          .update(fileGrants)
+          .set({
+            recipientEmail: command.recipientEmail,
+            permission: command.permission,
+            activationDeadline: null,
+            expiresAt: command.expiresAt,
+            updatedAt: command.submittedAt,
+          })
+          .where(eq(fileGrants.id, existingRecipientGrant.id))
+          .returning();
+
+        if (!updatedGrant) {
+          throw new Error('File grant update failed');
+        }
+
+        return updatedGrant;
+      }
 
       const [savedGrant] = await tx
         .insert(fileGrants)
