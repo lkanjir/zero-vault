@@ -26,8 +26,10 @@ const USER: User = {
   issuer: PRINCIPAL.issuer,
   subject: PRINCIPAL.subject,
   username: PRINCIPAL.username!,
+  email: PRINCIPAL.email,
   createdAt: new Date('2026-01-01T00:00:00.000Z'),
   updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+  deletedAt: null,
 };
 
 describe('folder routes', () => {

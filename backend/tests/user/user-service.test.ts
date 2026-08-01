@@ -11,8 +11,10 @@ const existingUser: User = {
   issuer: process.env['OIDC_ISSUER']!,
   subject: 'existing_user',
   username: 'test',
+  email: 'test@example.com',
   createdAt: new Date(),
   updatedAt: new Date(),
+  deletedAt: null,
 };
 
 const principal: AuthenticatedPrincipal = {
@@ -38,7 +40,7 @@ describe('resolveUser', () => {
 
     expect(user).toStrictEqual(existingUser);
     expect(repo.createFromPrincipal).not.toHaveBeenCalled();
-    expect(repo.updateUsernameById).not.toHaveBeenCalled();
+    expect(repo.updateProfileById).not.toHaveBeenCalled();
     expect(repo.findByPrincipal).toHaveBeenCalledExactlyOnceWith(principal);
   });
 
@@ -50,7 +52,7 @@ describe('resolveUser', () => {
 
     expect(user).toStrictEqual(existingUser);
     expect(repo.createFromPrincipal).toHaveBeenCalledExactlyOnceWith(principal);
-    expect(repo.updateUsernameById).not.toHaveBeenCalled();
+    expect(repo.updateProfileById).not.toHaveBeenCalled();
     expect(repo.findByPrincipal).toHaveBeenCalledExactlyOnceWith(principal);
   });
 
@@ -66,15 +68,16 @@ describe('resolveUser', () => {
     };
 
     repo.findByPrincipal.calledWith(principalWithNewName).mockResolvedValue(existingUser);
-    repo.updateUsernameById
-      .calledWith(existingUser.id, principalWithNewName.username!)
-      .mockResolvedValue(userWithNewName);
+    repo.updateProfileById.mockResolvedValue(userWithNewName);
 
     const user = await service.resolveUser(principalWithNewName);
 
     expect(user).toStrictEqual(userWithNewName);
     expect(repo.createFromPrincipal).not.toHaveBeenCalled();
-    expect(repo.updateUsernameById).toHaveBeenCalledExactlyOnceWith(existingUser.id, 'new');
+    expect(repo.updateProfileById).toHaveBeenCalledExactlyOnceWith(existingUser.id, {
+      email: principal.email,
+      username: 'new',
+    });
     expect(repo.findByPrincipal).toHaveBeenCalledExactlyOnceWith(principalWithNewName);
   });
 
@@ -91,7 +94,7 @@ describe('resolveUser', () => {
 
     expect(user).toStrictEqual(existingUser);
     expect(repo.createFromPrincipal).not.toHaveBeenCalled();
-    expect(repo.updateUsernameById).not.toHaveBeenCalled();
+    expect(repo.updateProfileById).not.toHaveBeenCalled();
     expect(repo.findByPrincipal).toHaveBeenCalledExactlyOnceWith(principalWithoutUsername);
   });
 
@@ -108,6 +111,64 @@ describe('resolveUser', () => {
     expect(repo.findByPrincipal).toHaveBeenNthCalledWith(2, principal);
 
     expect(repo.createFromPrincipal).toHaveBeenCalledExactlyOnceWith(principal);
-    expect(repo.updateUsernameById).not.toHaveBeenCalled();
+    expect(repo.updateProfileById).not.toHaveBeenCalled();
+  });
+
+  it('updates a changed email from the verified principal', async () => {
+    const principalWithNewEmail: AuthenticatedPrincipal = {
+      ...principal,
+      email: 'new@example.com',
+    };
+    const userWithNewEmail: User = {
+      ...existingUser,
+      email: principalWithNewEmail.email,
+    };
+
+    repo.findByPrincipal.calledWith(principalWithNewEmail).mockResolvedValue(existingUser);
+    repo.updateProfileById.mockResolvedValue(userWithNewEmail);
+
+    await expect(service.resolveUser(principalWithNewEmail)).resolves.toStrictEqual(
+      userWithNewEmail,
+    );
+    expect(repo.updateProfileById).toHaveBeenCalledExactlyOnceWith(existingUser.id, {
+      email: 'new@example.com',
+      username: 'test',
+    });
+  });
+
+  it('updates email without clearing username when the principal has no username', async () => {
+    const principalWithoutUsername: AuthenticatedPrincipal = {
+      issuer: principal.issuer,
+      subject: principal.subject,
+      email: 'new@example.com',
+    };
+    const userWithNewEmail: User = {
+      ...existingUser,
+      email: principalWithoutUsername.email,
+    };
+
+    repo.findByPrincipal.calledWith(principalWithoutUsername).mockResolvedValue(existingUser);
+    repo.updateProfileById.mockResolvedValue(userWithNewEmail);
+
+    await expect(service.resolveUser(principalWithoutUsername)).resolves.toStrictEqual(
+      userWithNewEmail,
+    );
+    expect(repo.updateProfileById).toHaveBeenCalledExactlyOnceWith(existingUser.id, {
+      email: 'new@example.com',
+    });
+  });
+
+  it('rejects an inactive application user', async () => {
+    const inactiveUser: User = {
+      ...existingUser,
+      deletedAt: new Date('2026-01-02T00:00:00.000Z'),
+    };
+    repo.findByPrincipal.calledWith(principal).mockResolvedValue(inactiveUser);
+
+    await expect(service.resolveUser(principal)).rejects.toMatchObject({
+      code: 'user_account_inactive',
+    });
+    expect(repo.createFromPrincipal).not.toHaveBeenCalled();
+    expect(repo.updateProfileById).not.toHaveBeenCalled();
   });
 });

@@ -224,6 +224,7 @@ describe('PostgreSQL entry authorization', () => {
       .values({
         issuer: ISSUER,
         subject: randomUUID(),
+        email: `${username}-${randomUUID()}@example.com`,
         username,
       })
       .returning();

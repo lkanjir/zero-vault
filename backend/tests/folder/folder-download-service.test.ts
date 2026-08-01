@@ -17,8 +17,10 @@ const USER: User = {
   issuer: process.env['OIDC_ISSUER']!,
   subject: 'user-123',
   username: 'test',
+  email: 'test@example.com',
   createdAt: NOW,
   updatedAt: NOW,
+  deletedAt: null,
 };
 
 describe('FolderDownloadService', () => {

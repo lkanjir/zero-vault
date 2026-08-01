@@ -268,6 +268,7 @@ describe('LocalStack storage round-trip', () => {
       .values({
         issuer: ISSUER,
         subject: randomUUID(),
+        email: `${username}-${randomUUID()}@example.com`,
         username,
       })
       .returning();
