@@ -293,6 +293,68 @@ describe('PostgresFileGrantRepository', () => {
     await expect(database.select().from(fileGrants)).resolves.toHaveLength(1);
   });
 
+  it("lists one file's grants in stable pages without duplicates", async () => {
+    const owner = await createUser('owner@example.com');
+    const file = await createFile(owner.id);
+    const otherFile = await createFile(owner.id, 'other.txt');
+
+    for (const recipientEmail of [
+      'charlie@example.com',
+      'alpha@example.com',
+      'bravo@example.com',
+    ]) {
+      await repository.save({
+        actorUserId: owner.id,
+        filePublicId: file.publicId,
+        recipientEmail,
+        permission: 'viewer',
+        expiresAt: null,
+        submittedAt: SUBMITTED_AT,
+        pendingActivationDeadline: PENDING_DEADLINE,
+      });
+    }
+
+    await repository.save({
+      actorUserId: owner.id,
+      filePublicId: otherFile.publicId,
+      recipientEmail: 'other@example.com',
+      permission: 'viewer',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: PENDING_DEADLINE,
+    });
+
+    const firstPage = await repository.listByFileId({
+      fileId: file.id,
+      cursor: null,
+      limit: 2,
+    });
+
+    expect(firstPage.map((grant) => grant.recipientEmail)).toEqual([
+      'alpha@example.com',
+      'bravo@example.com',
+    ]);
+
+    const lastGrant = firstPage.at(-1);
+    if (!lastGrant) {
+      throw new Error('Expected the first grant page to contain a cursor source');
+    }
+
+    const secondPage = await repository.listByFileId({
+      fileId: file.id,
+      cursor: {
+        recipientEmail: lastGrant.recipientEmail,
+        grantDbId: lastGrant.id,
+      },
+      limit: 2,
+    });
+
+    expect(secondPage.map((grant) => grant.recipientEmail)).toEqual(['charlie@example.com']);
+    expect(secondPage.some((grant) => firstPage.some((first) => first.id === grant.id))).toBe(
+      false,
+    );
+  });
+
   async function createUser(email: string) {
     const [user] = await database
       .insert(users)
@@ -311,13 +373,13 @@ describe('PostgresFileGrantRepository', () => {
     return user;
   }
 
-  async function createFile(ownerId: number) {
+  async function createFile(ownerId: number, name = 'document.txt') {
     const [entry] = await database
       .insert(entries)
       .values({
         ownerId,
         kind: 'file',
-        name: 'document.txt',
+        name,
       })
       .returning();
 
