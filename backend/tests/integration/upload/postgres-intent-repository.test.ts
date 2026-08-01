@@ -12,7 +12,7 @@ import type { SaveUploadIntentCommand } from '../../../src/upload/upload-intent-
 const OWNER_ISSUER = 'https://issuer.example.test/realms/zero-vault';
 const EXPECTED_SHA256 = 'a'.repeat(64);
 
-describe('PostgresIntentRepository duplicate names', () => {
+describe('PostgresIntentRepository upload targets', () => {
   let container: StartedPostgreSqlContainer;
   let database: Database;
   let closeDatabase: () => Promise<void>;
@@ -235,6 +235,51 @@ describe('PostgresIntentRepository duplicate names', () => {
     });
   });
 
+  it('does not complete an upload after its target folder is deleted', async () => {
+    const userId = await createUser();
+    const [folder] = await database
+      .insert(entries)
+      .values({
+        ownerId: userId,
+        parentId: null,
+        kind: 'folder',
+        name: 'Target folder',
+      })
+      .returning();
+
+    if (!folder) {
+      throw new Error('Failed to create target folder');
+    }
+
+    const intent = makeIntent(userId, 'report.pdf', folder.publicId);
+    await repository.save(intent);
+    await database.update(entries).set({ deletedAt: new Date() }).where(eq(entries.id, folder.id));
+
+    await expect(
+      repository.completeVerifiedUpload({
+        userId,
+        uploadId: intent.uploadId,
+        completedAt: new Date(),
+      }),
+    ).rejects.toMatchObject({ code: 'folder_not_found' });
+
+    const [storedIntent] = await database
+      .select()
+      .from(uploadIntents)
+      .where(eq(uploadIntents.uploadId, intent.uploadId));
+    const storedFiles = await database.select().from(files);
+    const storedFileEntries = await database.select().from(entries).where(eq(entries.kind, 'file'));
+
+    expect(storedIntent).toMatchObject({
+      status: 'pending',
+      fileId: null,
+      targetParentId: folder.id,
+      completedAt: null,
+    });
+    expect(storedFileEntries).toHaveLength(0);
+    expect(storedFiles).toHaveLength(0);
+  });
+
   async function createUser(): Promise<number> {
     const [user] = await database
       .insert(users)
@@ -253,13 +298,17 @@ describe('PostgresIntentRepository duplicate names', () => {
   }
 });
 
-function makeIntent(userId: number, fileName: string): SaveUploadIntentCommand {
+function makeIntent(
+  userId: number,
+  fileName: string,
+  parentFolderId: string | null = null,
+): SaveUploadIntentCommand {
   const createdAt = new Date();
 
   return {
     uploadId: randomUUID(),
     createdByUserId: userId,
-    parentFolderId: null,
+    parentFolderId,
     fileId: null,
     fileName,
     objectKey: `integration-tests/${randomUUID()}`,

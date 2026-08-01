@@ -19,9 +19,9 @@ export async function resolveParentIdInTransaction(
 export async function resolveParentPublicIdInTransaction(
   tx: Transaction,
   ownerId: number,
-  paretnId: number,
+  parentId: number,
 ): Promise<string> {
-  const parent = await lockActiveParentInTransaction(tx, ownerId, eq(entries.id, paretnId));
+  const parent = await lockActiveParentInTransaction(tx, ownerId, eq(entries.id, parentId));
   return parent.publicId;
 }
 
