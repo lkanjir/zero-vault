@@ -10,7 +10,7 @@ export class FolderService {
   async createFolder(user: User, request: CreateFolderRequestBody): Promise<FolderResponse> {
     const folder = await this.repo.createFolder({
       name: request.name,
-      ownerId: user.id,
+      actorUserId: user.id,
       parentId: request.parentId,
     });
 

@@ -43,7 +43,7 @@ export type EntriesQuery = {
 };
 
 export type CreateFolderCommand = {
-  ownerId: number;
+  actorUserId: number;
   parentId: string | null;
   name: string;
 };

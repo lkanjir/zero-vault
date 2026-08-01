@@ -15,7 +15,6 @@ import { db, type Transaction } from '../db/db-client.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
 import type { Entry } from './entry.js';
-import { resolveParentIdInTransaction } from './resolve-parent-id-in-transaction.js';
 import { mapEntryDatabaseError } from './map-entry-db-error.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 import { enqueueObjectDeletionInTransaction } from '../object-deletion/object-deletion-helpers.js';
@@ -92,9 +91,13 @@ export class PostgresEntryRepository implements EntryRepository {
   async createFolder(command: CreateFolderCommand): Promise<Folder> {
     try {
       const folder = await db.transaction(async (tx) => {
-        const parentId = await resolveParentIdInTransaction(tx, command.ownerId, command.parentId);
+        const parentId = await this.authorizer.authorizeParentForCreate(tx, {
+          actorUserId: command.actorUserId,
+          ownerId: command.actorUserId,
+          parentPublicId: command.parentId,
+        });
 
-        return this.insertFolder(tx, command.ownerId, command.name, parentId);
+        return this.insertFolder(tx, command.actorUserId, command.name, parentId);
       });
 
       return this.toFolder(folder);
