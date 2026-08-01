@@ -56,6 +56,11 @@ export const errorCatalog = {
     message: 'Za korištenje aplikacije potrebna je verificirana email adresa.',
   },
 
+  user_account_inactive: {
+    status: 403,
+    message: 'Korisnički račun nije aktivan.',
+  },
+
   authentication_service_unavailable: {
     status: 503,
     message: 'Usluga za prijavu nije dostupna.',

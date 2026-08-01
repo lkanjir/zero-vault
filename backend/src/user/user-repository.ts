@@ -4,5 +4,5 @@ import type { User } from './user.js';
 export interface UserRepository {
   findByPrincipal(principal: AuthenticatedPrincipal): Promise<User | null>;
   createFromPrincipal(principal: AuthenticatedPrincipal): Promise<User | null>;
-  updateUsernameById(id: number, newUsername: string): Promise<User>;
+  updateProfileById(id: number, profile: { email: string; username?: string }): Promise<User>;
 }

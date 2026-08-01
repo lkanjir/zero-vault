@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal.js';
 import { db } from '../db/db-client.js';
 import { users } from '../db/schema.js';
@@ -26,11 +26,18 @@ export class PostgresUserRepository implements UserRepository {
     return savedUser ? this.toDomain(savedUser) : null;
   }
 
-  async updateUsernameById(id: number, newUsername: string): Promise<User> {
+  async updateProfileById(
+    id: number,
+    profile: { email: string; username?: string },
+  ): Promise<User> {
     const [row] = await db
       .update(users)
-      .set({ username: newUsername, updatedAt: new Date() })
-      .where(eq(users.id, id))
+      .set({
+        email: profile.email,
+        ...(profile.username !== undefined ? { username: profile.username } : {}),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(users.id, id), isNull(users.deletedAt)))
       .returning();
 
     if (!row) {
@@ -47,8 +54,10 @@ export class PostgresUserRepository implements UserRepository {
       issuer: row.issuer,
       subject: row.subject,
       username: row.username,
+      email: row.email,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+      deletedAt: row.deletedAt,
     };
   }
 
@@ -57,6 +66,7 @@ export class PostgresUserRepository implements UserRepository {
       issuer: principal.issuer,
       subject: principal.subject,
       username: principal.username,
+      email: principal.email,
     };
   }
 }

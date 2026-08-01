@@ -4,6 +4,8 @@ export type User = {
   issuer: string;
   subject: string;
   username: string | null;
+  email: string;
   createdAt: Date;
   updatedAt: Date;
+  deletedAt: Date | null;
 };

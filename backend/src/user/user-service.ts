@@ -1,4 +1,5 @@
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal.js';
+import { AppError } from '../shared/errors/api/app-error.js';
 import type { UserRepository } from './user-repository.js';
 import type { User } from './user.js';
 
@@ -16,8 +17,18 @@ export class UserService {
       throw new Error('Failed to resolve user');
     }
 
-    if (principal.username !== undefined && principal.username !== user.username) {
-      user = await this.userRepo.updateUsernameById(user.id, principal.username);
+    if (user.deletedAt !== null) {
+      throw new AppError('user_account_inactive');
+    }
+
+    const usernameChanged =
+      principal.username !== undefined && principal.username !== user.username;
+
+    if (principal.email !== user.email || usernameChanged) {
+      user = await this.userRepo.updateProfileById(user.id, {
+        email: principal.email,
+        ...(principal.username !== undefined ? { username: principal.username } : {}),
+      });
     }
 
     return user;
