@@ -5,6 +5,7 @@ import { JOSEError, JWKInvalid, JWKSInvalid, JWKSTimeout } from 'jose/errors';
 import type { JWTPayload } from 'jose';
 import { AppError } from '../shared/errors/api/app-error.js';
 import { AuthProviderUnavailableError } from '../shared/errors/auth/auth-provider-unavailable-error.js';
+import { normalizedEmailSchema } from '../shared/validation/normalized-email-schema.js';
 
 const fetchJwks: jose.FetchImplementation = async (url, options) => {
   try {
@@ -33,11 +34,19 @@ export async function verifyAccessToken(token: string): Promise<AuthenticatedPri
     });
   }
 
+  const emailVerified = payload['email_verified'];
+  const emailParseResult = normalizedEmailSchema.safeParse(payload['email']);
+
+  if (emailVerified !== true || !emailParseResult.success) {
+    throw new AppError('verified_email_required');
+  }
+
   const username = payload['preferred_username'];
 
   const principal: AuthenticatedPrincipal = {
     issuer: payload.iss,
     subject: payload.sub,
+    email: emailParseResult.data,
   };
 
   if (typeof username === 'string') {

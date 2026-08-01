@@ -51,6 +51,11 @@ export const errorCatalog = {
     message: 'Nemate dopuštenje za ovu radnju.',
   },
 
+  verified_email_required: {
+    status: 403,
+    message: 'Za korištenje aplikacije potrebna je verificirana email adresa.',
+  },
+
   authentication_service_unavailable: {
     status: 503,
     message: 'Usluga za prijavu nije dostupna.',
