@@ -106,6 +106,7 @@ describe('LocalStack storage round-trip', () => {
       authorizationContextResolverModule,
       authorizationPolicyModule,
       authorizationServiceModule,
+      entryAuthorizerModule,
     ] = await Promise.all([
       import('../../../src/db/db-client.js'),
       import('../../../src/storage/s3-object-storage.js'),
@@ -120,6 +121,7 @@ describe('LocalStack storage round-trip', () => {
       import('../../../src/authorization/postgres-authorization-context-resolver.js'),
       import('../../../src/authorization/authorization-policy.js'),
       import('../../../src/authorization/authorization-service.js'),
+      import('../../../src/authorization/postgres-entry-authorizer.js'),
     ]);
 
     database = databaseModule.db;
@@ -140,12 +142,13 @@ describe('LocalStack storage round-trip', () => {
       authorizationContextResolver,
       authorizationPolicy,
     );
+    const entryAuthorizer = new entryAuthorizerModule.PostgresEntryAuthorizer(authorizationService);
     fileDownloadService = new fileDownloadModule.FileDownloadService(
       authorizationService,
       new fileRepositoryModule.PostgresFileRepository(),
       storage,
     );
-    entryRepository = new entryRepositoryModule.PostgresEntryRepository();
+    entryRepository = new entryRepositoryModule.PostgresEntryRepository(entryAuthorizer);
     deletionRepository = new deletionRepositoryModule.PostgresObjectDeletionRepository();
     deletionProcessor = new deletionProcessorModule.ObjectDeletionProcessor(
       deletionRepository,

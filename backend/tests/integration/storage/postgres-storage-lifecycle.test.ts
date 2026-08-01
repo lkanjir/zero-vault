@@ -50,12 +50,25 @@ describe('PostgreSQL storage lifecycle', () => {
     const entryRepositoryModule = await import('../../../src/entry/postgres-entry-repository.js');
     const intentRepositoryModule =
       await import('../../../src/upload/postgres-intent-repository.js');
+    const authorizationContextResolverModule =
+      await import('../../../src/authorization/postgres-authorization-context-resolver.js');
+    const authorizationPolicyModule =
+      await import('../../../src/authorization/authorization-policy.js');
+    const authorizationServiceModule =
+      await import('../../../src/authorization/authorization-service.js');
+    const entryAuthorizerModule =
+      await import('../../../src/authorization/postgres-entry-authorizer.js');
 
     database = databaseModule.db;
     closeDatabase = databaseModule.closeDatabase;
     folderRepository = new folderRepositoryModule.PostgresFolderDownloadRepository();
     deletionRepository = new deletionRepositoryModule.PostgresObjectDeletionRepository();
-    entryRepository = new entryRepositoryModule.PostgresEntryRepository();
+    const authorizationService = new authorizationServiceModule.AuthorizationService(
+      new authorizationContextResolverModule.PostgresAuthorizationContextResolver(),
+      new authorizationPolicyModule.AuthorizationPolicy(),
+    );
+    const entryAuthorizer = new entryAuthorizerModule.PostgresEntryAuthorizer(authorizationService);
+    entryRepository = new entryRepositoryModule.PostgresEntryRepository(entryAuthorizer);
     intentRepository = new intentRepositoryModule.PostgresIntentRepository();
 
     await migrate(database, {
