@@ -294,29 +294,72 @@ export const fileGrants = pgTable(
     fileId: bigint('file_id', { mode: 'number' })
       .notNull()
       .references(() => files.entryId, { onDelete: 'cascade' }),
-    recipientUserId: bigint('recipient_user_id', { mode: 'number' })
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+    recipientUserId: bigint('recipient_user_id', { mode: 'number' }).references(() => users.id, {
+      onDelete: 'cascade',
+    }),
+    recipientEmail: text('recipient_email').notNull(),
     createdByUserId: bigint('created_by_user_id', { mode: 'number' })
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     permission: fileGrantPermission('permission').notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
+    activationDeadline: timestamp('activation_deadline', { withTimezone: true, mode: 'date' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
   (table) => [
     unique('file_grants_public_id_key').on(table.publicId),
-    unique('file_grants_file_recipient_key').on(table.fileId, table.recipientUserId),
+    unique('file_grants_file_recipient_email_key').on(table.fileId, table.recipientEmail),
     check(
       'file_grants_recipient_not_owner_check',
-      sql`${table.createdByUserId} <> ${table.recipientUserId}`,
+      sql`${table.recipientUserId} is null or ${table.createdByUserId} <> ${table.recipientUserId}`,
     ),
     check(
       'file_grants_expiry_after_creation_check',
       sql`${table.expiresAt} is null or ${table.expiresAt} > ${table.createdAt}`,
     ),
-    index('file_grants_recipient_file_idx').on(table.recipientUserId, table.fileId),
+    check(
+      'file_grants_recipient_email_normalized_check',
+      sql`
+      ${table.recipientEmail} = lower(btrim(${table.recipientEmail}))
+      and char_length(${table.recipientEmail}) between 3 and 254
+    `,
+    ),
+    check(
+      'file_grants_state_check',
+      sql`
+      (
+        ${table.recipientUserId} is null
+        and ${table.activationDeadline} is not null
+      )
+      or
+      (
+        ${table.recipientUserId} is not null
+        and ${table.activationDeadline} is null
+      )
+    `,
+    ),
+    check(
+      'file_grants_activation_after_creation_check',
+      sql`
+      ${table.activationDeadline} is null
+      or ${table.activationDeadline} > ${table.createdAt}
+    `,
+    ),
+    check(
+      'file_grants_activation_before_expiry_check',
+      sql`
+      ${table.activationDeadline} is null
+      or ${table.expiresAt} is null
+      or ${table.activationDeadline} <= ${table.expiresAt}
+    `,
+    ),
+    index('file_grants_pending_email_idx')
+      .on(table.recipientEmail)
+      .where(sql`${table.recipientUserId} is null`),
+    index('file_grants_pending_deadline_idx')
+      .on(table.activationDeadline)
+      .where(sql`${table.recipientUserId} is null`),
     foreignKey({
       name: 'file_grants_file_owner_fk',
       columns: [table.fileId, table.createdByUserId],
