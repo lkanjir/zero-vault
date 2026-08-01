@@ -49,7 +49,7 @@ export type CreateFolderCommand = {
 };
 
 export type UpdateEntryCommand = {
-  ownerId: number;
+  actorUserId: number;
   entryId: string;
   parentId?: string | null;
   name?: string;

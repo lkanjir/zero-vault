@@ -21,6 +21,7 @@ import { PostgresAuthorizationContextResolver } from './authorization/postgres-a
 import { AuthorizationPolicy } from './authorization/authorization-policy.js';
 import { AuthorizationService } from './authorization/authorization-service.js';
 import { EntryAccessMapper } from './authorization/entry-access-mapper.js';
+import { PostgresEntryAuthorizer } from './authorization/postgres-entry-authorizer.js';
 
 export function createCompositionRoot() {
   const authorizationContextResolver = new PostgresAuthorizationContextResolver();
@@ -30,6 +31,7 @@ export function createCompositionRoot() {
     authorizationPolicy,
   );
   const authzMapper = new EntryAccessMapper(authorizationPolicy);
+  const authorizer = new PostgresEntryAuthorizer(authorizationService);
 
   const storage = new S3ObjectStorage();
 
@@ -43,7 +45,7 @@ export function createCompositionRoot() {
   const fileRepository = new PostgresFileRepository();
   const downloadService = new FileDownloadService(authorizationService, fileRepository, storage);
 
-  const entryRepository = new PostgresEntryRepository();
+  const entryRepository = new PostgresEntryRepository(authorizer);
   const entryService = new EntryService(entryRepository, authzMapper);
 
   const folderService = new FolderService(entryRepository);

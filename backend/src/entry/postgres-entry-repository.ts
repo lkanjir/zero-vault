@@ -19,6 +19,8 @@ import { resolveParentIdInTransaction } from './resolve-parent-id-in-transaction
 import { mapEntryDatabaseError } from './map-entry-db-error.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 import { enqueueObjectDeletionInTransaction } from '../object-deletion/object-deletion-helpers.js';
+import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
+import type { AuthorizationAction } from '../authorization/authorization.js';
 
 type QueryDbRow = {
   entryId: number;
@@ -43,6 +45,8 @@ type EntryDeletionTarget =
     };
 
 export class PostgresEntryRepository implements EntryRepository {
+  constructor(private readonly authorizer: PostgresEntryAuthorizer) {}
+
   readonly kindRankExpression = sql<number>`case when ${entries.kind} = 'folder' then 0 else 1 end`;
   readonly sortNameExpression = sql<string>`lower(${entries.name})`;
 
@@ -123,13 +127,28 @@ export class PostgresEntryRepository implements EntryRepository {
   }
 
   async updateEntry(command: UpdateEntryCommand): Promise<ListedEntry> {
+    const actions: AuthorizationAction[] = [];
+
+    if (command.name !== undefined) {
+      actions.push('entry:rename');
+    }
+
+    if (command.parentId !== undefined) {
+      actions.push('entry:move');
+    }
+
     try {
       return await db.transaction(async (tx) => {
-        const target = await this.findEntryForUpdate(tx, command.ownerId, command.entryId);
+        const target = await this.authorizer.authorizeForUpdate(tx, {
+          actorUserId: command.actorUserId,
+          entryPublicId: command.entryId,
+          actions,
+        });
+
         const nextParentId =
           command.parentId === undefined
             ? target.parentId
-            : await resolveParentIdInTransaction(tx, command.ownerId, command.parentId);
+            : await resolveParentIdInTransaction(tx, target.ownerId, command.parentId);
 
         if (target.kind === 'folder' && command.parentId !== undefined) {
           await this.assertFolderCanMove(tx, target.id, nextParentId);
@@ -139,7 +158,7 @@ export class PostgresEntryRepository implements EntryRepository {
           updatedAt: new Date(),
         };
 
-        if (command.name) {
+        if (command.name !== undefined) {
           updatedData.name = command.name;
         }
 
@@ -153,7 +172,7 @@ export class PostgresEntryRepository implements EntryRepository {
           .where(
             and(
               eq(entries.id, target.id),
-              eq(entries.ownerId, command.ownerId),
+              eq(entries.ownerId, target.ownerId),
               isNull(entries.deletedAt),
             ),
           )

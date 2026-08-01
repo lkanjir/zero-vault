@@ -59,7 +59,7 @@ export class EntryService {
   ): Promise<EntryResponse> {
     const updatedEntry = await this.entryRepository.updateEntry({
       entryId: entryId,
-      ownerId: user.id,
+      actorUserId: user.id,
       ...(request.name !== undefined ? { name: request.name } : {}),
       ...(request.parentId !== undefined ? { parentId: request.parentId } : {}),
     });

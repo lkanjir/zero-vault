@@ -15,7 +15,6 @@ export class PostgresEntryAuthorizer {
       actorUserId: number;
       entryPublicId: string;
       actions: readonly AuthorizationAction[];
-      now: Date;
     },
   ): Promise<Entry> {
     if (input.actions.length === 0) {
@@ -34,6 +33,7 @@ export class PostgresEntryAuthorizer {
     }
 
     const grant = await this.findGrant(tx, entry, input.actorUserId);
+    const now = new Date();
     const context: EntryAuthorizationContext = {
       scope: 'entry',
       actor: {
@@ -49,7 +49,7 @@ export class PostgresEntryAuthorizer {
         grant,
       },
       environment: {
-        now: input.now,
+        now,
       },
     };
 
