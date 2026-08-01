@@ -19,6 +19,7 @@ const ROOT_PARENT = null;
 const PRINCIPAL: AuthenticatedPrincipal = {
   issuer: process.env['OIDC_ISSUER']!,
   subject: 'user-123',
+  email: 'test@example.com',
   username: 'test',
 };
 

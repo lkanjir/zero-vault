@@ -18,6 +18,7 @@ const existingUser: User = {
 const principal: AuthenticatedPrincipal = {
   issuer: process.env['OIDC_ISSUER']!,
   subject: 'existing_user',
+  email: 'test@example.com',
   username: 'test',
 };
 
@@ -81,6 +82,7 @@ describe('resolveUser', () => {
     const principalWithoutUsername: AuthenticatedPrincipal = {
       issuer: principal.issuer,
       subject: principal.subject,
+      email: principal.email,
     };
 
     repo.findByPrincipal.calledWith(principalWithoutUsername).mockResolvedValue(existingUser);

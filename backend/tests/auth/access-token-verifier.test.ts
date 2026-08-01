@@ -28,6 +28,8 @@ const validToken = {
     sub: 'user-123',
     iat: 100,
     exp: 200,
+    email: ' Test@Example.COM ',
+    email_verified: true,
     preferred_username: 'test',
   },
   key: new Uint8Array(),
@@ -44,6 +46,7 @@ describe('verifyAccessToken', () => {
     expect(principal).toStrictEqual({
       issuer: process.env['OIDC_ISSUER']!,
       subject: 'user-123',
+      email: 'test@example.com',
       username: 'test',
     });
   });
@@ -73,6 +76,8 @@ describe('verifyAccessToken', () => {
         sub: 'user-123',
         iat: 100,
         exp: 200,
+        email: 'test@example.com',
+        email_verified: true,
       },
       key: new Uint8Array(),
     });
@@ -84,12 +89,86 @@ describe('verifyAccessToken', () => {
     expect(principal).toStrictEqual({
       issuer: 'http://localhost:8080/realms/zero-vault',
       subject: 'user-123',
+      email: 'test@example.com',
     });
   });
 
   it.each([
-    ['missing issuer', { sub: 'user-123', iat: 100, exp: 200 }],
-    ['missing subject', { iat: 100, exp: 200, iss: 'http://localhost:8080/realms/zero-vault' }],
+    [
+      'missing email',
+      {
+        iss: 'http://localhost:8080/realms/zero-vault',
+        sub: 'user-123',
+        iat: 100,
+        exp: 200,
+        email_verified: true,
+      },
+    ],
+    [
+      'unverified email',
+      {
+        iss: 'http://localhost:8080/realms/zero-vault',
+        sub: 'user-123',
+        iat: 100,
+        exp: 200,
+        email: 'test@example.com',
+        email_verified: false,
+      },
+    ],
+    [
+      'missing email verification',
+      {
+        iss: 'http://localhost:8080/realms/zero-vault',
+        sub: 'user-123',
+        iat: 100,
+        exp: 200,
+        email: 'test@example.com',
+      },
+    ],
+    [
+      'invalid email',
+      {
+        iss: 'http://localhost:8080/realms/zero-vault',
+        sub: 'user-123',
+        iat: 100,
+        exp: 200,
+        email: 'not-an-email',
+        email_verified: true,
+      },
+    ],
+  ])('payload with %s requires a verified email', async (_case, payload) => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      protectedHeader: { alg: 'RS256' },
+      payload,
+      key: new Uint8Array(),
+    });
+
+    await expect(verifyAccessToken('valid-token')).rejects.toMatchObject({
+      code: 'verified_email_required',
+    });
+  });
+
+  it.each([
+    [
+      'missing issuer',
+      {
+        sub: 'user-123',
+        iat: 100,
+        exp: 200,
+        email: 'test@example.com',
+        email_verified: true,
+      },
+    ],
+    [
+      'missing subject',
+      {
+        iat: 100,
+        exp: 200,
+        iss: 'http://localhost:8080/realms/zero-vault',
+        email: 'test@example.com',
+        email_verified: true,
+      },
+    ],
   ])('payload with %s fails validation', async (_case, payload) => {
     jwtVerifyMock.mockResolvedValueOnce({
       protectedHeader: { alg: 'RS256' },
