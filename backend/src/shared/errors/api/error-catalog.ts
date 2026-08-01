@@ -61,6 +61,11 @@ export const errorCatalog = {
     message: 'Korisnički račun nije aktivan.',
   },
 
+  user_identity_conflict: {
+    status: 409,
+    message: 'Korisnički račun nije moguće povezati.',
+  },
+
   authentication_service_unavailable: {
     status: 503,
     message: 'Usluga za prijavu nije dostupna.',

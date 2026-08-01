@@ -4,6 +4,7 @@ import { db } from '../db/db-client.js';
 import { users } from '../db/schema.js';
 import type { UserRepository } from './user-repository.js';
 import type { User } from './user.js';
+import { mapUserDatabaseError } from './map-user-db-error.js';
 
 export class PostgresUserRepository implements UserRepository {
   async findByPrincipal(principal: AuthenticatedPrincipal): Promise<User | null> {
@@ -17,34 +18,42 @@ export class PostgresUserRepository implements UserRepository {
   }
 
   async createFromPrincipal(principal: AuthenticatedPrincipal): Promise<User | null> {
-    const [savedUser] = await db
-      .insert(users)
-      .values(this.toInsert(principal))
-      .onConflictDoNothing({ target: [users.issuer, users.subject] })
-      .returning();
+    try {
+      const [savedUser] = await db
+        .insert(users)
+        .values(this.toInsert(principal))
+        .onConflictDoNothing({ target: [users.issuer, users.subject] })
+        .returning();
 
-    return savedUser ? this.toDomain(savedUser) : null;
+      return savedUser ? this.toDomain(savedUser) : null;
+    } catch (error) {
+      throw mapUserDatabaseError(error);
+    }
   }
 
   async updateProfileById(
     id: number,
     profile: { email: string; username?: string },
   ): Promise<User> {
-    const [row] = await db
-      .update(users)
-      .set({
-        email: profile.email,
-        ...(profile.username !== undefined ? { username: profile.username } : {}),
-        updatedAt: new Date(),
-      })
-      .where(and(eq(users.id, id), isNull(users.deletedAt)))
-      .returning();
+    try {
+      const [row] = await db
+        .update(users)
+        .set({
+          email: profile.email,
+          ...(profile.username !== undefined ? { username: profile.username } : {}),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(users.id, id), isNull(users.deletedAt)))
+        .returning();
 
-    if (!row) {
-      throw new Error('User update failed');
+      if (!row) {
+        throw new Error('User update failed');
+      }
+
+      return this.toDomain(row);
+    } catch (error) {
+      throw mapUserDatabaseError(error);
     }
-
-    return this.toDomain(row);
   }
 
   private toDomain(row: typeof users.$inferSelect): User {
