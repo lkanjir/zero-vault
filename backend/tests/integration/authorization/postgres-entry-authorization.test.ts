@@ -172,6 +172,52 @@ describe('PostgreSQL entry authorization', () => {
     expect(await database.select().from(objectDeletionJobs)).toHaveLength(0);
   });
 
+  it('authorizes creating folders in the actor drive root and a nested parent', async () => {
+    const owner = await createUser('owner');
+
+    const rootFolder = await entryRepository.createFolder({
+      actorUserId: owner.id,
+      parentId: null,
+      name: 'Root folder',
+    });
+    const nestedFolder = await entryRepository.createFolder({
+      actorUserId: owner.id,
+      parentId: rootFolder.publicId,
+      name: 'Nested folder',
+    });
+
+    expect(rootFolder).toMatchObject({
+      ownerId: owner.id,
+      parentId: null,
+    });
+    expect(nestedFolder).toMatchObject({
+      ownerId: owner.id,
+      parentId: rootFolder.id,
+    });
+  });
+
+  it('does not create a folder under another users parent', async () => {
+    const owner = await createUser('owner');
+    const otherUser = await createUser('other-user');
+    const parent = await createFolder(owner.id, 'Private parent');
+
+    await expect(
+      entryRepository.createFolder({
+        actorUserId: otherUser.id,
+        parentId: parent.publicId,
+        name: 'Unauthorized child',
+      }),
+    ).rejects.toMatchObject({
+      code: 'folder_not_found',
+    });
+
+    const stored = await database
+      .select()
+      .from(entries)
+      .where(eq(entries.name, 'Unauthorized child'));
+    expect(stored).toHaveLength(0);
+  });
+
   async function createUser(username: string) {
     const [user] = await database
       .insert(users)
