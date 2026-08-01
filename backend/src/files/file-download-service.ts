@@ -17,7 +17,7 @@ export class FileDownloadService {
   ) {}
 
   async createDownloadUrl(user: User, fileId: string): Promise<FileDownloadResponse> {
-    const authorization = await this.authzService.authorizeEntry({
+    const authorization = await this.authzService.authorizeEntryByPublicId({
       actorUserId: user.id,
       entryPublicId: fileId,
       action: 'file:download',

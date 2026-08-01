@@ -5,7 +5,10 @@ import type { Entry } from '../entry/entry.js';
 import type { AuthorizationService } from './authorization-service.js';
 import type { AuthorizationAction, EntryAuthorizationContext } from './authorization.js';
 import { AppError } from '../shared/errors/api/app-error.js';
-import { resolveParentIdInTransaction } from '../entry/resolve-parent-id-in-transaction.js';
+import {
+  resolveParentIdInTransaction,
+  resolveParentPublicIdInTransaction,
+} from '../entry/resolve-parent-id-in-transaction.js';
 
 export class PostgresEntryAuthorizer {
   constructor(private readonly authzService: AuthorizationService) {}
@@ -109,6 +112,50 @@ export class PostgresEntryAuthorizer {
     });
 
     return parentId;
+  }
+
+  async reauthorizeParentForCreate(
+    tx: Transaction,
+    input: { actorUserId: number; ownerId: number; parentId: number | null },
+  ): Promise<void> {
+    if (input.parentId === null) {
+      this.authzService.authorizeDriveRoot({
+        actorUserId: input.actorUserId,
+        ownerId: input.ownerId,
+        action: 'entry:create',
+      });
+
+      return;
+    }
+
+    const parentPublicId = await resolveParentPublicIdInTransaction(
+      tx,
+      input.ownerId,
+      input.parentId,
+    );
+
+    this.authzService.authorizeEntryContext({
+      action: 'entry:create',
+      entryPublicId: parentPublicId,
+      context: {
+        scope: 'entry',
+        actor: {
+          userId: input.actorUserId,
+        },
+        resource: {
+          id: input.parentId,
+          ownerId: input.ownerId,
+          kind: 'folder',
+          deletedAt: null,
+        },
+        relationship: {
+          grant: null,
+        },
+        environment: {
+          now: new Date(),
+        },
+      },
+    });
   }
 
   private async findGrant(tx: Transaction, entry: Entry, actorUserId: number) {

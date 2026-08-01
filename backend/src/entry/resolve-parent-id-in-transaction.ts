@@ -12,28 +12,26 @@ export async function resolveParentIdInTransaction(
     return null;
   }
 
-  return lockActiveParentInTransaction(tx, ownerId, eq(entries.publicId, parentId));
+  const parent = await lockActiveParentInTransaction(tx, ownerId, eq(entries.publicId, parentId));
+  return parent.id;
 }
 
-export async function assertParentAvailableInTransaction(
+export async function resolveParentPublicIdInTransaction(
   tx: Transaction,
   ownerId: number,
-  parentId: number | null,
-): Promise<void> {
-  if (parentId === null) {
-    return;
-  }
-
-  await lockActiveParentInTransaction(tx, ownerId, eq(entries.id, parentId));
+  paretnId: number,
+): Promise<string> {
+  const parent = await lockActiveParentInTransaction(tx, ownerId, eq(entries.id, paretnId));
+  return parent.publicId;
 }
 
 async function lockActiveParentInTransaction(
   tx: Transaction,
   ownerId: number,
   identifierCondition: SQL,
-): Promise<number> {
+): Promise<{ id: number; publicId: string }> {
   const [parent] = await tx
-    .select({ id: entries.id })
+    .select({ id: entries.id, publicId: entries.publicId })
     .from(entries)
     .where(
       and(
@@ -50,5 +48,5 @@ async function lockActiveParentInTransaction(
     throw new AppError('folder_not_found');
   }
 
-  return parent.id;
+  return parent;
 }

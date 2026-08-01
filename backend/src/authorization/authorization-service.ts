@@ -19,7 +19,7 @@ export class AuthorizationService {
     private readonly policy: AuthorizationPolicy,
   ) {}
 
-  async authorizeEntry(input: {
+  async authorizeEntryByPublicId(input: {
     actorUserId: number;
     entryPublicId: string;
     action: AuthorizationAction;

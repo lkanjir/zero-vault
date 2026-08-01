@@ -11,19 +11,18 @@ import type { UploadIntent } from './upload-intent.js';
 import { db, type Transaction } from '../db/db-client.js';
 import { entries, files, uploadIntents } from '../db/schema.js';
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
-import {
-  assertParentAvailableInTransaction,
-  resolveParentIdInTransaction,
-} from '../entry/resolve-parent-id-in-transaction.js';
 import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 import { enqueueObjectDeletionsInTransaction } from '../object-deletion/object-deletion-helpers.js';
+import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
 
 type UploadIntentRow = typeof uploadIntents.$inferSelect;
 type EntryRow = typeof entries.$inferSelect;
 type FileRow = typeof files.$inferSelect;
 
 export class PostgresIntentRepository implements UploadIntentRepository {
+  constructor(private readonly authorizer: PostgresEntryAuthorizer) {}
+
   async findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null> {
     const [row] = await db
       .select()
@@ -36,11 +35,11 @@ export class PostgresIntentRepository implements UploadIntentRepository {
 
   async save(command: SaveUploadIntentCommand): Promise<void> {
     await db.transaction(async (tx) => {
-      const targetParentDbId = await resolveParentIdInTransaction(
-        tx,
-        command.createdByUserId,
-        command.parentFolderId,
-      );
+      const targetParentDbId = await this.authorizer.authorizeParentForCreate(tx, {
+        actorUserId: command.createdByUserId,
+        ownerId: command.createdByUserId,
+        parentPublicId: command.parentFolderId,
+      });
 
       await tx.insert(uploadIntents).values({
         ...this.toInsert(command),
@@ -140,7 +139,11 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       return { kind: 'expired' };
     }
 
-    await assertParentAvailableInTransaction(tx, command.userId, intent.targetParentId);
+    await this.authorizer.reauthorizeParentForCreate(tx, {
+      actorUserId: command.userId,
+      ownerId: command.userId,
+      parentId: intent.targetParentId,
+    });
     const entry = await this.createEntryForIntent(tx, command.userId, intent);
 
     if (!entry) {
@@ -306,11 +309,11 @@ export class PostgresIntentRepository implements UploadIntentRepository {
 
   async assertUploadTargetAvailable(command: AssertUploadTargetAvailableCommand): Promise<void> {
     await db.transaction(async (tx) => {
-      const targetParentDbId = await resolveParentIdInTransaction(
-        tx,
-        command.userId,
-        command.parentFolderId,
-      );
+      const targetParentDbId = await this.authorizer.authorizeParentForCreate(tx, {
+        actorUserId: command.userId,
+        ownerId: command.userId,
+        parentPublicId: command.parentFolderId,
+      });
 
       const parentCondition =
         targetParentDbId === null

@@ -38,7 +38,7 @@ export function createCompositionRoot() {
   const userRepository = new PostgresUserRepository();
   const userService = new UserService(userRepository);
 
-  const intentRepository = new PostgresIntentRepository();
+  const intentRepository = new PostgresIntentRepository(authorizer);
   const uploadService = new UploadService(storage, intentRepository);
   const uploadCleanupService = new UploadCleanupService(intentRepository);
 
