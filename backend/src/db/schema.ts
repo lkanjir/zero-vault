@@ -113,13 +113,22 @@ export const users = pgTable(
     publicId: uuid('public_id').defaultRandom().notNull(),
     issuer: text('issuer').notNull(),
     subject: text('subject').notNull(),
+    email: text('email').notNull(),
     username: text('username'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true, mode: 'date' }),
   },
   (table) => [
     unique('users_issuer_subject_key').on(table.issuer, table.subject),
     unique('users_public_id_key').on(table.publicId),
+    check(
+      'users_email_normalized_check',
+      sql`
+      ${table.email} = lower(btrim(${table.email}))
+      and char_length(${table.email}) between 3 and 254
+    `,
+    ),
   ],
 );
 

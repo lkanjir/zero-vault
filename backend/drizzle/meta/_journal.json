@@ -50,6 +50,13 @@
       "when": 1785345167177,
       "tag": "0006_brown_impossible_man",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785601924494,
+      "tag": "0007_mushy_prism",
+      "breakpoints": true
     }
   ]
 }
