@@ -192,9 +192,16 @@ export class PostgresEntryRepository implements EntryRepository {
   async deleteEntry(command: DeleteEntryCommand): Promise<void> {
     try {
       await db.transaction(async (tx) => {
-        const target = await this.resolveEntryDeletionTarget(tx, command.ownerId, command.entryId);
+        const entry = await this.authorizer.authorizeForUpdate(tx, {
+          actorUserId: command.actorUserId,
+          entryPublicId: command.entryId,
+          actions: ['entry:delete'],
+        });
 
-        await this.softDeleteEntry(tx, command.ownerId, target.id, command.deletedAt);
+        const target = await this.resolveEntryDeletionTarget(tx, entry);
+        const deletedAt = new Date();
+
+        await this.softDeleteEntry(tx, entry.ownerId, target.id, deletedAt);
 
         if (target.kind === 'file') {
           await enqueueObjectDeletionInTransaction(tx, {
@@ -210,13 +217,10 @@ export class PostgresEntryRepository implements EntryRepository {
 
   private async resolveEntryDeletionTarget(
     tx: Transaction,
-    ownerId: number,
-    entryId: string,
+    entry: Entry,
   ): Promise<EntryDeletionTarget> {
-    const entry = await this.findEntryForUpdate(tx, ownerId, entryId);
-
     if (entry.kind === 'folder') {
-      await this.assertFolderEmpty(tx, ownerId, entry.id);
+      await this.assertFolderEmpty(tx, entry.ownerId, entry.id);
       return {
         id: entry.id,
         kind: 'folder',
@@ -363,27 +367,6 @@ export class PostgresEntryRepository implements EntryRepository {
         },
       });
     }
-  }
-
-  private async findEntryForUpdate(
-    tx: Transaction,
-    ownerId: number,
-    entryId: string,
-  ): Promise<Entry> {
-    const [entry] = await tx
-      .select()
-      .from(entries)
-      .where(
-        and(eq(entries.publicId, entryId), eq(entries.ownerId, ownerId), isNull(entries.deletedAt)),
-      )
-      .for('update')
-      .limit(1);
-
-    if (!entry) {
-      throw new AppError('entry_not_found');
-    }
-
-    return entry;
   }
 
   private async resolveFolderPath(

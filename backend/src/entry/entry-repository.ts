@@ -56,9 +56,8 @@ export type UpdateEntryCommand = {
 };
 
 export type DeleteEntryCommand = {
-  ownerId: number;
+  actorUserId: number;
   entryId: string;
-  deletedAt: Date;
 };
 
 export interface EntryRepository {

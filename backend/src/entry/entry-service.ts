@@ -72,7 +72,7 @@ export class EntryService {
   }
 
   async deleteEntry(user: User, entryId: string): Promise<void> {
-    await this.entryRepository.deleteEntry({ ownerId: user.id, entryId, deletedAt: new Date() });
+    await this.entryRepository.deleteEntry({ actorUserId: user.id, entryId });
   }
 
   private toResponseItem(entry: ListedEntry): EntryResponse {
