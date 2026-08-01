@@ -117,15 +117,14 @@ describe('EntryService', () => {
     expect(repository.getEntries).not.toHaveBeenCalled();
   });
 
-  it('delegates deletion with a stable operation timestamp', async () => {
+  it('delegates deletion with the actor identity', async () => {
     const entryId = '20000000-0000-4000-8000-000000000001';
 
     await service.deleteEntry(USER, entryId);
 
     expect(repository.deleteEntry).toHaveBeenCalledExactlyOnceWith({
-      ownerId: USER.id,
+      actorUserId: USER.id,
       entryId,
-      deletedAt: NOW,
     });
   });
 });

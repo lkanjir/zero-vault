@@ -386,13 +386,13 @@ describe('PostgreSQL storage lifecycle', () => {
     it('soft-deletes file metadata and atomically queues its storage object', async () => {
       const owner = await createUser();
       const file = await createFile(owner.id, null, 'report.txt', 'objects/report');
-      const deletedAt = new Date('2026-07-28T10:00:00.000Z');
+      const startedAt = new Date();
 
       await entryRepository.deleteEntry({
-        ownerId: owner.id,
+        actorUserId: owner.id,
         entryId: file.publicId,
-        deletedAt,
       });
+      const finishedAt = new Date();
 
       const [storedEntry] = await database.select().from(entries).where(eq(entries.id, file.id));
       const [job] = await database
@@ -400,10 +400,10 @@ describe('PostgreSQL storage lifecycle', () => {
         .from(objectDeletionJobs)
         .where(eq(objectDeletionJobs.objectKey, 'objects/report'));
 
-      expect(storedEntry).toMatchObject({
-        deletedAt,
-        updatedAt: deletedAt,
-      });
+      expect(storedEntry?.deletedAt).not.toBeNull();
+      expect(storedEntry?.updatedAt).toEqual(storedEntry?.deletedAt);
+      expect(storedEntry!.updatedAt.getTime()).toBeGreaterThanOrEqual(startedAt.getTime());
+      expect(storedEntry!.updatedAt.getTime()).toBeLessThanOrEqual(finishedAt.getTime());
       expect(job).toMatchObject({
         reason: 'deleted_file',
         objectKey: 'objects/report',
@@ -419,16 +419,14 @@ describe('PostgreSQL storage lifecycle', () => {
 
       await expect(
         entryRepository.deleteEntry({
-          ownerId: owner.id,
+          actorUserId: owner.id,
           entryId: empty.publicId,
-          deletedAt: new Date(),
         }),
       ).resolves.toBeUndefined();
       await expect(
         entryRepository.deleteEntry({
-          ownerId: owner.id,
+          actorUserId: owner.id,
           entryId: nonEmpty.publicId,
-          deletedAt: new Date(),
         }),
       ).rejects.toMatchObject({ code: 'folder_not_empty' });
 
@@ -463,9 +461,8 @@ describe('PostgreSQL storage lifecycle', () => {
       await locked;
 
       const deletion = entryRepository.deleteEntry({
-        ownerId: owner.id,
+        actorUserId: owner.id,
         entryId: folder.publicId,
-        deletedAt: new Date(),
       });
       const earlyResult = await Promise.race([
         deletion.then(() => 'deleted' as const),

@@ -242,9 +242,8 @@ describe('LocalStack storage round-trip', () => {
     }
 
     await entryRepository.deleteEntry({
-      ownerId: user.id,
+      actorUserId: user.id,
       entryId: file.id,
-      deletedAt: new Date(),
     });
     await expect(deletionProcessor.processNext()).resolves.toBe(true);
 

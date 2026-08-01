@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { entries, fileGrants, files, users } from '../../../src/db/schema.js';
+import { entries, fileGrants, files, objectDeletionJobs, users } from '../../../src/db/schema.js';
 import type { Database } from '../../../src/db/db-client.js';
 import type { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
 
@@ -57,6 +57,7 @@ describe('PostgreSQL entry authorization', () => {
   });
 
   beforeEach(async () => {
+    await database.delete(objectDeletionJobs);
     await database.delete(fileGrants);
     await database.delete(files);
     await database.delete(entries);
@@ -134,6 +135,26 @@ describe('PostgreSQL entry authorization', () => {
       parentId: destination.id,
     });
     expect(stored?.updatedAt.getTime()).toBeGreaterThan(file.updatedAt.getTime());
+  });
+
+  it('does not delete or enqueue object deletion when an editor lacks delete access', async () => {
+    const owner = await createUser('owner');
+    const editor = await createUser('editor');
+    const file = await createFile(owner.id, 'original.txt');
+    await createGrant(file.id, owner.id, editor.id, 'editor');
+
+    await expect(
+      entryRepository.deleteEntry({
+        actorUserId: editor.id,
+        entryId: file.publicId,
+      }),
+    ).rejects.toMatchObject({
+      code: 'authorization_denied',
+    });
+
+    const [stored] = await database.select().from(entries).where(eq(entries.id, file.id));
+    expect(stored?.deletedAt).toBeNull();
+    expect(await database.select().from(objectDeletionJobs)).toHaveLength(0);
   });
 
   async function createUser(username: string) {
