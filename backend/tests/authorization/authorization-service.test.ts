@@ -35,7 +35,7 @@ describe('AuthorizationService', () => {
     });
 
     await expect(
-      service.authorizeEntry({
+      service.authorizeEntryByPublicId({
         actorUserId: ACTOR_USER_ID,
         entryPublicId: ENTRY_PUBLIC_ID,
         action: 'file:download',
@@ -114,7 +114,7 @@ describe('AuthorizationService', () => {
     contextResolver.resolveEntry.mockResolvedValue(null);
 
     await expect(
-      service.authorizeEntry({
+      service.authorizeEntryByPublicId({
         actorUserId: ACTOR_USER_ID,
         entryPublicId: ENTRY_PUBLIC_ID,
         action: 'entry:read',
@@ -135,7 +135,7 @@ describe('AuthorizationService', () => {
     });
 
     await expect(
-      service.authorizeEntry({
+      service.authorizeEntryByPublicId({
         actorUserId: ACTOR_USER_ID,
         entryPublicId: ENTRY_PUBLIC_ID,
         action: 'file:download',
@@ -163,7 +163,7 @@ describe('AuthorizationService', () => {
     });
 
     await expect(
-      service.authorizeEntry({
+      service.authorizeEntryByPublicId({
         actorUserId: ACTOR_USER_ID,
         entryPublicId: ENTRY_PUBLIC_ID,
         action: 'entry:rename',

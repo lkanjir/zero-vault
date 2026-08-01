@@ -27,12 +27,30 @@ describe('PostgresIntentRepository duplicate names', () => {
 
     process.env['DATABASE_URL'] = container.getConnectionUri();
 
-    const databaseModule = await import('../../../src/db/db-client.js');
-    const repositoryModule = await import('../../../src/upload/postgres-intent-repository.js');
+    const [
+      databaseModule,
+      repositoryModule,
+      contextResolverModule,
+      policyModule,
+      authorizationServiceModule,
+      entryAuthorizerModule,
+    ] = await Promise.all([
+      import('../../../src/db/db-client.js'),
+      import('../../../src/upload/postgres-intent-repository.js'),
+      import('../../../src/authorization/postgres-authorization-context-resolver.js'),
+      import('../../../src/authorization/authorization-policy.js'),
+      import('../../../src/authorization/authorization-service.js'),
+      import('../../../src/authorization/postgres-entry-authorizer.js'),
+    ]);
 
     database = databaseModule.db;
     closeDatabase = databaseModule.closeDatabase;
-    repository = new repositoryModule.PostgresIntentRepository();
+    const authorizationService = new authorizationServiceModule.AuthorizationService(
+      new contextResolverModule.PostgresAuthorizationContextResolver(),
+      new policyModule.AuthorizationPolicy(),
+    );
+    const entryAuthorizer = new entryAuthorizerModule.PostgresEntryAuthorizer(authorizationService);
+    repository = new repositoryModule.PostgresIntentRepository(entryAuthorizer);
 
     await migrate(database, {
       migrationsFolder: path.resolve(process.cwd(), 'drizzle'),

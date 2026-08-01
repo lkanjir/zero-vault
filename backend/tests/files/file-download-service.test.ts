@@ -35,7 +35,7 @@ describe('FileDownloadService', () => {
     authorizationService = mock<AuthorizationService>();
     repo = mock<FileRepository>();
     storage = mock<ObjectStorage>();
-    authorizationService.authorizeEntry.mockResolvedValue(makeAuthorizationResult());
+    authorizationService.authorizeEntryByPublicId.mockResolvedValue(makeAuthorizationResult());
     service = new FileDownloadService(authorizationService, repo, storage);
   });
 
@@ -55,7 +55,7 @@ describe('FileDownloadService', () => {
       downloadUrl: DOWNLOAD_URL,
       expiresInSeconds: 60,
     });
-    expect(authorizationService.authorizeEntry).toHaveBeenCalledExactlyOnceWith({
+    expect(authorizationService.authorizeEntryByPublicId).toHaveBeenCalledExactlyOnceWith({
       actorUserId: USER.id,
       entryPublicId: file.publicId,
       action: 'file:download',
@@ -71,7 +71,7 @@ describe('FileDownloadService', () => {
 
   it('does not access file metadata or storage when authorization fails', async () => {
     const authorizationError = new AppError('entry_not_found');
-    authorizationService.authorizeEntry.mockRejectedValue(authorizationError);
+    authorizationService.authorizeEntryByPublicId.mockRejectedValue(authorizationError);
 
     await expect(service.createDownloadUrl(USER, FILE_PUBLIC_ID)).rejects.toBe(authorizationError);
     expect(repo.findAvailableFileByEntryId).not.toHaveBeenCalled();

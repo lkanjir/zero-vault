@@ -131,10 +131,6 @@ describe('LocalStack storage round-trip', () => {
     });
 
     storage = new storageModule.S3ObjectStorage();
-    const intentRepository: PostgresIntentRepository =
-      new intentRepositoryModule.PostgresIntentRepository();
-    uploadService = new uploadServiceModule.UploadService(storage, intentRepository);
-    completeUpload = new completeUploadModule.CompleteUploadUseCase(uploadService);
     const authorizationContextResolver =
       new authorizationContextResolverModule.PostgresAuthorizationContextResolver();
     const authorizationPolicy = new authorizationPolicyModule.AuthorizationPolicy();
@@ -143,6 +139,10 @@ describe('LocalStack storage round-trip', () => {
       authorizationPolicy,
     );
     const entryAuthorizer = new entryAuthorizerModule.PostgresEntryAuthorizer(authorizationService);
+    const intentRepository: PostgresIntentRepository =
+      new intentRepositoryModule.PostgresIntentRepository(entryAuthorizer);
+    uploadService = new uploadServiceModule.UploadService(storage, intentRepository);
+    completeUpload = new completeUploadModule.CompleteUploadUseCase(uploadService);
     fileDownloadService = new fileDownloadModule.FileDownloadService(
       authorizationService,
       new fileRepositoryModule.PostgresFileRepository(),

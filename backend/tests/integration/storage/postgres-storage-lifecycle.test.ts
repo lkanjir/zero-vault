@@ -69,7 +69,7 @@ describe('PostgreSQL storage lifecycle', () => {
     );
     const entryAuthorizer = new entryAuthorizerModule.PostgresEntryAuthorizer(authorizationService);
     entryRepository = new entryRepositoryModule.PostgresEntryRepository(entryAuthorizer);
-    intentRepository = new intentRepositoryModule.PostgresIntentRepository();
+    intentRepository = new intentRepositoryModule.PostgresIntentRepository(entryAuthorizer);
 
     await migrate(database, {
       migrationsFolder: path.resolve(process.cwd(), 'drizzle'),
