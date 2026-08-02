@@ -1,14 +1,16 @@
 import { and, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
 import { db, type Transaction } from '../db/db-client.js';
-import { fileGrants, users } from '../db/schema.js';
+import { entries, fileGrants, files, users } from '../db/schema.js';
 import type {
   FileGrantMaintenanceResult,
   FileGrantRepository,
   ListFileGrantsQuery,
+  ListSharedFilesQuery,
   MaintainPendingFileGrantsCommand,
   RevokeFileGrantCommand,
   SaveFileGrantCommand,
+  SharedFileRecord,
   UpdateFileGrantCommand,
 } from './file-grant-repository.js';
 import type { FileGrant } from './file-grant.js';
@@ -279,5 +281,56 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
     `);
 
     return activated.rows.length;
+  }
+
+  async listSharedFiles(query: ListSharedFilesQuery): Promise<SharedFileRecord[]> {
+    const sortName = sql<string>`lower(${entries.name})`;
+
+    const cursorFilter =
+      query.cursor === null
+        ? undefined
+        : or(
+            gt(sortName, query.cursor.sortName),
+            and(eq(sortName, query.cursor.sortName), gt(entries.id, query.cursor.entryId)),
+          );
+
+    return db
+      .select({
+        file: {
+          id: entries.publicId,
+          name: entries.name,
+          contentType: files.contentType,
+          sizeBytes: files.sizeBytes,
+          updatedAt: entries.updatedAt,
+        },
+        owner: {
+          id: users.id,
+          email: users.email,
+          username: users.username,
+        },
+        grant: {
+          permission: fileGrants.permission,
+          expiresAt: fileGrants.expiresAt,
+        },
+        cursor: {
+          sortName,
+          entryId: entries.id,
+        },
+      })
+      .from(fileGrants)
+      .innerJoin(entries, eq(entries.id, fileGrants.fileId))
+      .innerJoin(files, eq(files.entryId, entries.id))
+      .innerJoin(users, eq(users.id, entries.ownerId))
+      .where(
+        and(
+          eq(fileGrants.recipientUserId, query.recipientUserId),
+          eq(entries.kind, 'file'),
+          isNull(entries.deletedAt),
+          or(isNull(fileGrants.expiresAt), gt(fileGrants.expiresAt, query.listedAt)),
+          cursorFilter,
+        ),
+      )
+      .orderBy(sortName, entries.id)
+      .limit(query.limit);
   }
 }

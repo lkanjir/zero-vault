@@ -71,7 +71,7 @@ export function createCompositionRoot() {
   const objectDeletionProcessor = new ObjectDeletionProcessor(objectDeletionRepository, storage);
 
   const grantRepository = new PostgresFileGrantRepository(authorizer);
-  const sharingService = new FileSharingService(authorizationService, grantRepository);
+  const sharingService = new FileSharingService(authorizationService, grantRepository, authzMapper);
   const fileGrantMaintenanceService = new FileGrantMaintenanceService(grantRepository);
 
   return {

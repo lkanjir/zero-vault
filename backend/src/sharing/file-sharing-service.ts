@@ -1,11 +1,25 @@
 import type { AuthorizationService } from '../authorization/authorization-service.js';
 import type { User } from '../user/user.js';
-import type { FileGrantRepository } from './file-grant-repository.js';
+import type { FileGrantRepository, SharedFileRecord } from './file-grant-repository.js';
 import type { FileGrantPermission } from './file-grant.js';
 import { AppError } from '../shared/errors/api/app-error.js';
-import type { ListFileSharesRequest, UpdateFileShareRequest } from '../files/validation-schemas.js';
-import type { FileShareListResponse, FileShareResponse } from '../files/dto.js';
+import type {
+  ListFileSharesRequest,
+  ListSharedFilesRequest,
+  UpdateFileShareRequest,
+} from '../files/validation-schemas.js';
+import type {
+  FileShareListResponse,
+  FileShareResponse,
+  SharedFileListResponse,
+  SharedFileResponse,
+} from '../files/dto.js';
 import { decodeFileGrantListCursor, encodeFileGrantListCursor } from './file-grant-list-cursor.js';
+import type { EntryAccessMapper } from '../authorization/entry-access-mapper.js';
+import {
+  decodeSharedFileListCursor,
+  encodeSharedFileListCursor,
+} from './shared-file-list-cursor.js';
 
 const PENDING_ACTIVATION_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
 
@@ -19,6 +33,7 @@ export class FileSharingService {
   constructor(
     private readonly authzService: AuthorizationService,
     private readonly grantRepository: FileGrantRepository,
+    private readonly accessMapper: EntryAccessMapper,
   ) {}
 
   async shareFile(user: User, filePublicId: string, command: ShareFileCommand): Promise<void> {
@@ -161,6 +176,75 @@ export class FileSharingService {
       recipientEmail: grant.recipientEmail,
       permission: grant.permission,
       expiresAt: grant.expiresAt?.toISOString() ?? null,
+    };
+  }
+
+  async listSharedFiles(
+    user: User,
+    request: ListSharedFilesRequest,
+  ): Promise<SharedFileListResponse> {
+    const cursor = request.cursor === null ? null : decodeSharedFileListCursor(request.cursor);
+    const listedAt = new Date();
+
+    const records = await this.grantRepository.listSharedFiles({
+      recipientUserId: user.id,
+      listedAt,
+      cursor,
+      limit: request.limit + 1,
+    });
+
+    const pageRecords = records.slice(0, request.limit);
+    const hasMore = records.length > request.limit;
+    const lastRecord = pageRecords.at(-1);
+
+    const nextCursor =
+      hasMore && lastRecord ? encodeSharedFileListCursor({ v: 1, ...lastRecord.cursor }) : null;
+
+    return {
+      items: pageRecords.map((record) => this.toSharedFileResponse(user.id, record, listedAt)),
+      page: {
+        limit: request.limit,
+        hasMore,
+        nextCursor,
+      },
+    };
+  }
+
+  private toSharedFileResponse(
+    actorUserId: number,
+    record: SharedFileRecord,
+    now: Date,
+  ): SharedFileResponse {
+    const access = this.accessMapper.map({
+      scope: 'entry',
+      actor: { userId: actorUserId },
+      resource: {
+        id: record.cursor.entryId,
+        ownerId: record.owner.id,
+        kind: 'file',
+        deletedAt: null,
+      },
+      relationship: {
+        grant: record.grant,
+      },
+      environment: {
+        now,
+      },
+    });
+
+    return {
+      kind: 'file',
+      id: record.file.id,
+      name: record.file.name,
+      contentType: record.file.contentType,
+      sizeBytes: record.file.sizeBytes,
+      updatedAt: record.file.updatedAt.toISOString(),
+      owner: {
+        email: record.owner.email,
+        username: record.owner.username,
+      },
+      expiresAt: record.grant.expiresAt?.toISOString() ?? null,
+      access,
     };
   }
 }

@@ -7,6 +7,7 @@ import {
   fileIdParamsSchema,
   fileShareParamsSchema,
   listFileSharesQuerySchema,
+  listSharedFilesQuerySchema,
   shareFileBodySchema,
   updateFileShareBodySchema,
 } from './validation-schemas.js';
@@ -105,6 +106,21 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
         res.status(200).json(result);
       },
     ),
+  );
+
+  router.get(
+    '/shared-with-me',
+    validateRequest({ query: listSharedFilesQuerySchema }, async (req, res, validated) => {
+      const principal = requirePrincipal(req);
+      const user = await deps.userService.resolveUser(principal);
+
+      const result = await deps.sharingService.listSharedFiles(user, {
+        cursor: validated.query.cursor,
+        limit: validated.query.limit,
+      });
+
+      res.status(200).json(result);
+    }),
   );
 
   return router;

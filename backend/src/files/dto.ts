@@ -1,3 +1,4 @@
+import type { EntryAccessResponse } from '../authorization/dto.js';
 import type { CursorPage } from '../shared/types/cursor-page.js';
 import type { FileGrantPermission } from '../sharing/file-grant.js';
 
@@ -31,3 +32,14 @@ export type FileShareResponse = {
 };
 
 export type FileShareListResponse = CursorPage<FileShareResponse>;
+
+export type SharedFileResponse = FileResponse & {
+  owner: {
+    email: string;
+    username: string | null;
+  };
+  expiresAt: string | null;
+  access: EntryAccessResponse;
+};
+
+export type SharedFileListResponse = CursorPage<SharedFileResponse>;

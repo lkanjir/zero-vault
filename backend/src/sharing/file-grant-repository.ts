@@ -44,10 +44,44 @@ export type FileGrantMaintenanceResult = {
   deletedCount: number;
 };
 
+export type ListSharedFilesQuery = {
+  recipientUserId: number;
+  listedAt: Date;
+  cursor: {
+    sortName: string;
+    entryId: number;
+  } | null;
+  limit: number;
+};
+
+export type SharedFileRecord = {
+  file: {
+    id: string;
+    name: string;
+    contentType: string;
+    sizeBytes: number;
+    updatedAt: Date;
+  };
+  owner: {
+    id: number;
+    email: string;
+    username: string | null;
+  };
+  grant: {
+    permission: FileGrantPermission;
+    expiresAt: Date | null;
+  };
+  cursor: {
+    sortName: string;
+    entryId: number;
+  };
+};
+
 export interface FileGrantRepository {
   save(command: SaveFileGrantCommand): Promise<FileGrant>;
   listByFileId(query: ListFileGrantsQuery): Promise<FileGrant[]>;
   revoke(command: RevokeFileGrantCommand): Promise<void>;
   update(command: UpdateFileGrantCommand): Promise<FileGrant | null>;
   maintainPending(command: MaintainPendingFileGrantsCommand): Promise<FileGrantMaintenanceResult>;
+  listSharedFiles(query: ListSharedFilesQuery): Promise<SharedFileRecord[]>;
 }
