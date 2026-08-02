@@ -3,7 +3,11 @@ import type { UserService } from '../user/user-service.js';
 import type { FileDownloadService } from './file-download-service.js';
 import { requirePrincipal } from '../auth/require-principal.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
-import { fileIdParamsSchema, shareFileBodySchema } from './validation-schemas.js';
+import {
+  fileIdParamsSchema,
+  listFileSharesQuerySchema,
+  shareFileBodySchema,
+} from './validation-schemas.js';
 import type { FileSharingService } from '../sharing/file-sharing-service.js';
 import type { ShareFileAcceptedResponse } from './dto.js';
 
@@ -43,6 +47,24 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
         const response: ShareFileAcceptedResponse = { status: 'accepted' };
         res.status(202).json(response);
+      },
+    ),
+  );
+
+  router.get(
+    '/:fileId/shares',
+    validateRequest(
+      { params: fileIdParamsSchema, query: listFileSharesQuerySchema },
+      async (req, res, validated) => {
+        const principal = requirePrincipal(req);
+        const user = await deps.userService.resolveUser(principal);
+
+        const result = await deps.sharingService.listFileShares(user, validated.params.fileId, {
+          cursor: validated.query.cursor,
+          limit: validated.query.limit,
+        });
+
+        res.status(200).json(result);
       },
     ),
   );
