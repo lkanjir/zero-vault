@@ -70,6 +70,12 @@ describe('files routes', () => {
         nextCursor: null,
       },
     });
+    sharingService.updateFileShare.mockResolvedValue({
+      shareId: SHARE_ID,
+      recipientEmail: 'recipient@example.com',
+      permission: 'editor',
+      expiresAt: null,
+    });
   });
 
   it('creates a download URL for the fileId route parameter', async () => {
@@ -278,6 +284,92 @@ describe('files routes', () => {
     expect(response.body).toMatchObject({
       code: 'entry_not_found',
     });
+  });
+
+  it('updates a file share and returns the resulting representation', async () => {
+    const response = await request(createTestApp(userService, downloadService, sharingService))
+      .patch(`/files/${FILE_ID}/shares/${SHARE_ID}`)
+      .send({ permission: 'editor' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toStrictEqual({
+      shareId: SHARE_ID,
+      recipientEmail: 'recipient@example.com',
+      permission: 'editor',
+      expiresAt: null,
+    });
+    expect(sharingService.updateFileShare).toHaveBeenCalledExactlyOnceWith(
+      USER,
+      FILE_ID,
+      SHARE_ID,
+      { permission: 'editor' },
+    );
+  });
+
+  it('converts an updated ISO expiry with an offset to a Date', async () => {
+    const response = await request(createTestApp(userService, downloadService, sharingService))
+      .patch(`/files/${FILE_ID}/shares/${SHARE_ID}`)
+      .send({ expiresAt: '2026-08-10T12:30:00+02:00' });
+
+    expect(response.status).toBe(200);
+    expect(sharingService.updateFileShare).toHaveBeenCalledExactlyOnceWith(
+      USER,
+      FILE_ID,
+      SHARE_ID,
+      { expiresAt: new Date('2026-08-10T10:30:00.000Z') },
+    );
+  });
+
+  it('passes a null updated expiry through to the sharing service', async () => {
+    const response = await request(createTestApp(userService, downloadService, sharingService))
+      .patch(`/files/${FILE_ID}/shares/${SHARE_ID}`)
+      .send({ expiresAt: null });
+
+    expect(response.status).toBe(200);
+    expect(sharingService.updateFileShare).toHaveBeenCalledExactlyOnceWith(
+      USER,
+      FILE_ID,
+      SHARE_ID,
+      { expiresAt: null },
+    );
+  });
+
+  it.each([
+    ['an empty body', {}],
+    ['an invalid permission', { permission: 'owner' }],
+    ['an invalid expiry', { expiresAt: 'tomorrow' }],
+  ])('rejects %s before updating a file share', async (_case, body) => {
+    const response = await request(createTestApp(userService, downloadService, sharingService))
+      .patch(`/files/${FILE_ID}/shares/${SHARE_ID}`)
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ code: 'invalid_request_body' });
+    expect(sharingService.updateFileShare).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['an invalid file ID', `/files/not-a-uuid/shares/${SHARE_ID}`],
+    ['an invalid share ID', `/files/${FILE_ID}/shares/not-a-uuid`],
+  ])('rejects %s before updating a file share', async (_case, url) => {
+    const response = await request(createTestApp(userService, downloadService, sharingService))
+      .patch(url)
+      .send({ permission: 'editor' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ code: 'invalid_request_params' });
+    expect(sharingService.updateFileShare).not.toHaveBeenCalled();
+  });
+
+  it('maps a missing file share from the sharing service to 404', async () => {
+    sharingService.updateFileShare.mockRejectedValue(new AppError('file_share_not_found'));
+
+    const response = await request(createTestApp(userService, downloadService, sharingService))
+      .patch(`/files/${FILE_ID}/shares/${SHARE_ID}`)
+      .send({ permission: 'editor' });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({ code: 'file_share_not_found' });
   });
 });
 

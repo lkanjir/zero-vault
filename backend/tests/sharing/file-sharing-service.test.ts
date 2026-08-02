@@ -297,6 +297,92 @@ describe('FileSharingService', () => {
       grantPublicId: shareId,
     });
   });
+
+  it('updates a permission while preserving an omitted expiry', async () => {
+    const shareId = '30000000-0000-4000-8000-000000000001';
+    const expiresAt = new Date('2026-08-10T10:00:00.000Z');
+    repository.update.mockResolvedValue(
+      makeGrant({
+        id: 10,
+        publicId: shareId,
+        recipientEmail: 'recipient@example.com',
+        permission: 'editor',
+        expiresAt,
+      }),
+    );
+
+    const result = await service.updateFileShare(USER, FILE_ID, shareId, {
+      permission: 'editor',
+    });
+
+    expect(repository.update).toHaveBeenCalledExactlyOnceWith({
+      actorUserId: USER.id,
+      filePublicId: FILE_ID,
+      grantPublicId: shareId,
+      permission: 'editor',
+      expiresAt: undefined,
+      updatedAt: NOW,
+    });
+    expect(result).toStrictEqual({
+      shareId,
+      recipientEmail: 'recipient@example.com',
+      permission: 'editor',
+      expiresAt: expiresAt.toISOString(),
+    });
+  });
+
+  it('forwards a null expiry to clear it', async () => {
+    const shareId = '30000000-0000-4000-8000-000000000001';
+    repository.update.mockResolvedValue(
+      makeGrant({
+        id: 10,
+        publicId: shareId,
+        recipientEmail: 'recipient@example.com',
+        expiresAt: null,
+      }),
+    );
+
+    const result = await service.updateFileShare(USER, FILE_ID, shareId, {
+      expiresAt: null,
+    });
+
+    expect(repository.update).toHaveBeenCalledExactlyOnceWith({
+      actorUserId: USER.id,
+      filePublicId: FILE_ID,
+      grantPublicId: shareId,
+      permission: undefined,
+      expiresAt: null,
+      updatedAt: NOW,
+    });
+    expect(result.expiresAt).toBeNull();
+  });
+
+  it.each([
+    ['equal to the current time', NOW],
+    ['before the current time', new Date(NOW.getTime() - 1)],
+  ])('rejects an updated expiry %s before calling the repository', async (_case, expiresAt) => {
+    await expect(
+      service.updateFileShare(USER, FILE_ID, '30000000-0000-4000-8000-000000000001', {
+        expiresAt,
+      }),
+    ).rejects.toMatchObject({
+      code: 'invalid_grant_expiry',
+    });
+
+    expect(repository.update).not.toHaveBeenCalled();
+  });
+
+  it('reports a missing file share returned by the repository', async () => {
+    repository.update.mockResolvedValue(null);
+
+    await expect(
+      service.updateFileShare(USER, FILE_ID, '30000000-0000-4000-8000-000000000001', {
+        permission: 'editor',
+      }),
+    ).rejects.toMatchObject({
+      code: 'file_share_not_found',
+    });
+  });
 });
 
 function makeGrant(

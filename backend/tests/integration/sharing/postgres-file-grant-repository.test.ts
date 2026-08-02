@@ -451,6 +451,184 @@ describe('PostgresFileGrantRepository', () => {
     expect(remainingGrants[0]?.publicId).toBe(grant.publicId);
   });
 
+  it('partially updates an active grant while preserving its identity and omitted fields', async () => {
+    const owner = await createUser('owner@example.com');
+    const recipient = await createUser('recipient@example.com');
+    const file = await createFile(owner.id);
+    const originalExpiry = new Date('2026-08-05T10:00:00.000Z');
+    const grant = await repository.save({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      recipientEmail: recipient.email,
+      permission: 'viewer',
+      expiresAt: originalExpiry,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: PENDING_DEADLINE,
+    });
+    const permissionUpdatedAt = new Date('2026-08-01T11:00:00.000Z');
+
+    const permissionUpdated = await repository.update({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      grantPublicId: grant.publicId,
+      permission: 'editor',
+      expiresAt: undefined,
+      updatedAt: permissionUpdatedAt,
+    });
+
+    expect(permissionUpdated).toMatchObject({
+      id: grant.id,
+      publicId: grant.publicId,
+      permission: 'editor',
+      expiresAt: originalExpiry,
+      activationDeadline: null,
+      updatedAt: permissionUpdatedAt,
+    });
+
+    const expiryClearedAt = new Date('2026-08-01T12:00:00.000Z');
+    const expiryCleared = await repository.update({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      grantPublicId: grant.publicId,
+      permission: undefined,
+      expiresAt: null,
+      updatedAt: expiryClearedAt,
+    });
+
+    expect(expiryCleared).toMatchObject({
+      id: grant.id,
+      permission: 'editor',
+      expiresAt: null,
+      activationDeadline: null,
+      updatedAt: expiryClearedAt,
+    });
+  });
+
+  it('only shortens a pending grant activation deadline', async () => {
+    const owner = await createUser('owner@example.com');
+    const file = await createFile(owner.id);
+    const grant = await repository.save({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      recipientEmail: 'pending@example.com',
+      permission: 'viewer',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: PENDING_DEADLINE,
+    });
+    const earlierExpiry = new Date('2026-08-01T12:00:00.000Z');
+
+    const shortened = await repository.update({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      grantPublicId: grant.publicId,
+      permission: undefined,
+      expiresAt: earlierExpiry,
+      updatedAt: new Date('2026-08-01T11:00:00.000Z'),
+    });
+
+    expect(shortened).toMatchObject({
+      expiresAt: earlierExpiry,
+      activationDeadline: earlierExpiry,
+    });
+
+    const laterExpiry = new Date('2026-08-05T10:00:00.000Z');
+    const extended = await repository.update({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      grantPublicId: grant.publicId,
+      permission: undefined,
+      expiresAt: laterExpiry,
+      updatedAt: new Date('2026-08-01T11:30:00.000Z'),
+    });
+
+    expect(extended).toMatchObject({
+      expiresAt: laterExpiry,
+      activationDeadline: earlierExpiry,
+    });
+
+    const expiryCleared = await repository.update({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      grantPublicId: grant.publicId,
+      permission: undefined,
+      expiresAt: null,
+      updatedAt: new Date('2026-08-01T11:45:00.000Z'),
+    });
+
+    expect(expiryCleared).toMatchObject({
+      expiresAt: null,
+      activationDeadline: earlierExpiry,
+    });
+  });
+
+  it('returns null without changing a grant belonging to another file', async () => {
+    const owner = await createUser('owner@example.com');
+    const targetFile = await createFile(owner.id);
+    const otherFile = await createFile(owner.id, 'other.txt');
+    const otherGrant = await repository.save({
+      actorUserId: owner.id,
+      filePublicId: otherFile.publicId,
+      recipientEmail: 'recipient@example.com',
+      permission: 'viewer',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: PENDING_DEADLINE,
+    });
+
+    const result = await repository.update({
+      actorUserId: owner.id,
+      filePublicId: targetFile.publicId,
+      grantPublicId: otherGrant.publicId,
+      permission: 'editor',
+      expiresAt: undefined,
+      updatedAt: new Date('2026-08-01T11:00:00.000Z'),
+    });
+
+    expect(result).toBeNull();
+    const [storedGrant] = await database.select().from(fileGrants);
+    expect(storedGrant).toMatchObject({
+      publicId: otherGrant.publicId,
+      permission: 'viewer',
+      updatedAt: SUBMITTED_AT,
+    });
+  });
+
+  it('does not update a grant when a recipient cannot manage sharing', async () => {
+    const owner = await createUser('owner@example.com');
+    const recipient = await createUser('recipient@example.com');
+    const file = await createFile(owner.id);
+    const grant = await repository.save({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      recipientEmail: recipient.email,
+      permission: 'viewer',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: PENDING_DEADLINE,
+    });
+
+    await expect(
+      repository.update({
+        actorUserId: recipient.id,
+        filePublicId: file.publicId,
+        grantPublicId: grant.publicId,
+        permission: 'editor',
+        expiresAt: undefined,
+        updatedAt: new Date('2026-08-01T11:00:00.000Z'),
+      }),
+    ).rejects.toMatchObject({
+      code: 'authorization_denied',
+    });
+
+    const [storedGrant] = await database.select().from(fileGrants);
+    expect(storedGrant).toMatchObject({
+      publicId: grant.publicId,
+      permission: 'viewer',
+      updatedAt: SUBMITTED_AT,
+    });
+  });
+
   async function createUser(email: string) {
     const [user] = await database
       .insert(users)
