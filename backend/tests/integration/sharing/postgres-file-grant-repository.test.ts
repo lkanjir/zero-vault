@@ -629,6 +629,107 @@ describe('PostgresFileGrantRepository', () => {
     });
   });
 
+  it('deletes expired pending grants and activates recipients available before the deadline', async () => {
+    const owner = await createUser('owner@example.com');
+    const file = await createFile(owner.id);
+    const processedAt = PENDING_DEADLINE;
+    const futureDeadline = new Date('2026-08-03T10:00:00.000Z');
+
+    const expired = await repository.save({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      recipientEmail: 'expired@example.com',
+      permission: 'viewer',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: processedAt,
+    });
+    const activatable = await repository.save({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      recipientEmail: 'available@example.com',
+      permission: 'editor',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: futureDeadline,
+    });
+    const unresolved = await repository.save({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      recipientEmail: 'unresolved@example.com',
+      permission: 'viewer',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: futureDeadline,
+    });
+    const recipient = await createUser('available@example.com');
+
+    await expect(repository.maintainPending({ processedAt, limit: 100 })).resolves.toStrictEqual({
+      activatedCount: 1,
+      deletedCount: 1,
+    });
+
+    const storedGrants = await database.select().from(fileGrants);
+    expect(storedGrants.some((grant) => grant.id === expired.id)).toBe(false);
+    expect(storedGrants.find((grant) => grant.id === activatable.id)).toMatchObject({
+      recipientUserId: recipient.id,
+      activationDeadline: null,
+      permission: 'editor',
+      updatedAt: processedAt,
+    });
+    expect(storedGrants.find((grant) => grant.id === unresolved.id)).toMatchObject({
+      recipientUserId: null,
+      activationDeadline: futureDeadline,
+    });
+  });
+
+  it('applies the maintenance limit independently to deletion and activation', async () => {
+    const owner = await createUser('owner@example.com');
+    const file = await createFile(owner.id);
+    const processedAt = PENDING_DEADLINE;
+
+    for (const [recipientEmail, pendingActivationDeadline] of [
+      ['expired-first@example.com', new Date('2026-08-02T08:00:00.000Z')],
+      ['expired-second@example.com', new Date('2026-08-02T09:00:00.000Z')],
+    ] as const) {
+      await repository.save({
+        actorUserId: owner.id,
+        filePublicId: file.publicId,
+        recipientEmail,
+        permission: 'viewer',
+        expiresAt: null,
+        submittedAt: SUBMITTED_AT,
+        pendingActivationDeadline,
+      });
+    }
+
+    for (const recipientEmail of ['available-first@example.com', 'available-second@example.com']) {
+      await repository.save({
+        actorUserId: owner.id,
+        filePublicId: file.publicId,
+        recipientEmail,
+        permission: 'viewer',
+        expiresAt: null,
+        submittedAt: SUBMITTED_AT,
+        pendingActivationDeadline: new Date('2026-08-03T10:00:00.000Z'),
+      });
+      await createUser(recipientEmail);
+    }
+
+    await expect(repository.maintainPending({ processedAt, limit: 1 })).resolves.toStrictEqual({
+      activatedCount: 1,
+      deletedCount: 1,
+    });
+    await expect(repository.maintainPending({ processedAt, limit: 1 })).resolves.toStrictEqual({
+      activatedCount: 1,
+      deletedCount: 1,
+    });
+
+    const storedGrants = await database.select().from(fileGrants);
+    expect(storedGrants).toHaveLength(2);
+    expect(storedGrants.every((grant) => grant.recipientUserId !== null)).toBe(true);
+  });
+
   async function createUser(email: string) {
     const [user] = await database
       .insert(users)
