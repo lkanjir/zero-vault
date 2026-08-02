@@ -141,6 +141,14 @@ p.instruction {
   color: var(--foreground);
 }
 
+.pf-c-alert__icon {
+  align-self: center;
+}
+
+.alert-warning .pf-c-alert__title {
+  color: var(--foreground);
+}
+
 .alert-error,
 .has-error .pf-c-form-control {
   border-color: var(--danger);
@@ -170,6 +178,11 @@ p.instruction {
 .login-pf .pf-c-input-group {
   --pf-c-input-group--BackgroundColor: var(--background);
   background-color: var(--background);
+}
+
+#kc-content-wrapper > p.instruction,
+#kc-info-wrapper p.instruction {
+  color: var(--foreground);
 }
 
 body[data-page-id='login-register'] .login-pf-header .subtitle {
