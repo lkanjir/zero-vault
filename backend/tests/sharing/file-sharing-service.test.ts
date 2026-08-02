@@ -285,6 +285,18 @@ describe('FileSharingService', () => {
 
     expect(repository.listByFileId).not.toHaveBeenCalled();
   });
+
+  it('delegates file share revocation to the transaction-bound repository operation', async () => {
+    const shareId = '30000000-0000-4000-8000-000000000001';
+
+    await service.revokeFileShare(USER, FILE_ID, shareId);
+
+    expect(repository.revoke).toHaveBeenCalledExactlyOnceWith({
+      actorUserId: USER.id,
+      filePublicId: FILE_ID,
+      grantPublicId: shareId,
+    });
+  });
 });
 
 function makeGrant(

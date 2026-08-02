@@ -14,6 +14,7 @@ import type { FileSharingService } from '../../src/sharing/file-sharing-service.
 import { AppError } from '../../src/shared/errors/api/app-error.js';
 
 const FILE_ID = '20000000-0000-4000-8000-000000000001';
+const SHARE_ID = '30000000-0000-4000-8000-000000000001';
 const DOWNLOAD_URL = 'https://storage.example.test/download';
 
 const PRINCIPAL: AuthenticatedPrincipal = {
@@ -242,6 +243,41 @@ describe('files routes', () => {
 
     expect(response.status).toBe(400);
     expect(sharingService.listFileShares).not.toHaveBeenCalled();
+  });
+
+  it('revokes a file share and returns an empty response', async () => {
+    const response = await request(
+      createTestApp(userService, downloadService, sharingService),
+    ).delete(`/files/${FILE_ID}/shares/${SHARE_ID}`);
+
+    expect(response.status).toBe(204);
+    expect(response.text).toBe('');
+    expect(sharingService.revokeFileShare).toHaveBeenCalledExactlyOnceWith(USER, FILE_ID, SHARE_ID);
+  });
+
+  it.each([
+    ['an invalid file ID', `/files/not-a-uuid/shares/${SHARE_ID}`],
+    ['an invalid share ID', `/files/${FILE_ID}/shares/not-a-uuid`],
+  ])('rejects %s before revoking a file share', async (_case, url) => {
+    const response = await request(
+      createTestApp(userService, downloadService, sharingService),
+    ).delete(url);
+
+    expect(response.status).toBe(400);
+    expect(sharingService.revokeFileShare).not.toHaveBeenCalled();
+  });
+
+  it('preserves a hidden authorization failure when revoking a file share', async () => {
+    sharingService.revokeFileShare.mockRejectedValue(new AppError('entry_not_found'));
+
+    const response = await request(
+      createTestApp(userService, downloadService, sharingService),
+    ).delete(`/files/${FILE_ID}/shares/${SHARE_ID}`);
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({
+      code: 'entry_not_found',
+    });
   });
 });
 

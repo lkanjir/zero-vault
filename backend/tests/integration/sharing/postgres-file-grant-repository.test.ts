@@ -355,6 +355,102 @@ describe('PostgresFileGrantRepository', () => {
     );
   });
 
+  it('revokes both active and pending grants', async () => {
+    const owner = await createUser('owner@example.com');
+    const recipient = await createUser('recipient@example.com');
+    const file = await createFile(owner.id);
+    const activeGrant = await repository.save({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      recipientEmail: recipient.email,
+      permission: 'viewer',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: PENDING_DEADLINE,
+    });
+    const pendingGrant = await repository.save({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      recipientEmail: 'pending@example.com',
+      permission: 'editor',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: PENDING_DEADLINE,
+    });
+
+    await repository.revoke({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      grantPublicId: activeGrant.publicId,
+    });
+    await repository.revoke({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      grantPublicId: pendingGrant.publicId,
+    });
+
+    await expect(database.select().from(fileGrants)).resolves.toHaveLength(0);
+  });
+
+  it('does not revoke a grant belonging to another file and treats missing grants as success', async () => {
+    const owner = await createUser('owner@example.com');
+    const targetFile = await createFile(owner.id);
+    const otherFile = await createFile(owner.id, 'other.txt');
+    const otherGrant = await repository.save({
+      actorUserId: owner.id,
+      filePublicId: otherFile.publicId,
+      recipientEmail: 'recipient@example.com',
+      permission: 'viewer',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: PENDING_DEADLINE,
+    });
+
+    await repository.revoke({
+      actorUserId: owner.id,
+      filePublicId: targetFile.publicId,
+      grantPublicId: otherGrant.publicId,
+    });
+    await repository.revoke({
+      actorUserId: owner.id,
+      filePublicId: targetFile.publicId,
+      grantPublicId: randomUUID(),
+    });
+
+    const remainingGrants = await database.select().from(fileGrants);
+    expect(remainingGrants).toHaveLength(1);
+    expect(remainingGrants[0]?.publicId).toBe(otherGrant.publicId);
+  });
+
+  it('does not revoke a grant when the actor cannot manage the file sharing', async () => {
+    const owner = await createUser('owner@example.com');
+    const otherUser = await createUser('other@example.com');
+    const file = await createFile(owner.id);
+    const grant = await repository.save({
+      actorUserId: owner.id,
+      filePublicId: file.publicId,
+      recipientEmail: 'recipient@example.com',
+      permission: 'viewer',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: PENDING_DEADLINE,
+    });
+
+    await expect(
+      repository.revoke({
+        actorUserId: otherUser.id,
+        filePublicId: file.publicId,
+        grantPublicId: grant.publicId,
+      }),
+    ).rejects.toMatchObject({
+      code: 'entry_not_found',
+    });
+
+    const remainingGrants = await database.select().from(fileGrants);
+    expect(remainingGrants).toHaveLength(1);
+    expect(remainingGrants[0]?.publicId).toBe(grant.publicId);
+  });
+
   async function createUser(email: string) {
     const [user] = await database
       .insert(users)
