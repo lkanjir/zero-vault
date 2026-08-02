@@ -1,10 +1,12 @@
-import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
-import { db } from '../db/db-client.js';
+import { db, type Transaction } from '../db/db-client.js';
 import { fileGrants, users } from '../db/schema.js';
 import type {
+  FileGrantMaintenanceResult,
   FileGrantRepository,
   ListFileGrantsQuery,
+  MaintainPendingFileGrantsCommand,
   RevokeFileGrantCommand,
   SaveFileGrantCommand,
   UpdateFileGrantCommand,
@@ -189,5 +191,93 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
 
       return updatedGrant;
     });
+  }
+
+  maintainPending(command: MaintainPendingFileGrantsCommand): Promise<FileGrantMaintenanceResult> {
+    return db.transaction(async (tx) => {
+      const deletedCount = await this.deleteExpiredPendingGrants(tx, command);
+      const activatedCount = await this.activatePendingGrants(tx, command);
+
+      return {
+        activatedCount,
+        deletedCount,
+      };
+    });
+  }
+
+  private async deleteExpiredPendingGrants(
+    tx: Transaction,
+    command: MaintainPendingFileGrantsCommand,
+  ): Promise<number> {
+    const candidates = await tx
+      .select({ id: fileGrants.id })
+      .from(fileGrants)
+      .where(
+        and(
+          isNull(fileGrants.recipientUserId),
+          lte(fileGrants.activationDeadline, command.processedAt),
+        ),
+      )
+      .orderBy(fileGrants.activationDeadline, fileGrants.id)
+      .for('update', { skipLocked: true })
+      .limit(command.limit);
+
+    if (candidates.length === 0) {
+      return 0;
+    }
+
+    const deleted = await tx
+      .delete(fileGrants)
+      .where(
+        and(
+          inArray(
+            fileGrants.id,
+            candidates.map((candidate) => candidate.id),
+          ),
+          isNull(fileGrants.recipientUserId),
+          lte(fileGrants.activationDeadline, command.processedAt),
+        ),
+      )
+      .returning({ id: fileGrants.id });
+
+    if (deleted.length !== candidates.length) {
+      throw new Error('Failed to delete all locked pending file grants');
+    }
+
+    return deleted.length;
+  }
+
+  private async activatePendingGrants(
+    tx: Transaction,
+    command: MaintainPendingFileGrantsCommand,
+  ): Promise<number> {
+    const activated = await tx.execute<{ id: string }>(sql`
+      WITH candidates AS (
+        SELECT
+          pending.id,
+          recipient.id AS recipient_user_id
+        FROM file_grants pending
+        JOIN users recipient
+          ON recipient.email = pending.recipient_email
+          AND recipient.deleted_at IS NULL
+        WHERE pending.recipient_user_id IS NULL
+          AND pending.activation_deadline > ${command.processedAt}
+        ORDER BY pending.activation_deadline, pending.id
+        FOR UPDATE OF pending SKIP LOCKED
+        LIMIT ${command.limit}
+      )
+      UPDATE file_grants pending
+      SET
+        recipient_user_id = candidates.recipient_user_id,
+        activation_deadline = NULL,
+        updated_at = ${command.processedAt}
+      FROM candidates
+      WHERE pending.id = candidates.id
+        AND pending.recipient_user_id IS NULL
+        AND pending.activation_deadline > ${command.processedAt}
+      RETURNING pending.id::text AS id
+    `);
+
+    return activated.rows.length;
   }
 }

@@ -34,9 +34,20 @@ export type UpdateFileGrantCommand = {
   updatedAt: Date;
 };
 
+export type MaintainPendingFileGrantsCommand = {
+  processedAt: Date;
+  limit: number;
+};
+
+export type FileGrantMaintenanceResult = {
+  activatedCount: number;
+  deletedCount: number;
+};
+
 export interface FileGrantRepository {
   save(command: SaveFileGrantCommand): Promise<FileGrant>;
   listByFileId(query: ListFileGrantsQuery): Promise<FileGrant[]>;
   revoke(command: RevokeFileGrantCommand): Promise<void>;
   update(command: UpdateFileGrantCommand): Promise<FileGrant | null>;
+  maintainPending(command: MaintainPendingFileGrantsCommand): Promise<FileGrantMaintenanceResult>;
 }
