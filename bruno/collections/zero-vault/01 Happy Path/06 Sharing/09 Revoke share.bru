@@ -1,0 +1,21 @@
+meta {
+  name: 09 Revoke share
+  type: http
+  seq: 9
+}
+
+delete {
+  url: {{apiBaseUrl}}/api/files/{{fileId}}/shares/{{shareId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ownerAccessToken}}
+}
+
+tests {
+  test('revokes the file grant', function () {
+    expect(res.status).to.equal(204);
+  });
+}

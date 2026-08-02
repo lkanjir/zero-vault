@@ -1,0 +1,21 @@
+meta {
+  name: 03 Delete target folder
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{apiBaseUrl}}/api/entries/{{targetFolderId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ownerAccessToken}}
+}
+
+tests {
+  test('deletes the now-empty target folder', function () {
+    expect(res.status).to.equal(204);
+  });
+}

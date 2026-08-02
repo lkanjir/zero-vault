@@ -1,0 +1,22 @@
+meta {
+  name: 10 Recipient verifies revoke
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{apiBaseUrl}}/api/files/shared-with-me?limit=50
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{recipientAccessToken}}
+}
+
+tests {
+  test('removes the revoked file from shared-with-me immediately', function () {
+    expect(res.status).to.equal(200);
+    expect(res.body.items.some((item) => item.id === bru.getGlobalEnvVar('fileId'))).to.equal(false);
+  });
+}

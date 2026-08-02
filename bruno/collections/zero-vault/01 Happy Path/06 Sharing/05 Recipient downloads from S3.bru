@@ -1,0 +1,17 @@
+meta {
+  name: 05 Recipient downloads from S3
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{recipientDownloadUrl}}
+  body: none
+  auth: none
+}
+
+tests {
+  test('downloads the shared object directly from storage', function () {
+    expect(res.status).to.equal(200);
+  });
+}

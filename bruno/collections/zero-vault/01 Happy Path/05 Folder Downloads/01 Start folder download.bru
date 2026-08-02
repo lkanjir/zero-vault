@@ -1,0 +1,30 @@
+meta {
+  name: 01 Start folder download
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{apiBaseUrl}}/api/folders/{{targetFolderId}}/downloads
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ownerAccessToken}}
+}
+
+script:post-response {
+  if (res.status === 202) {
+    bru.setGlobalEnvVar('folderDownloadId', res.body.downloadId);
+  }
+}
+
+tests {
+  test('queues a folder ZIP download', function () {
+    expect(res.status).to.equal(202);
+    expect(res.body.status).to.equal('queued');
+    expect(res.body.downloadId).to.be.a('string');
+    expect(res.headers['retry-after']).to.equal('2');
+  });
+}

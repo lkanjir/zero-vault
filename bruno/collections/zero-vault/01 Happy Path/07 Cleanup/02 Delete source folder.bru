@@ -1,0 +1,21 @@
+meta {
+  name: 02 Delete source folder
+  type: http
+  seq: 2
+}
+
+delete {
+  url: {{apiBaseUrl}}/api/entries/{{sourceFolderId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ownerAccessToken}}
+}
+
+tests {
+  test('deletes the now-empty source folder', function () {
+    expect(res.status).to.equal(204);
+  });
+}

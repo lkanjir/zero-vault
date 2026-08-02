@@ -1,0 +1,21 @@
+meta {
+  name: 01 Delete file
+  type: http
+  seq: 1
+}
+
+delete {
+  url: {{apiBaseUrl}}/api/entries/{{fileId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ownerAccessToken}}
+}
+
+tests {
+  test('soft-deletes the demo file and queues object cleanup', function () {
+    expect(res.status).to.equal(204);
+  });
+}

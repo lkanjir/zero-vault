@@ -1,0 +1,29 @@
+meta {
+  name: 02 Poll folder download - repeat until ready
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{apiBaseUrl}}/api/folders/downloads/{{folderDownloadId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ownerAccessToken}}
+}
+
+script:post-response {
+  if (res.status === 200 && res.body.status === 'ready') {
+    bru.setGlobalEnvVar('folderDownloadUrl', res.body.downloadUrl);
+  }
+}
+
+tests {
+  test('returns a valid folder download state', function () {
+    expect(res.status).to.equal(200);
+    expect(['queued', 'processing', 'ready']).to.include(res.body.status);
+    expect(res.headers['cache-control']).to.equal('no-store');
+  });
+}

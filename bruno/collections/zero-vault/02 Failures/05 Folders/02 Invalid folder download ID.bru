@@ -1,0 +1,22 @@
+meta {
+  name: 02 Invalid folder download ID
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{apiBaseUrl}}/api/folders/not-a-uuid/downloads
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ownerAccessToken}}
+}
+
+tests {
+  test('rejects an invalid folder download path parameter', function () {
+    expect(res.status).to.equal(400);
+    expect(res.body.code).to.equal('invalid_request_params');
+  });
+}

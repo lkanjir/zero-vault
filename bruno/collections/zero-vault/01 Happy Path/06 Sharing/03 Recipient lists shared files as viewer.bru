@@ -1,0 +1,35 @@
+meta {
+  name: 03 Recipient lists shared files as viewer
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{apiBaseUrl}}/api/files/shared-with-me?limit=50
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{recipientAccessToken}}
+}
+
+script:post-response {
+  if (res.status === 200) {
+    const file = res.body.items.find((item) => item.id === bru.getGlobalEnvVar('fileId'));
+    if (file) {
+      bru.setGlobalEnvVar('sharedFileId', file.id);
+    }
+  }
+}
+
+tests {
+  test('returns the shared file with viewer capabilities', function () {
+    expect(res.status).to.equal(200);
+    const file = res.body.items.find((item) => item.id === bru.getGlobalEnvVar('fileId'));
+    expect(file).to.be.an('object');
+    expect(file.access.accessLevel).to.equal('viewer');
+    expect(file.access.capabilities.download).to.equal(true);
+    expect(file.access.capabilities.rename).to.equal(false);
+  });
+}

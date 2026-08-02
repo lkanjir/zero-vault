@@ -1,0 +1,32 @@
+meta {
+  name: 04 Move file
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{apiBaseUrl}}/api/entries/{{fileId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ownerAccessToken}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "parentId": "{{targetFolderId}}"
+  }
+}
+
+tests {
+  test('moves the uploaded file to the target folder', function () {
+    expect(res.status).to.equal(200);
+    expect(res.body.id).to.equal(bru.getGlobalEnvVar('fileId'));
+  });
+}

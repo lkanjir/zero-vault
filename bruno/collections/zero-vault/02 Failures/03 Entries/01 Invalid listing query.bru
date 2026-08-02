@@ -1,0 +1,22 @@
+meta {
+  name: 01 Invalid listing query
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{apiBaseUrl}}/api/entries?parentId=not-a-uuid&limit=0
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ownerAccessToken}}
+}
+
+tests {
+  test('rejects invalid listing query parameters', function () {
+    expect(res.status).to.equal(400);
+    expect(res.body.code).to.equal('invalid_request_query');
+  });
+}

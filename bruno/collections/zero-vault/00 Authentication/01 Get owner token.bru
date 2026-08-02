@@ -1,0 +1,38 @@
+meta {
+  name: 01 Get owner token
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{oidcIssuer}}/protocol/openid-connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/x-www-form-urlencoded
+}
+
+body:form-urlencoded {
+  grant_type: password
+  client_id: {{clientId}}
+  username: {{ownerUsername}}
+  password: {{ownerPassword}}
+  scope: openid
+}
+
+script:post-response {
+  if (res.status === 200) {
+    bru.setGlobalEnvVar('ownerAccessToken', res.body.access_token);
+    bru.setGlobalEnvVar('demoRunId', String(Date.now()));
+  }
+}
+
+tests {
+  test('returns an owner access token', function () {
+    expect(res.status).to.equal(200);
+    expect(res.body.access_token).to.be.a('string');
+  });
+}
