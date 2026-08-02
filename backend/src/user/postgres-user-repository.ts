@@ -33,14 +33,15 @@ export class PostgresUserRepository implements UserRepository {
 
   async updateProfileById(
     id: number,
-    profile: { email: string; username?: string },
+    profile: { email: string; firstName: string; lastName: string },
   ): Promise<User> {
     try {
       const [row] = await db
         .update(users)
         .set({
           email: profile.email,
-          ...(profile.username !== undefined ? { username: profile.username } : {}),
+          firstName: profile.firstName,
+          lastName: profile.lastName,
           updatedAt: new Date(),
         })
         .where(and(eq(users.id, id), isNull(users.deletedAt)))
@@ -62,8 +63,9 @@ export class PostgresUserRepository implements UserRepository {
       publicId: row.publicId,
       issuer: row.issuer,
       subject: row.subject,
-      username: row.username,
       email: row.email,
+      firstName: row.firstName,
+      lastName: row.lastName,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       deletedAt: row.deletedAt,
@@ -74,8 +76,9 @@ export class PostgresUserRepository implements UserRepository {
     return {
       issuer: principal.issuer,
       subject: principal.subject,
-      username: principal.username,
       email: principal.email,
+      firstName: principal.firstName,
+      lastName: principal.lastName,
     };
   }
 }

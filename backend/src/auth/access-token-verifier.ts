@@ -6,6 +6,7 @@ import type { JWTPayload } from 'jose';
 import { AppError } from '../shared/errors/api/app-error.js';
 import { AuthProviderUnavailableError } from '../shared/errors/auth/auth-provider-unavailable-error.js';
 import { normalizedEmailSchema } from '../shared/validation/normalized-email-schema.js';
+import z from 'zod';
 
 const fetchJwks: jose.FetchImplementation = async (url, options) => {
   try {
@@ -41,17 +42,26 @@ export async function verifyAccessToken(token: string): Promise<AuthenticatedPri
     throw new AppError('verified_email_required');
   }
 
-  const username = payload['preferred_username'];
+  const profileNameSchema = z.string().trim().min(1).max(255);
+  const firstNameParseResult = profileNameSchema.safeParse(payload['given_name']);
+  const lastNameParseResult = profileNameSchema.safeParse(payload['family_name']);
+
+  if (!firstNameParseResult.success || !lastNameParseResult.success) {
+    throw new AppError('invalid_access_token', {
+      context: {
+        validGivenName: firstNameParseResult.success,
+        validFamilyName: lastNameParseResult.success,
+      },
+    });
+  }
 
   const principal: AuthenticatedPrincipal = {
     issuer: payload.iss,
     subject: payload.sub,
     email: emailParseResult.data,
+    firstName: firstNameParseResult.data,
+    lastName: lastNameParseResult.data,
   };
-
-  if (typeof username === 'string') {
-    principal.username = username;
-  }
 
   return principal;
 }

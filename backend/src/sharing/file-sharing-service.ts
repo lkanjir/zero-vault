@@ -241,7 +241,8 @@ export class FileSharingService {
       updatedAt: record.file.updatedAt.toISOString(),
       owner: {
         email: record.owner.email,
-        username: record.owner.username,
+        firstName: record.owner.firstName,
+        lastName: record.owner.lastName,
       },
       expiresAt: record.grant.expiresAt?.toISOString() ?? null,
       access,

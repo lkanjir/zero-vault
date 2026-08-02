@@ -65,7 +65,8 @@ export type SharedFileRecord = {
   owner: {
     id: number;
     email: string;
-    username: string | null;
+    firstName: string;
+    lastName: string;
   };
   grant: {
     permission: FileGrantPermission;

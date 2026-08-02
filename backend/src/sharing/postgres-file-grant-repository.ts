@@ -306,7 +306,8 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
         owner: {
           id: users.id,
           email: users.email,
-          username: users.username,
+          firstName: users.firstName,
+          lastName: users.lastName,
         },
         grant: {
           permission: fileGrants.permission,

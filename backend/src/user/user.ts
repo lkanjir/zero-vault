@@ -3,8 +3,9 @@ export type User = {
   publicId: string;
   issuer: string;
   subject: string;
-  username: string | null;
   email: string;
+  firstName: string;
+  lastName: string;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;

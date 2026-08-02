@@ -21,13 +21,16 @@ export class UserService {
       throw new AppError('user_account_inactive');
     }
 
-    const usernameChanged =
-      principal.username !== undefined && principal.username !== user.username;
+    const profileChanged =
+      principal.email !== user.email ||
+      principal.firstName !== user.firstName ||
+      principal.lastName !== user.lastName;
 
-    if (principal.email !== user.email || usernameChanged) {
+    if (profileChanged) {
       user = await this.userRepo.updateProfileById(user.id, {
         email: principal.email,
-        ...(principal.username !== undefined ? { username: principal.username } : {}),
+        firstName: principal.firstName,
+        lastName: principal.lastName,
       });
     }
 

@@ -36,7 +36,8 @@ export type FileShareListResponse = CursorPage<FileShareResponse>;
 export type SharedFileResponse = FileResponse & {
   owner: {
     email: string;
-    username: string | null;
+    firstName: string;
+    lastName: string;
   };
   expiresAt: string | null;
   access: EntryAccessResponse;
