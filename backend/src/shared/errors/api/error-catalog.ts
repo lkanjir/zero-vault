@@ -101,6 +101,11 @@ export const errorCatalog = {
     message: 'Datoteka nije pronađena.',
   },
 
+  file_share_not_found: {
+    status: 404,
+    message: 'Ne postoji dijeljeni sadržaj za ažuriranje.',
+  },
+
   move_would_create_cycle: {
     status: 409,
     message: 'Direktorij nije moguće premjestiti u samog sebe ili neki od njegovih poddirektorija.',

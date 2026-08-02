@@ -29,8 +29,8 @@ export type UpdateFileGrantCommand = {
   actorUserId: number;
   filePublicId: string;
   grantPublicId: string;
-  permission?: FileGrantPermission;
-  expiresAt?: Date | null;
+  permission: FileGrantPermission | undefined;
+  expiresAt: Date | null | undefined;
   updatedAt: Date;
 };
 

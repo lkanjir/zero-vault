@@ -8,6 +8,7 @@ import {
   fileShareParamsSchema,
   listFileSharesQuerySchema,
   shareFileBodySchema,
+  updateFileShareBodySchema,
 } from './validation-schemas.js';
 import type { FileSharingService } from '../sharing/file-sharing-service.js';
 import type { ShareFileAcceptedResponse } from './dto.js';
@@ -84,6 +85,26 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
       res.status(204).end();
     }),
+  );
+
+  router.patch(
+    '/:fileId/shares/:shareId',
+    validateRequest(
+      { params: fileShareParamsSchema, body: updateFileShareBodySchema },
+      async (req, res, validated) => {
+        const principal = requirePrincipal(req);
+        const user = await deps.userService.resolveUser(principal);
+
+        const result = await deps.sharingService.updateFileShare(
+          user,
+          validated.params.fileId,
+          validated.params.shareId,
+          validated.body,
+        );
+
+        res.status(200).json(result);
+      },
+    ),
   );
 
   return router;

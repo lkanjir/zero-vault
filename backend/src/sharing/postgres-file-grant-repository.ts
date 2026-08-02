@@ -7,6 +7,7 @@ import type {
   ListFileGrantsQuery,
   RevokeFileGrantCommand,
   SaveFileGrantCommand,
+  UpdateFileGrantCommand,
 } from './file-grant-repository.js';
 import type { FileGrant } from './file-grant.js';
 
@@ -141,6 +142,52 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
       await tx
         .delete(fileGrants)
         .where(and(eq(fileGrants.fileId, file.id), eq(fileGrants.publicId, command.grantPublicId)));
+    });
+  }
+
+  update(command: UpdateFileGrantCommand): Promise<FileGrant | null> {
+    return db.transaction(async (tx) => {
+      const file = await this.authorizer.authorizeForUpdate(tx, {
+        actorUserId: command.actorUserId,
+        entryPublicId: command.filePublicId,
+        actions: ['share:manage'],
+      });
+
+      const [grant] = await tx
+        .select()
+        .from(fileGrants)
+        .where(and(eq(fileGrants.fileId, file.id), eq(fileGrants.publicId, command.grantPublicId)))
+        .for('update')
+        .limit(1);
+
+      if (!grant) {
+        return null;
+      }
+
+      const activationDeadline =
+        grant.activationDeadline !== null &&
+        command.expiresAt !== undefined &&
+        command.expiresAt !== null &&
+        command.expiresAt.getTime() < grant.activationDeadline.getTime()
+          ? command.expiresAt
+          : grant.activationDeadline;
+
+      const [updatedGrant] = await tx
+        .update(fileGrants)
+        .set({
+          permission: command.permission,
+          expiresAt: command.expiresAt,
+          activationDeadline,
+          updatedAt: command.updatedAt,
+        })
+        .where(eq(fileGrants.id, grant.id))
+        .returning();
+
+      if (!updatedGrant) {
+        throw new Error('File grant update failed');
+      }
+
+      return updatedGrant;
     });
   }
 }

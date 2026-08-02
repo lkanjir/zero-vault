@@ -3,8 +3,8 @@ import type { User } from '../user/user.js';
 import type { FileGrantRepository } from './file-grant-repository.js';
 import type { FileGrantPermission } from './file-grant.js';
 import { AppError } from '../shared/errors/api/app-error.js';
-import type { ListFileSharesRequest } from '../files/validation-schemas.js';
-import type { FileShareListResponse } from '../files/dto.js';
+import type { ListFileSharesRequest, UpdateFileShareRequest } from '../files/validation-schemas.js';
+import type { FileShareListResponse, FileShareResponse } from '../files/dto.js';
 import { decodeFileGrantListCursor, encodeFileGrantListCursor } from './file-grant-list-cursor.js';
 
 const PENDING_ACTIVATION_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
@@ -125,5 +125,42 @@ export class FileSharingService {
       filePublicId,
       grantPublicId: shareId,
     });
+  }
+
+  async updateFileShare(
+    user: User,
+    filePublicId: string,
+    shareId: string,
+    request: UpdateFileShareRequest,
+  ): Promise<FileShareResponse> {
+    const updatedAt = new Date();
+
+    if (
+      request.expiresAt !== undefined &&
+      request.expiresAt !== null &&
+      request.expiresAt.getTime() <= updatedAt.getTime()
+    ) {
+      throw new AppError('invalid_grant_expiry');
+    }
+
+    const grant = await this.grantRepository.update({
+      actorUserId: user.id,
+      filePublicId,
+      grantPublicId: shareId,
+      permission: request.permission,
+      expiresAt: request.expiresAt,
+      updatedAt,
+    });
+
+    if (grant === null) {
+      throw new AppError('file_share_not_found');
+    }
+
+    return {
+      shareId: grant.publicId,
+      recipientEmail: grant.recipientEmail,
+      permission: grant.permission,
+      expiresAt: grant.expiresAt?.toISOString() ?? null,
+    };
   }
 }
