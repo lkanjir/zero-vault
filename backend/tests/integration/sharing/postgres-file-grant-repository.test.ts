@@ -355,6 +355,139 @@ describe('PostgresFileGrantRepository', () => {
     );
   });
 
+  it('lists only active non-deleted files shared with the recipient', async () => {
+    const owner = await createUser('owner@example.com');
+    const recipient = await createUser('recipient@example.com');
+    const otherRecipient = await createUser('other@example.com');
+    const visibleFile = await createFile(owner.id, 'Visible.txt');
+    const expiredFile = await createFile(owner.id, 'Expired.txt');
+    const deletedFile = await createFile(owner.id, 'Deleted.txt');
+    const otherFile = await createFile(owner.id, 'Other.txt');
+    const listedAt = new Date('2026-08-02T10:00:00.000Z');
+
+    await repository.save({
+      actorUserId: owner.id,
+      filePublicId: visibleFile.publicId,
+      recipientEmail: recipient.email,
+      permission: 'editor',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: PENDING_DEADLINE,
+    });
+    await repository.save({
+      actorUserId: owner.id,
+      filePublicId: expiredFile.publicId,
+      recipientEmail: recipient.email,
+      permission: 'viewer',
+      expiresAt: listedAt,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: PENDING_DEADLINE,
+    });
+    await repository.save({
+      actorUserId: owner.id,
+      filePublicId: deletedFile.publicId,
+      recipientEmail: recipient.email,
+      permission: 'viewer',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: PENDING_DEADLINE,
+    });
+    await repository.save({
+      actorUserId: owner.id,
+      filePublicId: otherFile.publicId,
+      recipientEmail: otherRecipient.email,
+      permission: 'viewer',
+      expiresAt: null,
+      submittedAt: SUBMITTED_AT,
+      pendingActivationDeadline: PENDING_DEADLINE,
+    });
+    await database
+      .update(entries)
+      .set({ deletedAt: listedAt })
+      .where(eq(entries.id, deletedFile.id));
+
+    const result = await repository.listSharedFiles({
+      recipientUserId: recipient.id,
+      listedAt,
+      cursor: null,
+      limit: 10,
+    });
+
+    expect(result).toStrictEqual([
+      {
+        file: {
+          id: visibleFile.publicId,
+          name: 'Visible.txt',
+          contentType: 'text/plain',
+          sizeBytes: 1,
+          updatedAt: visibleFile.updatedAt,
+        },
+        owner: {
+          id: owner.id,
+          email: owner.email,
+          username: owner.username,
+        },
+        grant: {
+          permission: 'editor',
+          expiresAt: null,
+        },
+        cursor: {
+          sortName: 'visible.txt',
+          entryId: visibleFile.id,
+        },
+      },
+    ]);
+  });
+
+  it('lists shared files in stable cursor pages without duplicates', async () => {
+    const firstOwner = await createUser('first-owner@example.com');
+    const secondOwner = await createUser('second-owner@example.com');
+    const recipient = await createUser('recipient@example.com');
+
+    for (const [owner, name] of [
+      [firstOwner, 'bravo.txt'],
+      [firstOwner, 'Alpha.txt'],
+      [secondOwner, 'alpha.txt'],
+    ] as const) {
+      const file = await createFile(owner.id, name);
+      await repository.save({
+        actorUserId: owner.id,
+        filePublicId: file.publicId,
+        recipientEmail: recipient.email,
+        permission: 'viewer',
+        expiresAt: null,
+        submittedAt: SUBMITTED_AT,
+        pendingActivationDeadline: PENDING_DEADLINE,
+      });
+    }
+
+    const firstPage = await repository.listSharedFiles({
+      recipientUserId: recipient.id,
+      listedAt: PENDING_DEADLINE,
+      cursor: null,
+      limit: 2,
+    });
+    const lastRecord = firstPage.at(-1);
+    if (!lastRecord) {
+      throw new Error('Expected the first shared-file page to contain a cursor source');
+    }
+
+    const secondPage = await repository.listSharedFiles({
+      recipientUserId: recipient.id,
+      listedAt: PENDING_DEADLINE,
+      cursor: lastRecord.cursor,
+      limit: 2,
+    });
+
+    expect(firstPage.map((record) => record.cursor.sortName)).toEqual(['alpha.txt', 'alpha.txt']);
+    expect(secondPage.map((record) => record.file.name)).toEqual(['bravo.txt']);
+    expect(
+      secondPage.some((record) =>
+        firstPage.some((firstRecord) => firstRecord.file.id === record.file.id),
+      ),
+    ).toBe(false);
+  });
+
   it('revokes both active and pending grants', async () => {
     const owner = await createUser('owner@example.com');
     const recipient = await createUser('recipient@example.com');

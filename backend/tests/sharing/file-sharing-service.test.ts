@@ -1,14 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
+import { EntryAccessMapper } from '../../src/authorization/entry-access-mapper.js';
+import { AuthorizationPolicy } from '../../src/authorization/authorization-policy.js';
 import type { AuthorizationService } from '../../src/authorization/authorization-service.js';
 import { AppError } from '../../src/shared/errors/api/app-error.js';
-import type { FileGrantRepository } from '../../src/sharing/file-grant-repository.js';
+import type {
+  FileGrantRepository,
+  SharedFileRecord,
+} from '../../src/sharing/file-grant-repository.js';
 import {
   decodeFileGrantListCursor,
   encodeFileGrantListCursor,
 } from '../../src/sharing/file-grant-list-cursor.js';
 import type { FileGrant } from '../../src/sharing/file-grant.js';
 import { FileSharingService } from '../../src/sharing/file-sharing-service.js';
+import {
+  decodeSharedFileListCursor,
+  encodeSharedFileListCursor,
+} from '../../src/sharing/shared-file-list-cursor.js';
 import type { User } from '../../src/user/user.js';
 
 const NOW = new Date('2026-08-01T10:00:00.000Z');
@@ -37,7 +46,11 @@ describe('FileSharingService', () => {
     vi.setSystemTime(NOW);
     authorizationService = mock<AuthorizationService>();
     repository = mock<FileGrantRepository>();
-    service = new FileSharingService(authorizationService, repository);
+    service = new FileSharingService(
+      authorizationService,
+      repository,
+      new EntryAccessMapper(new AuthorizationPolicy()),
+    );
 
     authorizationService.authorizeEntryByPublicId.mockResolvedValue({
       accessLevel: 'owner',
@@ -383,6 +396,144 @@ describe('FileSharingService', () => {
       code: 'file_share_not_found',
     });
   });
+
+  it('maps an active shared file and its viewer capabilities', async () => {
+    const expiresAt = new Date('2026-08-10T10:00:00.000Z');
+    repository.listSharedFiles.mockResolvedValue([
+      makeSharedFileRecord({
+        grant: {
+          permission: 'viewer',
+          expiresAt,
+        },
+      }),
+    ]);
+
+    const result = await service.listSharedFiles(USER, {
+      cursor: null,
+      limit: 50,
+    });
+
+    expect(repository.listSharedFiles).toHaveBeenCalledExactlyOnceWith({
+      recipientUserId: USER.id,
+      listedAt: NOW,
+      cursor: null,
+      limit: 51,
+    });
+    expect(result).toStrictEqual({
+      items: [
+        {
+          kind: 'file',
+          id: FILE_ID,
+          name: 'Shared file.txt',
+          contentType: 'text/plain',
+          sizeBytes: 512,
+          updatedAt: '2026-07-31T12:00:00.000Z',
+          owner: {
+            email: 'other-owner@example.com',
+            username: 'other-owner',
+          },
+          expiresAt: expiresAt.toISOString(),
+          access: {
+            accessLevel: 'viewer',
+            capabilities: {
+              download: true,
+              rename: false,
+              replaceContent: false,
+              move: false,
+              delete: false,
+              manageSharing: false,
+            },
+          },
+        },
+      ],
+      page: {
+        limit: 50,
+        hasMore: false,
+        nextCursor: null,
+      },
+    });
+  });
+
+  it('overfetches shared files and encodes the last returned record in the next cursor', async () => {
+    const requestCursor = encodeSharedFileListCursor({
+      v: 1,
+      sortName: 'before.txt',
+      entryId: 40,
+    });
+    repository.listSharedFiles.mockResolvedValue([
+      makeSharedFileRecord({
+        grant: {
+          permission: 'editor',
+          expiresAt: null,
+        },
+        cursor: {
+          sortName: 'shared file.txt',
+          entryId: 42,
+        },
+      }),
+      makeSharedFileRecord({
+        file: {
+          id: OTHER_FILE_ID,
+          name: 'Second file.txt',
+          contentType: 'text/plain',
+          sizeBytes: 128,
+          updatedAt: NOW,
+        },
+        cursor: {
+          sortName: 'second file.txt',
+          entryId: 43,
+        },
+      }),
+    ]);
+
+    const result = await service.listSharedFiles(USER, {
+      cursor: requestCursor,
+      limit: 1,
+    });
+
+    expect(repository.listSharedFiles).toHaveBeenCalledExactlyOnceWith({
+      recipientUserId: USER.id,
+      listedAt: NOW,
+      cursor: {
+        v: 1,
+        sortName: 'before.txt',
+        entryId: 40,
+      },
+      limit: 2,
+    });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.access).toStrictEqual({
+      accessLevel: 'editor',
+      capabilities: {
+        download: true,
+        rename: true,
+        replaceContent: true,
+        move: false,
+        delete: false,
+        manageSharing: false,
+      },
+    });
+    expect(result.page.hasMore).toBe(true);
+    expect(result.page.nextCursor).not.toBeNull();
+    expect(decodeSharedFileListCursor(result.page.nextCursor!)).toStrictEqual({
+      v: 1,
+      sortName: 'shared file.txt',
+      entryId: 42,
+    });
+  });
+
+  it('rejects an invalid shared-file cursor before querying the repository', async () => {
+    await expect(
+      service.listSharedFiles(USER, {
+        cursor: 'not-a-valid-cursor',
+        limit: 50,
+      }),
+    ).rejects.toMatchObject({
+      code: 'invalid_cursor',
+    });
+
+    expect(repository.listSharedFiles).not.toHaveBeenCalled();
+  });
 });
 
 function makeGrant(
@@ -403,5 +554,31 @@ function makeGrant(
     createdAt: NOW,
     updatedAt: NOW,
     ...optionalOverrides,
+  };
+}
+
+function makeSharedFileRecord(overrides: Partial<SharedFileRecord> = {}): SharedFileRecord {
+  return {
+    file: {
+      id: FILE_ID,
+      name: 'Shared file.txt',
+      contentType: 'text/plain',
+      sizeBytes: 512,
+      updatedAt: new Date('2026-07-31T12:00:00.000Z'),
+    },
+    owner: {
+      id: 2,
+      email: 'other-owner@example.com',
+      username: 'other-owner',
+    },
+    grant: {
+      permission: 'viewer',
+      expiresAt: null,
+    },
+    cursor: {
+      sortName: 'shared file.txt',
+      entryId: FILE_DB_ID,
+    },
+    ...overrides,
   };
 }

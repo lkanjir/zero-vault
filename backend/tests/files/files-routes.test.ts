@@ -76,6 +76,39 @@ describe('files routes', () => {
       permission: 'editor',
       expiresAt: null,
     });
+    sharingService.listSharedFiles.mockResolvedValue({
+      items: [
+        {
+          kind: 'file',
+          id: FILE_ID,
+          name: 'shared.txt',
+          contentType: 'text/plain',
+          sizeBytes: 12,
+          updatedAt: '2026-08-01T10:00:00.000Z',
+          owner: {
+            email: 'owner@example.com',
+            username: 'owner',
+          },
+          expiresAt: null,
+          access: {
+            accessLevel: 'viewer',
+            capabilities: {
+              download: true,
+              rename: false,
+              replaceContent: false,
+              move: false,
+              delete: false,
+              manageSharing: false,
+            },
+          },
+        },
+      ],
+      page: {
+        limit: 50,
+        hasMore: false,
+        nextCursor: null,
+      },
+    });
   });
 
   it('creates a download URL for the fileId route parameter', async () => {
@@ -370,6 +403,76 @@ describe('files routes', () => {
 
     expect(response.status).toBe(404);
     expect(response.body).toMatchObject({ code: 'file_share_not_found' });
+  });
+
+  it('lists files shared with the authenticated user using the default page request', async () => {
+    const response = await request(createTestApp(userService, downloadService, sharingService)).get(
+      '/files/shared-with-me',
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toStrictEqual({
+      items: [
+        {
+          kind: 'file',
+          id: FILE_ID,
+          name: 'shared.txt',
+          contentType: 'text/plain',
+          sizeBytes: 12,
+          updatedAt: '2026-08-01T10:00:00.000Z',
+          owner: {
+            email: 'owner@example.com',
+            username: 'owner',
+          },
+          expiresAt: null,
+          access: {
+            accessLevel: 'viewer',
+            capabilities: {
+              download: true,
+              rename: false,
+              replaceContent: false,
+              move: false,
+              delete: false,
+              manageSharing: false,
+            },
+          },
+        },
+      ],
+      page: {
+        limit: 50,
+        hasMore: false,
+        nextCursor: null,
+      },
+    });
+    expect(sharingService.listSharedFiles).toHaveBeenCalledExactlyOnceWith(USER, {
+      cursor: null,
+      limit: 50,
+    });
+  });
+
+  it('passes a normalized shared-file page request to the sharing service', async () => {
+    const response = await request(createTestApp(userService, downloadService, sharingService))
+      .get('/files/shared-with-me')
+      .query({ cursor: ' next-page ', limit: '25' });
+
+    expect(response.status).toBe(200);
+    expect(sharingService.listSharedFiles).toHaveBeenCalledExactlyOnceWith(USER, {
+      cursor: 'next-page',
+      limit: 25,
+    });
+  });
+
+  it.each([
+    ['an invalid page limit', '/files/shared-with-me?limit=101'],
+    ['an empty cursor', '/files/shared-with-me?cursor=%20%20%20'],
+  ])('rejects %s before listing shared files', async (_case, url) => {
+    const response = await request(createTestApp(userService, downloadService, sharingService)).get(
+      url,
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ code: 'invalid_request_query' });
+    expect(sharingService.listSharedFiles).not.toHaveBeenCalled();
   });
 });
 
