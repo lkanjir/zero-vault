@@ -23,7 +23,7 @@ export const uploadRequestSchema = z.object({
     .min(1)
     .max(500)
     .refine((value) => !/[\\/]+/.test(value), {
-      message: 'Naziv datoteke ne smije sadržavati znak / ili \\',
+      error: 'Naziv datoteke ne smije sadržavati znak / ili \\',
     }),
   contentType: contentTypeSchema,
   size: z.number().int().positive().max(SINGLE_PART_MAX_BYTES),

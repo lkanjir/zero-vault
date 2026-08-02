@@ -5,15 +5,16 @@ export const fileIdParamsSchema = z.object({
   fileId: z.uuid(),
 });
 
+const fileGrantPermissionSchema = z.enum(['viewer', 'editor']);
+
+const fileGrantExpirySchema = z.iso
+  .datetime({ offset: true })
+  .transform((value) => new Date(value));
+
 export const shareFileBodySchema = z.object({
   recipientEmail: normalizedEmailSchema,
-  permission: z.enum(['viewer', 'editor']),
-  expiresAt: z.iso
-    .datetime({ offset: true })
-    .transform((value) => new Date(value))
-    .nullable()
-    .optional()
-    .default(null),
+  permission: fileGrantPermissionSchema,
+  expiresAt: fileGrantExpirySchema.nullable().optional().default(null),
 });
 
 export const listFileSharesQuerySchema = z.object({
@@ -30,3 +31,14 @@ export const listFileSharesQuerySchema = z.object({
 export type ListFileSharesRequest = z.infer<typeof listFileSharesQuerySchema>;
 
 export const fileShareParamsSchema = fileIdParamsSchema.extend({ shareId: z.uuid() });
+
+export const updateFileShareBodySchema = z
+  .object({
+    permission: fileGrantPermissionSchema.optional(),
+    expiresAt: fileGrantExpirySchema.nullable().optional(),
+  })
+  .refine((body) => body.permission !== undefined || body.expiresAt !== undefined, {
+    error: 'Potrebno je definirati barem jedno polje, permission ili expiresAt',
+  });
+
+export type UpdateFileShareRequest = z.infer<typeof updateFileShareBodySchema>;

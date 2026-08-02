@@ -25,8 +25,18 @@ export type RevokeFileGrantCommand = {
   grantPublicId: string;
 };
 
+export type UpdateFileGrantCommand = {
+  actorUserId: number;
+  filePublicId: string;
+  grantPublicId: string;
+  permission?: FileGrantPermission;
+  expiresAt?: Date | null;
+  updatedAt: Date;
+};
+
 export interface FileGrantRepository {
   save(command: SaveFileGrantCommand): Promise<FileGrant>;
   listByFileId(query: ListFileGrantsQuery): Promise<FileGrant[]>;
   revoke(command: RevokeFileGrantCommand): Promise<void>;
+  update(command: UpdateFileGrantCommand): Promise<FileGrant | null>;
 }
