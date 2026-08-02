@@ -24,6 +24,7 @@ import { EntryAccessMapper } from './authorization/entry-access-mapper.js';
 import { PostgresEntryAuthorizer } from './authorization/postgres-entry-authorizer.js';
 import { PostgresFileGrantRepository } from './sharing/postgres-file-grant-repository.js';
 import { FileSharingService } from './sharing/file-sharing-service.js';
+import { FileGrantMaintenanceService } from './sharing/file-grant-maintenance-service.js';
 
 export function createCompositionRoot() {
   const authorizationContextResolver = new PostgresAuthorizationContextResolver();
@@ -71,6 +72,7 @@ export function createCompositionRoot() {
 
   const grantRepository = new PostgresFileGrantRepository(authorizer);
   const sharingService = new FileSharingService(authorizationService, grantRepository);
+  const fileGrantMaintenanceService = new FileGrantMaintenanceService(grantRepository);
 
   return {
     userService,
@@ -85,5 +87,6 @@ export function createCompositionRoot() {
     folderDownloadProcessor,
     objectDeletionProcessor,
     sharingService,
+    fileGrantMaintenanceService,
   };
 }

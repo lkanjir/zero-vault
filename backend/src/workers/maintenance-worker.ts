@@ -46,4 +46,26 @@ folderDownloadCleanupTask.on('execution:failed', (context) => {
   });
 });
 
-console.info('Storage cleanup worker started');
+const fileGrantMaintenanceTask = cron.schedule(
+  '0 * * * * *',
+  async () => {
+    const { activatedCount, deletedCount } =
+      await composition.fileGrantMaintenanceService.maintainPendingGrants(BATCH_SIZE);
+
+    if (activatedCount > 0 || deletedCount > 0) {
+      console.info('Pending file grants maintained', {
+        activatedCount,
+        deletedCount,
+      });
+    }
+  },
+  { noOverlap: true },
+);
+
+fileGrantMaintenanceTask.on('execution:failed', (context) => {
+  console.error('File grant maintenance failed', {
+    error: context.execution?.error,
+  });
+});
+
+console.info('Maintenance worker started');
