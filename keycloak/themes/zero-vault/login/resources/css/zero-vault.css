@@ -1,0 +1,183 @@
+.login-pf {
+  --background: #12151b;
+  --surface: #1c2027;
+  --surface-hover: #252a33;
+  --border: #343a46;
+  --foreground: #f5f7fa;
+  --muted: #b5bdca;
+  --primary: #1e56a0;
+  --danger: #e03e3e;
+
+  --pf-global--BackgroundColor--100: var(--surface);
+  --pf-global--BackgroundColor--200: var(--background);
+  --pf-global--Color--100: var(--foreground);
+  --pf-global--Color--200: var(--muted);
+  --pf-global--Color--300: var(--muted);
+  --pf-global--BorderColor--100: var(--border);
+
+  background: none;
+  color-scheme: dark;
+}
+
+.login-pf body {
+  min-height: 100vh;
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+.login-pf-page {
+  display: grid;
+  grid-template-columns: minmax(0, 420px);
+  justify-content: center;
+  align-content: center;
+  gap: 1.25rem;
+  min-height: 100vh;
+  padding: 1.5rem;
+}
+
+.login-pf-page .card-pf {
+  width: 100%;
+  padding: 1.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+h1#kc-page-title {
+  margin-bottom: 1rem;
+  color: var(--foreground);
+  font-size: 1.25rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+#kc-content-wrapper {
+  margin-top: 0;
+}
+
+.form-horizontal .form-group {
+  margin-right: 0;
+  margin-bottom: 1rem;
+}
+
+.pf-c-form__label {
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.pf-c-form-control {
+  min-height: 2.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.pf-c-button.pf-m-control {
+  border-color: var(--border);
+  background: var(--background);
+  color: var(--muted);
+}
+
+.pf-c-button.pf-m-control::after {
+  border-color: var(--border);
+}
+
+#kc-form-buttons {
+  margin-top: 1.25rem;
+}
+
+.pf-c-button.pf-m-primary {
+  min-height: 2.5rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: var(--foreground);
+  color: var(--surface);
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.login-pf a {
+  color: var(--foreground);
+  text-decoration: underline;
+}
+
+#kc-form-options .checkbox,
+.pf-c-check__label {
+  color: var(--muted);
+}
+
+#kc-info {
+  margin: 1.5rem 0 0;
+}
+
+#kc-header-wrapper {
+  padding: 0 10px;
+}
+
+#kc-info-wrapper {
+  padding: 1rem 0 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  text-align: center;
+}
+
+.login-pf-page .login-pf-signup,
+.card-pf p,
+p.instruction {
+  color: var(--muted);
+}
+
+.pf-c-alert {
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.alert-error,
+.has-error .pf-c-form-control {
+  border-color: var(--danger);
+}
+
+.required,
+.pf-c-form__helper-text.pf-m-error {
+  color: var(--danger);
+}
+
+#kc-form-options .checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding-left: 0;
+}
+
+#kc-form-options .checkbox input[type='checkbox'] {
+  position: static;
+  margin: 0;
+}
+
+#kc-header {
+  margin-bottom: 10px;
+}
+
+.login-pf .pf-c-input-group {
+  --pf-c-input-group--BackgroundColor: var(--background);
+  background-color: var(--background);
+}
+
+body[data-page-id='login-register'] .login-pf-header .subtitle {
+  display: none;
+}
+
+body[data-page-id='login-register'] .login-pf-header .col-md-10 {
+  float: none;
+  width: 100%;
+  padding: 0;
+}

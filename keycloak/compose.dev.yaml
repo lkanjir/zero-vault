@@ -62,7 +62,16 @@ services:
       ZERO_VAULT_WEB_ORIGIN: ${ZERO_VAULT_WEB_ORIGIN:-http://localhost:4200}
       ZERO_VAULT_WEB_REDIRECT_URI: ${ZERO_VAULT_WEB_REDIRECT_URI:-http://localhost:4200/*}
       ZERO_VAULT_WEB_POST_LOGOUT_REDIRECT_URI: ${ZERO_VAULT_WEB_POST_LOGOUT_REDIRECT_URI:-http://localhost:4200/*}
-            
+
+      ZERO_VAULT_SMTP_FROM: ${ZERO_VAULT_SMTP_FROM:-noreply@zero-vault.local}
+      ZERO_VAULT_SMTP_HOST: ${ZERO_VAULT_SMTP_HOST:-mailpit}
+      ZERO_VAULT_SMTP_PORT: ${ZERO_VAULT_SMTP_PORT:-1025}
+      ZERO_VAULT_SMTP_AUTH: ${ZERO_VAULT_SMTP_AUTH:-false}
+      ZERO_VAULT_SMTP_STARTTLS: ${ZERO_VAULT_SMTP_STARTTLS:-false}
+      ZERO_VAULT_SMTP_SSL: ${ZERO_VAULT_SMTP_SSL:-false}
+      ZERO_VAULT_SMTP_USER: ${ZERO_VAULT_SMTP_USER:-}
+      ZERO_VAULT_SMTP_PASSWORD: ${ZERO_VAULT_SMTP_PASSWORD:-}
+
     ports:
       - "127.0.0.1:8080:8080"
 
@@ -76,6 +85,16 @@ services:
     depends_on:
       keycloak-db:
         condition: service_healthy
+
+  mailpit:
+    image: axllent/mailpit:v1.30.0
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:8025:8025"
+
+    networks:
+      - keycloak-network
 
 volumes:
   keycloak_db_data:

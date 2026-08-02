@@ -1,6 +1,7 @@
 {
   "id": "c1e26981-35d7-4c2a-ba0a-04672293bc8b",
   "realm": "zero-vault",
+  "displayName": "Zero Vault",
   "notBefore": 0,
   "defaultSignatureAlgorithm": "RS256",
   "revokeRefreshToken": false,
@@ -26,16 +27,17 @@
   "oauth2DeviceCodeLifespan": 600,
   "oauth2DevicePollingInterval": 5,
   "enabled": true,
+  "loginTheme": "zero-vault",
   "sslRequired": "${ZERO_VAULT_SSL_REQUIRED}",
-  "registrationAllowed": false,
-  "registrationEmailAsUsername": false,
-  "rememberMe": false,
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "rememberMe": true,
   "verifyEmail": true,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
-  "resetPasswordAllowed": false,
+  "resetPasswordAllowed": true,
   "editUsernameAllowed": false,
-  "bruteForceProtected": false,
+  "bruteForceProtected": true,
   "permanentLockout": false,
   "maxTemporaryLockouts": 0,
   "bruteForceStrategy": "MULTIPLE",
@@ -1689,7 +1691,17 @@
     "contentSecurityPolicy": "frame-src 'self'; frame-ancestors 'self'; object-src 'none';",
     "strictTransportSecurity": "max-age=31536000; includeSubDomains"
   },
-  "smtpServer": {},
+  "smtpServer": {
+    "from": "${ZERO_VAULT_SMTP_FROM}",
+    "fromDisplayName": "Zero Vault",
+    "host": "${ZERO_VAULT_SMTP_HOST}",
+    "port": "${ZERO_VAULT_SMTP_PORT}",
+    "auth": "${ZERO_VAULT_SMTP_AUTH}",
+    "starttls": "${ZERO_VAULT_SMTP_STARTTLS}",
+    "ssl": "${ZERO_VAULT_SMTP_SSL}",
+    "user": "${ZERO_VAULT_SMTP_USER}",
+    "password": "${ZERO_VAULT_SMTP_PASSWORD}"
+  },
   "eventsEnabled": false,
   "eventsListeners": [
     "jboss-logging"
@@ -1876,7 +1888,9 @@
       }
     ]
   },
-  "internationalizationEnabled": false,
+  "internationalizationEnabled": true,
+  "supportedLocales": ["hr"],
+  "defaultLocale": "hr",
   "authenticationFlows": [
     {
       "id": "a695b450-bf33-4ed8-81cf-e53f73f05067",
