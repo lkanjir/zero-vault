@@ -19,7 +19,14 @@ export type ListFileGrantsQuery = {
   limit: number;
 };
 
+export type RevokeFileGrantCommand = {
+  actorUserId: number;
+  filePublicId: string;
+  grantPublicId: string;
+};
+
 export interface FileGrantRepository {
   save(command: SaveFileGrantCommand): Promise<FileGrant>;
   listByFileId(query: ListFileGrantsQuery): Promise<FileGrant[]>;
+  revoke(command: RevokeFileGrantCommand): Promise<void>;
 }

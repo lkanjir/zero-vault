@@ -5,6 +5,7 @@ import { requirePrincipal } from '../auth/require-principal.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
 import {
   fileIdParamsSchema,
+  fileShareParamsSchema,
   listFileSharesQuerySchema,
   shareFileBodySchema,
 } from './validation-schemas.js';
@@ -67,6 +68,22 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
         res.status(200).json(result);
       },
     ),
+  );
+
+  router.delete(
+    '/:fileId/shares/:shareId',
+    validateRequest({ params: fileShareParamsSchema }, async (req, res, validated) => {
+      const principal = requirePrincipal(req);
+      const user = await deps.userService.resolveUser(principal);
+
+      await deps.sharingService.revokeFileShare(
+        user,
+        validated.params.fileId,
+        validated.params.shareId,
+      );
+
+      res.status(204).end();
+    }),
   );
 
   return router;

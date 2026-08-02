@@ -118,4 +118,12 @@ export class FileSharingService {
       },
     };
   }
+
+  async revokeFileShare(user: User, filePublicId: string, shareId: string): Promise<void> {
+    await this.grantRepository.revoke({
+      actorUserId: user.id,
+      filePublicId,
+      grantPublicId: shareId,
+    });
+  }
 }

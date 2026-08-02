@@ -28,3 +28,5 @@ export const listFileSharesQuerySchema = z.object({
 });
 
 export type ListFileSharesRequest = z.infer<typeof listFileSharesQuerySchema>;
+
+export const fileShareParamsSchema = fileIdParamsSchema.extend({ shareId: z.uuid() });

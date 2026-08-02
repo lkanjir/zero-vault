@@ -5,6 +5,7 @@ import { fileGrants, users } from '../db/schema.js';
 import type {
   FileGrantRepository,
   ListFileGrantsQuery,
+  RevokeFileGrantCommand,
   SaveFileGrantCommand,
 } from './file-grant-repository.js';
 import type { FileGrant } from './file-grant.js';
@@ -127,5 +128,19 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
       .where(and(eq(fileGrants.fileId, query.fileId), cursorFilter))
       .orderBy(fileGrants.recipientEmail, fileGrants.id)
       .limit(query.limit);
+  }
+
+  async revoke(command: RevokeFileGrantCommand): Promise<void> {
+    await db.transaction(async (tx) => {
+      const file = await this.authorizer.authorizeForUpdate(tx, {
+        actorUserId: command.actorUserId,
+        entryPublicId: command.filePublicId,
+        actions: ['share:manage'],
+      });
+
+      await tx
+        .delete(fileGrants)
+        .where(and(eq(fileGrants.fileId, file.id), eq(fileGrants.publicId, command.grantPublicId)));
+    });
   }
 }
