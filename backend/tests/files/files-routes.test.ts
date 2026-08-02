@@ -54,6 +54,21 @@ describe('files routes', () => {
       downloadUrl: DOWNLOAD_URL,
       expiresInSeconds: 60,
     });
+    sharingService.listFileShares.mockResolvedValue({
+      items: [
+        {
+          shareId: '30000000-0000-4000-8000-000000000001',
+          recipientEmail: 'recipient@example.com',
+          permission: 'viewer',
+          expiresAt: null,
+        },
+      ],
+      page: {
+        limit: 50,
+        hasMore: false,
+        nextCursor: null,
+      },
+    });
   });
 
   it('creates a download URL for the fileId route parameter', async () => {
@@ -175,6 +190,58 @@ describe('files routes', () => {
     expect(response.body).toMatchObject({
       code: 'entry_not_found',
     });
+  });
+
+  it('lists file shares with the default page request', async () => {
+    const response = await request(createTestApp(userService, downloadService, sharingService)).get(
+      `/files/${FILE_ID}/shares`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toStrictEqual({
+      items: [
+        {
+          shareId: '30000000-0000-4000-8000-000000000001',
+          recipientEmail: 'recipient@example.com',
+          permission: 'viewer',
+          expiresAt: null,
+        },
+      ],
+      page: {
+        limit: 50,
+        hasMore: false,
+        nextCursor: null,
+      },
+    });
+    expect(sharingService.listFileShares).toHaveBeenCalledExactlyOnceWith(USER, FILE_ID, {
+      cursor: null,
+      limit: 50,
+    });
+  });
+
+  it('passes a normalized cursor page request to the sharing service', async () => {
+    const response = await request(createTestApp(userService, downloadService, sharingService))
+      .get(`/files/${FILE_ID}/shares`)
+      .query({ cursor: ' next-page ', limit: '25' });
+
+    expect(response.status).toBe(200);
+    expect(sharingService.listFileShares).toHaveBeenCalledExactlyOnceWith(USER, FILE_ID, {
+      cursor: 'next-page',
+      limit: 25,
+    });
+  });
+
+  it.each([
+    ['an invalid file ID', '/files/not-a-uuid/shares'],
+    ['an invalid page limit', `/files/${FILE_ID}/shares?limit=0`],
+    ['an empty cursor', `/files/${FILE_ID}/shares?cursor=%20%20%20`],
+  ])('rejects %s before listing file shares', async (_case, url) => {
+    const response = await request(createTestApp(userService, downloadService, sharingService)).get(
+      url,
+    );
+
+    expect(response.status).toBe(400);
+    expect(sharingService.listFileShares).not.toHaveBeenCalled();
   });
 });
 
