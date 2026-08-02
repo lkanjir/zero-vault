@@ -30,7 +30,8 @@ const validToken = {
     exp: 200,
     email: ' Test@Example.COM ',
     email_verified: true,
-    preferred_username: 'test',
+    given_name: ' Test ',
+    family_name: ' User ',
   },
   key: new Uint8Array(),
 };
@@ -47,7 +48,8 @@ describe('verifyAccessToken', () => {
       issuer: process.env['OIDC_ISSUER']!,
       subject: 'user-123',
       email: 'test@example.com',
-      username: 'test',
+      firstName: 'Test',
+      lastName: 'User',
     });
   });
 
@@ -68,30 +70,42 @@ describe('verifyAccessToken', () => {
     );
   });
 
-  it('valid token without username returns principal without username', async () => {
-    jwtVerifyMock.mockResolvedValueOnce({
-      protectedHeader: { alg: 'RS256' },
-      payload: {
-        iss: 'http://localhost:8080/realms/zero-vault',
-        sub: 'user-123',
-        iat: 100,
-        exp: 200,
-        email: 'test@example.com',
-        email_verified: true,
-      },
-      key: new Uint8Array(),
-    });
+  it.each([
+    ['missing given name', undefined, 'User', false, true],
+    ['missing family name', 'Test', undefined, true, false],
+    ['blank given name', '   ', 'User', false, true],
+    ['blank family name', 'Test', '   ', true, false],
+    ['overlong given name', 'a'.repeat(256), 'User', false, true],
+    ['overlong family name', 'Test', 'a'.repeat(256), true, false],
+  ])(
+    'token with %s is rejected',
+    async (_case, givenName, familyName, validGivenName, validFamilyName) => {
+      jwtVerifyMock.mockResolvedValueOnce({
+        protectedHeader: { alg: 'RS256' },
+        payload: {
+          iss: 'http://localhost:8080/realms/zero-vault',
+          sub: 'user-123',
+          iat: 100,
+          exp: 200,
+          email: 'test@example.com',
+          email_verified: true,
+          given_name: givenName,
+          family_name: familyName,
+        },
+        key: new Uint8Array(),
+      });
 
-    const principal = await verifyAccessToken('valid-token');
-
-    expect(jwtVerifyMock).toHaveBeenCalledOnce();
-    expect(principal.username).toBeUndefined();
-    expect(principal).toStrictEqual({
-      issuer: 'http://localhost:8080/realms/zero-vault',
-      subject: 'user-123',
-      email: 'test@example.com',
-    });
-  });
+      await expect(verifyAccessToken('valid-token')).rejects.toMatchObject({
+        code: 'invalid_access_token',
+        options: {
+          context: {
+            validGivenName,
+            validFamilyName,
+          },
+        },
+      });
+    },
+  );
 
   it.each([
     [

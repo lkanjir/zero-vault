@@ -583,7 +583,8 @@ describe('PostgreSQL storage lifecycle', () => {
         issuer: OWNER_ISSUER,
         subject: randomUUID(),
         email: `${randomUUID()}@example.com`,
-        username: 'test',
+        firstName: 'Test',
+        lastName: 'User',
       })
       .returning({ id: users.id, publicId: users.publicId });
 

@@ -84,7 +84,8 @@ describe('PostgresUserRepository', () => {
     await expect(
       repository.updateProfileById(second.id, {
         email: first.email,
-        username: 'changed',
+        firstName: 'Changed',
+        lastName: 'Profile',
       }),
     ).rejects.toMatchObject({
       code: 'user_identity_conflict',
@@ -93,7 +94,8 @@ describe('PostgresUserRepository', () => {
     const [storedSecond] = await database.select().from(users).where(eq(users.id, second.id));
     expect(storedSecond).toMatchObject({
       email: second.email,
-      username: second.username,
+      firstName: second.firstName,
+      lastName: second.lastName,
     });
   });
 
@@ -120,11 +122,17 @@ describe('PostgresUserRepository', () => {
   });
 });
 
-function makePrincipal(subject: string, email: string, username?: string): AuthenticatedPrincipal {
+function makePrincipal(
+  subject: string,
+  email: string,
+  firstName = 'Test',
+  lastName = 'User',
+): AuthenticatedPrincipal {
   return {
     issuer: ISSUER,
     subject,
     email,
-    ...(username !== undefined ? { username } : {}),
+    firstName,
+    lastName,
   };
 }

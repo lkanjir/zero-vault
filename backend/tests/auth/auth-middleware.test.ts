@@ -37,7 +37,8 @@ describe('requireAuth', () => {
       issuer: 'http://localhost:8080/realms/zero-vault',
       subject: 'user-123',
       email: 'test@example.com',
-      username: 'test',
+      firstName: 'Test',
+      lastName: 'User',
     };
     verifyAccessTokenMock.mockResolvedValueOnce(principal);
 

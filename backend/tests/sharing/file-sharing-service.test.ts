@@ -30,7 +30,8 @@ const USER: User = {
   issuer: process.env['OIDC_ISSUER']!,
   subject: 'owner-subject',
   email: 'owner@example.com',
-  username: 'owner',
+  firstName: 'Test',
+  lastName: 'Owner',
   createdAt: NOW,
   updatedAt: NOW,
   deletedAt: null,
@@ -430,7 +431,8 @@ describe('FileSharingService', () => {
           updatedAt: '2026-07-31T12:00:00.000Z',
           owner: {
             email: 'other-owner@example.com',
-            username: 'other-owner',
+            firstName: 'Other',
+            lastName: 'Owner',
           },
           expiresAt: expiresAt.toISOString(),
           access: {
@@ -569,7 +571,8 @@ function makeSharedFileRecord(overrides: Partial<SharedFileRecord> = {}): Shared
     owner: {
       id: 2,
       email: 'other-owner@example.com',
-      username: 'other-owner',
+      firstName: 'Other',
+      lastName: 'Owner',
     },
     grant: {
       permission: 'viewer',

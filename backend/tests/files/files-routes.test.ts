@@ -21,7 +21,8 @@ const PRINCIPAL: AuthenticatedPrincipal = {
   issuer: process.env['OIDC_ISSUER']!,
   subject: 'user-123',
   email: 'test@example.com',
-  username: 'test',
+  firstName: 'Test',
+  lastName: 'User',
 };
 
 const USER: User = {
@@ -29,8 +30,9 @@ const USER: User = {
   publicId: '10000000-0000-4000-8000-000000000001',
   issuer: PRINCIPAL.issuer,
   subject: PRINCIPAL.subject,
-  username: PRINCIPAL.username!,
   email: PRINCIPAL.email,
+  firstName: PRINCIPAL.firstName,
+  lastName: PRINCIPAL.lastName,
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-01T00:00:00Z'),
   deletedAt: null,
@@ -87,7 +89,8 @@ describe('files routes', () => {
           updatedAt: '2026-08-01T10:00:00.000Z',
           owner: {
             email: 'owner@example.com',
-            username: 'owner',
+            firstName: 'Other',
+            lastName: 'Owner',
           },
           expiresAt: null,
           access: {
@@ -422,7 +425,8 @@ describe('files routes', () => {
           updatedAt: '2026-08-01T10:00:00.000Z',
           owner: {
             email: 'owner@example.com',
-            username: 'owner',
+            firstName: 'Other',
+            lastName: 'Owner',
           },
           expiresAt: null,
           access: {

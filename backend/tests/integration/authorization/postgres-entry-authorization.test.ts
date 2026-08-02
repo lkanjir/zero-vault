@@ -218,14 +218,15 @@ describe('PostgreSQL entry authorization', () => {
     expect(stored).toHaveLength(0);
   });
 
-  async function createUser(username: string) {
+  async function createUser(userLabel: string) {
     const [user] = await database
       .insert(users)
       .values({
         issuer: ISSUER,
         subject: randomUUID(),
-        email: `${username}-${randomUUID()}@example.com`,
-        username,
+        email: `${userLabel}-${randomUUID()}@example.com`,
+        firstName: 'Test',
+        lastName: 'User',
       })
       .returning();
 

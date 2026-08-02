@@ -263,14 +263,15 @@ describe('LocalStack storage round-trip', () => {
     );
   });
 
-  async function createUser(username: string): Promise<User> {
+  async function createUser(userLabel: string): Promise<User> {
     const [user] = await database
       .insert(users)
       .values({
         issuer: ISSUER,
         subject: randomUUID(),
-        email: `${username}-${randomUUID()}@example.com`,
-        username,
+        email: `${userLabel}-${randomUUID()}@example.com`,
+        firstName: 'Test',
+        lastName: 'User',
       })
       .returning();
 

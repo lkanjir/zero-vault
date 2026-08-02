@@ -287,7 +287,8 @@ describe('PostgresIntentRepository upload targets', () => {
         issuer: OWNER_ISSUER,
         subject: randomUUID(),
         email: `${randomUUID()}@example.com`,
-        username: 'test',
+        firstName: 'Test',
+        lastName: 'User',
       })
       .returning({ id: users.id });
 

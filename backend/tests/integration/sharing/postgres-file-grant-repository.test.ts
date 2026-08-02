@@ -425,7 +425,8 @@ describe('PostgresFileGrantRepository', () => {
         owner: {
           id: owner.id,
           email: owner.email,
-          username: owner.username,
+          firstName: owner.firstName,
+          lastName: owner.lastName,
         },
         grant: {
           permission: 'editor',
@@ -870,7 +871,8 @@ describe('PostgresFileGrantRepository', () => {
         issuer: ISSUER,
         subject: randomUUID(),
         email,
-        username: email,
+        firstName: 'Test',
+        lastName: 'User',
       })
       .returning();
 
