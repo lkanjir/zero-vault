@@ -1,6 +1,11 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
-import { SharedFileList, SharedFileListParams } from './sharing-models';
+import {
+  SharedFileList,
+  SharedFileListParams,
+  ShareFileAcceptedResponse,
+  ShareFileRequest,
+} from './sharing-models';
 import { Observable } from 'rxjs';
 
 @Injectable({ providedIn: 'root' })
@@ -14,5 +19,10 @@ export class SharingApi {
     }
 
     return this.http.get<SharedFileList>('/api/files/shared-with-me', { params: httpParams });
+  }
+
+  shareFile(fileId: string, request: ShareFileRequest): Observable<ShareFileAcceptedResponse> {
+    const encoded = encodeURIComponent(fileId);
+    return this.http.post<ShareFileAcceptedResponse>(`/api/files/${encoded}/shares`, request);
   }
 }

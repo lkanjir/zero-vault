@@ -161,6 +161,18 @@
       <span>Preimenuj</span>
     </button>
 
+    @if (entry.kind === 'file' && entry.access.capabilities.manageSharing) {
+      <button
+        cdkMenuItem
+        type="button"
+        class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
+        (cdkMenuItemTriggered)="share(entry)"
+      >
+        <app-icon [name]="'share-2'" [size]="16" />
+        <span>Dijeli</span>
+      </button>
+    }
+
     <button
       cdkMenuItem
       type="button"

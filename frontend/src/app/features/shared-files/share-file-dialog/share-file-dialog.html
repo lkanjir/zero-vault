@@ -1,0 +1,83 @@
+<div class="w-md max-w-[90vw] rounded-lg bg-background p-6 shadow-xl">
+  <form [formRoot]="shareForm">
+    <h2 class="mb-1 text-lg font-bold">Dijeli „{{ data.file.name }}”</h2>
+
+    <p class="mb-5 text-sm text-foreground-muted">
+      Unesi adresu e-pošte korisnika s kojim želiš podijeliti datoteku.
+    </p>
+
+    <label class="mb-2 block text-sm font-medium"> E-pošta primatelja </label>
+
+    <input
+      type="email"
+      [formField]="shareForm.recipientEmail"
+      class="w-full rounded-md border border-border bg-background px-2 py-2"
+    />
+
+    @if (shareForm.recipientEmail().touched() && shareForm.recipientEmail().invalid()) {
+      <ul class="pt-2 text-sm text-danger">
+        @for (error of shareForm.recipientEmail().errors(); track error) {
+          <li>{{ error.message }}</li>
+        }
+      </ul>
+    }
+
+    <label class="mt-4 mb-2 block text-sm font-medium"> Razina pristupa </label>
+
+    <select
+      [formField]="shareForm.permission"
+      class="w-full rounded-md border border-border bg-background px-2 py-2"
+    >
+      <option value="viewer">Pregled</option>
+      <option value="editor">Uređivanje</option>
+    </select>
+
+    <label class="mt-4 mb-2 block text-sm font-medium">
+      Vrijeme isteka
+      <span class="font-normal text-foreground-muted">(neobavezno)</span>
+    </label>
+
+    <input
+      type="datetime-local"
+      [formField]="shareForm.expiresAt"
+      class="w-full rounded-md border border-border bg-background px-2 py-2"
+    />
+
+    <p class="pt-1 text-xs text-foreground-muted">Ostavi prazno za dijeljenje bez isteka.</p>
+
+    @if (shareForm.expiresAt().touched() && shareForm.expiresAt().invalid()) {
+      <ul class="pt-2 text-sm text-danger">
+        @for (error of shareForm.expiresAt().errors(); track error) {
+          <li>{{ error.message }}</li>
+        }
+      </ul>
+    }
+
+    @if (shareForm().errors().length > 0) {
+      <ul class="pt-3 text-sm text-danger">
+        @for (error of shareForm().errors(); track error) {
+          <li>{{ error.message }}</li>
+        }
+      </ul>
+    }
+
+    <div class="mt-6 flex justify-end gap-3">
+      <button
+        type="button"
+        class="h-10 rounded-md border border-border bg-background px-3 font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+        [disabled]="shareForm().submitting()"
+        (click)="closeDialog()"
+      >
+        Odustani
+      </button>
+
+      <button
+        type="submit"
+        class="h-10 rounded-md bg-foreground px-3 text-sm font-semibold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+        [disabled]="shareForm().submitting()"
+      >
+        {{ shareForm().submitting() ? 'Dijeljenje...' : 'Dijeli' }}
+      </button>
+    </div>
+  </form>
+</div>

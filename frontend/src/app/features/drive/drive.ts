@@ -29,6 +29,7 @@ import { FileSizePipe } from '../../shared/pipes/file-size-pipe';
 import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
 import { MoveEntryDialog } from './move-entry-dialog/move-entry-dialog';
 import { DeleteEntryDialog } from './delete-entry-dialog/delete-entry-dialog';
+import { ShareFileDialog } from '../shared-files/share-file-dialog/share-file-dialog';
 
 const LOAD_MORE_THRESHOLD = 10;
 
@@ -177,6 +178,16 @@ export class Drive implements OnInit, AfterViewInit {
   delete(selectedEntry: FolderEntry | FileEntry): void {
     this.dialog.open(DeleteEntryDialog, {
       data: { entry: selectedEntry },
+      width: 'calc(100vw - 2rem)',
+      maxWidth: '28rem',
+      autoFocus: 'first-tabbable',
+      restoreFocus: true,
+    });
+  }
+
+  share(selectedFile: FileEntry): void {
+    this.dialog.open(ShareFileDialog, {
+      data: { file: selectedFile },
       width: 'calc(100vw - 2rem)',
       maxWidth: '28rem',
       autoFocus: 'first-tabbable',

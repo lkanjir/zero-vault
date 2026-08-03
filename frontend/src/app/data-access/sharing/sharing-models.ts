@@ -17,3 +17,15 @@ export type SharedFileListParams = {
   cursor: string | null;
   limit: number;
 };
+
+export type FileSharePermission = 'viewer' | 'editor';
+
+export type ShareFileRequest = {
+  recipientEmail: string;
+  permission: FileSharePermission;
+  expiresAt: string | null;
+};
+
+export type ShareFileAcceptedResponse = {
+  status: 'accepted';
+};
