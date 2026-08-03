@@ -19,12 +19,11 @@ import { apiErrorMessage } from '../../shared/api-error';
 import { Dialog } from '@angular/cdk/dialog';
 import { RenameEntryDialog } from './rename-entry-dialog/rename-entry-dialog';
 import {
-  type EntryResponse,
+  EntryListItem,
   type FileEntry,
   type FolderEntry,
 } from '../../data-access/entries/entry-models';
 import { EntryDownloadService } from './actions/download/entry-download-service';
-import { CdkTableModule } from '@angular/cdk/table';
 import { DatePipe } from '@angular/common';
 import { FileSizePipe } from '../../shared/pipes/file-size-pipe';
 import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
@@ -41,7 +40,6 @@ const LOAD_MORE_THRESHOLD = 10;
     CdkContextMenuTrigger,
     Icon,
     RouterLink,
-    CdkTableModule,
     DatePipe,
     FileSizePipe,
     ScrollingModule,
@@ -62,9 +60,8 @@ export class Drive implements OnInit, AfterViewInit {
 
   readonly downloadEntryIds = this._downloadEntryIds.asReadonly();
   readonly downloadError = this._downloadError.asReadonly();
-  readonly displayedColumns = ['name', 'size', 'updatedAt'];
 
-  readonly trackEntry: TrackByFunction<EntryResponse> = (_index, entry) => entry.id;
+  readonly trackEntry: TrackByFunction<EntryListItem> = (_index, entry) => entry.id;
   readonly viewport = viewChild(CdkVirtualScrollViewport);
 
   ngOnInit(): void {
