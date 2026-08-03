@@ -12,6 +12,13 @@ export const routes: Routes = [
         children: DriveRoutes,
       },
       {
+        path: 'share',
+        loadChildren: () =>
+          import('./features/shared-files/shared-files.routes').then(
+            (module) => module.SharedFilesRoutes,
+          ),
+      },
+      {
         path: '',
         pathMatch: 'full',
         redirectTo: 'drive',
