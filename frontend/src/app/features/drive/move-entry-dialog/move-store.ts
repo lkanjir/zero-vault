@@ -55,9 +55,7 @@ export class MoveStore {
       )
       .subscribe({
         next: (response) => {
-          const folders = response.items.filter(
-            (entry): entry is FolderEntry => entry.kind === 'folder',
-          );
+          const folders = response.items.filter((entry) => entry.kind === 'folder');
           const reachedFiles = response.items.some((entry) => entry.kind === 'file');
 
           this._parentId.set(parentId);
@@ -99,9 +97,7 @@ export class MoveStore {
       )
       .subscribe({
         next: (response) => {
-          const folders = response.items.filter(
-            (entry): entry is FolderEntry => entry.kind === 'folder',
-          );
+          const folders = response.items.filter((entry) => entry.kind === 'folder');
           const reachedFiles = response.items.some((entry) => entry.kind === 'file');
 
           this._folders.update((current) => [...current, ...folders]);

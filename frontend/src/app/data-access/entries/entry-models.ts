@@ -1,5 +1,19 @@
 import { CursorPage } from '../../shared/cursor';
 
+export type AccessLevel = 'owner' | 'viewer' | 'editor';
+
+export type EntryAccess = {
+  accessLevel: AccessLevel;
+  capabilities: {
+    download: boolean;
+    rename: boolean;
+    replaceContent: boolean;
+    move: boolean;
+    delete: boolean;
+    manageSharing: boolean;
+  };
+};
+
 export type FileEntry = {
   kind: 'file';
   id: string;
@@ -18,12 +32,16 @@ export type FolderEntry = {
 
 export type EntryResponse = FolderEntry | FileEntry;
 
+export type EntryListItem = EntryResponse & {
+  access: EntryAccess;
+};
+
 export type FolderPathItem = {
   id: string;
   name: string;
 };
 
-export type EntryList = CursorPage<EntryResponse> & {
+export type EntryList = CursorPage<EntryListItem> & {
   path: FolderPathItem[];
 };
 
