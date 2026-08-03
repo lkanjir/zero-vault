@@ -1,1 +1,103 @@
-<p>TEST</p>
+<section class="mx-auto flex h-full min-h-0 w-full flex-col md:w-4/5 lg:w-[70%]">
+  <div class="mb-4 px-4 text-sm">
+    <span class="font-medium text-foreground">Podijeljeno sa mnom</span>
+  </div>
+
+  <div
+    class="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_14rem_10rem_7rem_11rem] items-center border-b border-border text-sm text-foreground-muted"
+  >
+    <div class="px-4 font-medium">Naziv</div>
+    <div class="px-4 font-medium">Vlasnik</div>
+    <div class="px-4 font-medium">Pristup</div>
+    <div class="px-4 font-medium whitespace-nowrap">Veličina</div>
+    <div class="px-4 text-right font-medium whitespace-nowrap">Datum promjene</div>
+  </div>
+
+  <div class="relative min-h-0 flex-1">
+    <cdk-virtual-scroll-viewport
+      [itemSize]="48"
+      [minBufferPx]="240"
+      [maxBufferPx]="480"
+      class="h-full w-full"
+    >
+      <div
+        *cdkVirtualFor="let file of store.files(); trackBy: trackFile"
+        class="grid h-12 grid-cols-[minmax(0,1fr)_14rem_10rem_7rem_11rem] items-center hover:bg-surface-hover"
+      >
+        <div class="flex min-w-0 items-center gap-3 px-4 py-2">
+          <app-icon [name]="'file-text'" />
+          <span class="truncate text-lg">{{ file.name }}</span>
+        </div>
+
+        <div class="min-w-0 px-4 py-1">
+          <div class="truncate">{{ file.owner.firstName }} {{ file.owner.lastName }}</div>
+          <div class="truncate text-xs text-foreground-muted">
+            {{ file.owner.email }}
+          </div>
+        </div>
+
+        <div class="min-w-0 px-4 py-1">
+          <div class="truncate">
+            @switch (file.access.accessLevel) {
+              @case ('viewer') {
+                Pregled
+              }
+              @case ('editor') {
+                Uređivanje
+              }
+              @case ('owner') {
+                Vlasnik
+              }
+            }
+          </div>
+
+          <div class="truncate text-xs text-foreground-muted">
+            @if (file.expiresAt; as expiresAt) {
+              Do {{ expiresAt | date: 'dd.MM.yyyy' }}
+            } @else {
+              Bez isteka
+            }
+          </div>
+        </div>
+
+        <div class="px-4 py-2 text-lg whitespace-nowrap">
+          {{ file.sizeBytes | fileSize }}
+        </div>
+
+        <div class="px-4 py-2 text-right text-lg whitespace-nowrap">
+          {{ file.updatedAt | date: 'dd.MM.yyyy HH:mm' }}
+        </div>
+      </div>
+    </cdk-virtual-scroll-viewport>
+
+    @if (store.files().length === 0) {
+      <div
+        class="absolute inset-0 flex items-center justify-center bg-background px-4 text-center text-foreground-muted"
+      >
+        @if (store.loading()) {
+          <span>Učitavanje</span>
+        } @else if (store.error()) {
+          <div>
+            <p class="text-danger">{{ store.error() }}</p>
+            <button type="button" (click)="retry()" class="mt-3 text-primary">
+              Pokušaj ponovno
+            </button>
+          </div>
+        } @else {
+          Nema dijeljenih datoteka
+        }
+      </div>
+    }
+  </div>
+
+  @if (store.loadingMore()) {
+    <p class="px-4 py-4 text-center text-sm text-foreground-muted">Učitavanje dodatnih datoteka…</p>
+  } @else if (store.loadingMoreError()) {
+    <div class="px-4 py-4 text-center text-sm">
+      <p class="text-danger">{{ store.loadingMoreError() }}</p>
+      <button type="button" (click)="retryLoadMore()" class="mt-2 text-primary">
+        Pokušaj ponovno
+      </button>
+    </div>
+  }
+</section>
