@@ -44,3 +44,9 @@ export type SharedFileResponse = FileResponse & {
 };
 
 export type SharedFileListResponse = CursorPage<SharedFileResponse>;
+
+export type SharedByMeFileResponse = FileResponse & {
+  shareCount: number;
+};
+
+export type SharedByMeFileListResponse = CursorPage<SharedByMeFileResponse>;

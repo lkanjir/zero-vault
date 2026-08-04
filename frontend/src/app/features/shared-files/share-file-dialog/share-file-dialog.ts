@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { FileEntry } from '../../../data-access/entries/entry-models';
 import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
 import {
@@ -13,8 +13,6 @@ import {
 import { apiErrorMessage } from '../../../shared/api-error';
 import { FileSharePermission } from '../../../data-access/sharing/sharing-models';
 import { SharingActions } from '../actions/sharing-actions';
-import { FileSharesStore } from '../state/file-shares-store';
-import { DatePipe } from '@angular/common';
 
 export type ShareFileDialogData = {
   file: FileEntry;
@@ -22,15 +20,13 @@ export type ShareFileDialogData = {
 
 @Component({
   selector: 'app-share-file-dialog',
-  imports: [FormField, FormRoot, DatePipe],
-  providers: [FileSharesStore],
+  imports: [FormField, FormRoot],
   templateUrl: './share-file-dialog.html',
 })
-export class ShareFileDialog implements OnInit {
+export class ShareFileDialog {
   private readonly sharingActions = inject(SharingActions);
   private readonly dialogRef = inject(DialogRef);
 
-  readonly sharesStore = inject(FileSharesStore);
   readonly data = inject<ShareFileDialogData>(DIALOG_DATA);
   readonly formModel = signal({
     recipientEmail: '',
@@ -95,10 +91,6 @@ export class ShareFileDialog implements OnInit {
       },
     },
   );
-
-  ngOnInit(): void {
-    this.sharesStore.load(this.data.file.id);
-  }
 
   closeDialog(): void {
     this.dialogRef.close();

@@ -6,59 +6,6 @@
       Unesi adresu e-pošte korisnika s kojim želiš podijeliti datoteku.
     </p>
 
-    <section class="mb-5 border-b border-border pb-5">
-      <h3 class="text-sm font-semibold">Osobe s pristupom</h3>
-      @if (sharesStore.loading()) {
-        <p class="text-sm text-foreground-muted">Učitavanje detalja</p>
-      } @else if (sharesStore.error()) {
-        <div class="text-sm">
-          <p class="text-danger">{{ sharesStore.error() }}</p>
-          <button type="button" class="mt-2 text-primary" (click)="sharesStore.retry()">
-            Pokušaj ponovno
-          </button>
-        </div>
-      } @else if (sharesStore.shares().length === 0) {
-        <p class="text-sm text-foreground-muted">Datoteka još nije podijeljenja</p>
-      } @else {
-        <div class="max-h-48 overflow-y-auto">
-          @for (share of sharesStore.shares(); track share.shareId) {
-            <div class="border-b border-border py-3 last:border-b-0">
-              <p class="truncate text-sm font-medium">{{ share.recipientEmail }}</p>
-
-              <p class="mt-1 text-xs text-foreground-muted">
-                {{ share.permission === 'viewer' ? 'Pregled' : 'Uređivanje' }}
-                @if (share.expiresAt) {
-                  | Istječe {{ share.expiresAt | date: 'dd.MM.yyyy HH:mm' }}
-                } @else {
-                  | Bez isteka
-                }
-              </p>
-            </div>
-          }
-        </div>
-      }
-
-      @if (sharesStore.hasMore()) {
-        <button
-          type="button"
-          class="mt-3 text-sm text-primary disabled:opacity-50"
-          [disabled]="sharesStore.loadingMore()"
-          (click)="sharesStore.loadMore()"
-        >
-          {{ sharesStore.loadingMore() ? 'Učitavanje...' : 'Učitaj još' }}
-        </button>
-      }
-      @if (sharesStore.loadingMoreError()) {
-        <div class="mt-2 text-sm">
-          <p class="text-danger">{{ sharesStore.loadingMoreError() }}</p>
-
-          <button type="button" class="mt-1 text-primary" (click)="sharesStore.retryLoadMore()">
-            Pokušaj ponovno
-          </button>
-        </div>
-      }
-    </section>
-
     <label class="mb-2 block text-sm font-medium"> E-pošta primatelja </label>
 
     <input

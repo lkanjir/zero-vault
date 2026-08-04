@@ -38,3 +38,6 @@ export type UpdateFileShareRequest = z.infer<typeof updateFileShareBodySchema>;
 
 export const listSharedFilesQuerySchema = cursorPageQuerySchema;
 export type ListSharedFilesRequest = z.infer<typeof listSharedFilesQuerySchema>;
+
+export const listSharedByMeFilesQuerySchema = cursorPageQuerySchema;
+export type ListSharedByMeFilesRequest = z.infer<typeof listSharedByMeFilesQuerySchema>;
