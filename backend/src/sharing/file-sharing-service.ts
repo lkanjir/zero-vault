@@ -5,12 +5,14 @@ import type { FileGrantPermission } from './file-grant.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 import type {
   ListFileSharesRequest,
+  ListSharedByMeFilesRequest,
   ListSharedFilesRequest,
   UpdateFileShareRequest,
 } from '../files/validation-schemas.js';
 import type {
   FileShareListResponse,
   FileShareResponse,
+  SharedByMeFileListResponse,
   SharedFileListResponse,
   SharedFileResponse,
 } from '../files/dto.js';
@@ -202,6 +204,43 @@ export class FileSharingService {
 
     return {
       items: pageRecords.map((record) => this.toSharedFileResponse(user.id, record, listedAt)),
+      page: {
+        limit: request.limit,
+        hasMore,
+        nextCursor,
+      },
+    };
+  }
+
+  async listSharedByMeFiles(
+    user: User,
+    request: ListSharedByMeFilesRequest,
+  ): Promise<SharedByMeFileListResponse> {
+    const cursor = request.cursor === null ? null : decodeSharedFileListCursor(request.cursor);
+
+    const records = await this.grantRepository.listOwnedSharedFiles({
+      ownerId: user.id,
+      cursor: cursor,
+      limit: request.limit + 1,
+    });
+
+    const pageRecords = records.slice(0, request.limit);
+    const hasMore = records.length > request.limit;
+    const lastRecord = pageRecords.at(-1);
+
+    const nextCursor =
+      hasMore && lastRecord ? encodeSharedFileListCursor({ v: 1, ...lastRecord.cursor }) : null;
+
+    return {
+      items: pageRecords.map((record) => ({
+        kind: 'file',
+        id: record.file.id,
+        name: record.file.name,
+        contentType: record.file.contentType,
+        sizeBytes: record.file.sizeBytes,
+        updatedAt: record.file.updatedAt.toISOString(),
+        shareCount: record.shareCount,
+      })),
       page: {
         limit: request.limit,
         hasMore,

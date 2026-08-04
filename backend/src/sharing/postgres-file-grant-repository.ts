@@ -6,8 +6,10 @@ import type {
   FileGrantMaintenanceResult,
   FileGrantRepository,
   ListFileGrantsQuery,
+  ListOwnedSharedFilesQuery,
   ListSharedFilesQuery,
   MaintainPendingFileGrantsCommand,
+  OwnedSharedFileRecord,
   RevokeFileGrantCommand,
   SaveFileGrantCommand,
   SharedFileRecord,
@@ -331,6 +333,49 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
           cursorFilter,
         ),
       )
+      .orderBy(sortName, entries.id)
+      .limit(query.limit);
+  }
+
+  listOwnedSharedFiles(query: ListOwnedSharedFilesQuery): Promise<OwnedSharedFileRecord[]> {
+    const sortName = sql<string>`lower(${entries.name})`;
+    const shareCount = sql<number>`count(${fileGrants.id})::integer`;
+
+    const cursorFilter =
+      query.cursor === null
+        ? undefined
+        : or(
+            gt(sortName, query.cursor.sortName),
+            and(eq(sortName, query.cursor.sortName), gt(entries.id, query.cursor.entryId)),
+          );
+
+    return db
+      .select({
+        file: {
+          id: entries.publicId,
+          name: entries.name,
+          contentType: files.contentType,
+          sizeBytes: files.sizeBytes,
+          updatedAt: entries.updatedAt,
+        },
+        shareCount,
+        cursor: {
+          sortName,
+          entryId: entries.id,
+        },
+      })
+      .from(entries)
+      .innerJoin(files, eq(files.entryId, entries.id))
+      .innerJoin(fileGrants, eq(fileGrants.fileId, entries.id))
+      .where(
+        and(
+          eq(entries.ownerId, query.ownerId),
+          eq(entries.kind, 'file'),
+          isNull(entries.deletedAt),
+          cursorFilter,
+        ),
+      )
+      .groupBy(entries.id, files.entryId)
       .orderBy(sortName, entries.id)
       .limit(query.limit);
   }

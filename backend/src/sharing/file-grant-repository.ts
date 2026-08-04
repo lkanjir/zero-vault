@@ -78,6 +78,30 @@ export type SharedFileRecord = {
   };
 };
 
+export type ListOwnedSharedFilesQuery = {
+  ownerId: number;
+  cursor: {
+    sortName: string;
+    entryId: number;
+  } | null;
+  limit: number;
+};
+
+export type OwnedSharedFileRecord = {
+  file: {
+    id: string;
+    name: string;
+    contentType: string;
+    sizeBytes: number;
+    updatedAt: Date;
+  };
+  shareCount: number;
+  cursor: {
+    sortName: string;
+    entryId: number;
+  };
+};
+
 export interface FileGrantRepository {
   save(command: SaveFileGrantCommand): Promise<FileGrant>;
   listByFileId(query: ListFileGrantsQuery): Promise<FileGrant[]>;
@@ -85,4 +109,5 @@ export interface FileGrantRepository {
   update(command: UpdateFileGrantCommand): Promise<FileGrant | null>;
   maintainPending(command: MaintainPendingFileGrantsCommand): Promise<FileGrantMaintenanceResult>;
   listSharedFiles(query: ListSharedFilesQuery): Promise<SharedFileRecord[]>;
+  listOwnedSharedFiles(query: ListOwnedSharedFilesQuery): Promise<OwnedSharedFileRecord[]>;
 }

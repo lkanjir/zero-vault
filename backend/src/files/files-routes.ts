@@ -7,6 +7,7 @@ import {
   fileIdParamsSchema,
   fileShareParamsSchema,
   listFileSharesQuerySchema,
+  listSharedByMeFilesQuerySchema,
   listSharedFilesQuerySchema,
   shareFileBodySchema,
   updateFileShareBodySchema,
@@ -115,6 +116,21 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
       const user = await deps.userService.resolveUser(principal);
 
       const result = await deps.sharingService.listSharedFiles(user, {
+        cursor: validated.query.cursor,
+        limit: validated.query.limit,
+      });
+
+      res.status(200).json(result);
+    }),
+  );
+
+  router.get(
+    '/shared-by-me',
+    validateRequest({ query: listSharedByMeFilesQuerySchema }, async (req, res, validated) => {
+      const principal = requirePrincipal(req);
+      const user = await deps.userService.resolveUser(principal);
+
+      const result = await deps.sharingService.listSharedByMeFiles(user, {
         cursor: validated.query.cursor,
         limit: validated.query.limit,
       });
