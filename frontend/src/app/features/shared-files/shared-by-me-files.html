@@ -1,11 +1,12 @@
 <section class="mx-auto flex h-full min-h-0 w-full flex-col md:w-4/5 lg:w-[70%]">
   <div
-    class="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_8rem_7rem_11rem] items-center border-b border-border text-sm text-foreground-muted"
+    class="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_8rem_7rem_11rem_8rem] items-center border-b border-border text-sm text-foreground-muted"
   >
     <div class="px-4 font-medium">Naziv</div>
     <div class="px-4 font-medium">Dijeljenja</div>
     <div class="px-4 font-medium whitespace-nowrap">Veličina</div>
     <div class="px-4 text-right font-medium whitespace-nowrap">Datum promjene</div>
+    <div class="px-4 font-medium">Upravljanje</div>
   </div>
 
   <div class="relative min-h-0 flex-1">
@@ -16,8 +17,9 @@
       class="h-full w-full"
     >
       <div
+        (click)="manageShares(file)"
         *cdkVirtualFor="let file of store.files(); trackBy: trackFile"
-        class="grid h-12 grid-cols-[minmax(0,1fr)_8rem_7rem_11rem] items-center hover:bg-surface-hover"
+        class="grid h-12 grid-cols-[minmax(0,1fr)_8rem_7rem_11rem_8rem] items-center hover:bg-surface-hover"
       >
         <div class="flex min-w-0 items-center gap-3 px-4 py-2">
           <app-icon [name]="'file-text'" />
@@ -34,6 +36,17 @@
 
         <div class="px-4 py-2 text-right text-lg whitespace-nowrap">
           {{ file.updatedAt | date: 'dd.MM.yyyy HH:mm' }}
+        </div>
+
+        <div class="px-4 py-2 text-right">
+          <button
+            type="button"
+            (click)="manageShares(file)"
+            class="hover: flex items-center justify-center gap-2 rounded-lg px-2 py-1 font-medium text-accent hover:bg-accent/10"
+          >
+            <app-icon [name]="'pencil'" [size]="16" />
+            <span>Upravljaj</span>
+          </button>
         </div>
       </div>
     </cdk-virtual-scroll-viewport>

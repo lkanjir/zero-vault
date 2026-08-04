@@ -17,6 +17,7 @@ export const appIconNames = [
   'x',
   'folder',
   'chevron-right',
+  'pencil',
 ] as const;
 
 export type AppIconName = (typeof appIconNames)[number];

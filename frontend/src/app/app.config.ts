@@ -19,6 +19,7 @@ import {
   LucideMove,
   LucidePanelLeft,
   LucidePanelLeftClose,
+  LucidePencil,
   LucidePlus,
   LucideSearch,
   LucideShare2,
@@ -57,6 +58,7 @@ export const appConfig: ApplicationConfig = {
       LucideX,
       LucideFolder,
       LucideChevronRight,
+      LucidePencil,
     ),
   ],
 };

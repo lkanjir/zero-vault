@@ -14,6 +14,8 @@ import { FileSizePipe } from '../../shared/pipes/file-size-pipe';
 import { SharedByMeStore } from './state/shared-by-me-store';
 import { SharedByMeFile } from '../../data-access/sharing/sharing-models';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Dialog } from '@angular/cdk/dialog';
+import { ManageFileSharesDialog } from './manage-file-shares-dialog/manage-file-shares-dialog';
 
 const LOAD_MORE_THRESHOLD = 10;
 
@@ -25,6 +27,7 @@ const LOAD_MORE_THRESHOLD = 10;
 export class SharedByMeFiles implements OnInit, AfterViewInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly viewport = viewChild(CdkVirtualScrollViewport);
+  private readonly dialog = inject(Dialog);
 
   readonly store = inject(SharedByMeStore);
   readonly trackFile: TrackByFunction<SharedByMeFile> = (_index, file) => file.id;
@@ -55,5 +58,9 @@ export class SharedByMeFiles implements OnInit, AfterViewInit {
 
   retryLoadMore(): void {
     this.store.retryLoadMore();
+  }
+
+  manageShares(files: SharedByMeFile): void {
+    this.dialog.open(ManageFileSharesDialog, { data: { files } });
   }
 }
