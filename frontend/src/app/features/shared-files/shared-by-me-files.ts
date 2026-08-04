@@ -60,7 +60,13 @@ export class SharedByMeFiles implements OnInit, AfterViewInit {
     this.store.retryLoadMore();
   }
 
-  manageShares(files: SharedByMeFile): void {
-    this.dialog.open(ManageFileSharesDialog, { data: { files } });
+  manageShares(file: SharedByMeFile): void {
+    this.dialog.open(ManageFileSharesDialog, {
+      data: { file },
+      width: 'calc(100vw - 2rem)',
+      maxWidth: '42rem',
+      autoFocus: 'first-tabbable',
+      restoreFocus: true,
+    });
   }
 }

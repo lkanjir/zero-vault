@@ -6,7 +6,7 @@
     <div class="px-4 font-medium">Dijeljenja</div>
     <div class="px-4 font-medium whitespace-nowrap">Veličina</div>
     <div class="px-4 text-right font-medium whitespace-nowrap">Datum promjene</div>
-    <div class="px-4 font-medium">Upravljanje</div>
+    <div class="px-4 text-center font-medium">Upravljanje</div>
   </div>
 
   <div class="relative min-h-0 flex-1">
@@ -38,11 +38,11 @@
           {{ file.updatedAt | date: 'dd.MM.yyyy HH:mm' }}
         </div>
 
-        <div class="px-4 py-2 text-right">
+        <div class="px-4 py-2 text-center">
           <button
             type="button"
-            (click)="manageShares(file)"
-            class="hover: flex items-center justify-center gap-2 rounded-lg px-2 py-1 font-medium text-accent hover:bg-accent/10"
+            (click)="$event.stopPropagation(); manageShares(file)"
+            class="flex items-center justify-center gap-2 rounded-lg px-2 py-1 font-medium text-accent hover:cursor-pointer hover:bg-accent/10"
           >
             <app-icon [name]="'pencil'" [size]="16" />
             <span>Upravljaj</span>
