@@ -1,7 +1,7 @@
 import { CursorPage } from '../../shared/cursor';
 import { EntryAccess, FileEntry } from '../entries/entry-models';
 
-export type SharedFile = FileEntry & {
+export type SharedWithMeFile = FileEntry & {
   owner: {
     email: string;
     firstName: string;
@@ -11,7 +11,7 @@ export type SharedFile = FileEntry & {
   access: EntryAccess;
 };
 
-export type SharedFileList = CursorPage<SharedFile>;
+export type SharedWithMeFileList = CursorPage<SharedWithMeFile>;
 
 export type FileSharePermission = 'viewer' | 'editor';
 
@@ -38,3 +38,9 @@ export type UpdateFileShareRequest = {
   permission: FileSharePermission;
   expiresAt: string | null;
 };
+
+export type SharedByMeFile = FileEntry & {
+  shareCount: number;
+};
+
+export type SharedByMeFileList = CursorPage<SharedByMeFile>;

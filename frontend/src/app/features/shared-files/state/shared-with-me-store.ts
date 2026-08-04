@@ -1,6 +1,6 @@
 import { DestroyRef, inject, Injectable, signal } from '@angular/core';
 import { SharingApi } from '../../../data-access/sharing/sharing-api';
-import { SharedFile } from '../../../data-access/sharing/sharing-models';
+import { SharedWithMeFile } from '../../../data-access/sharing/sharing-models';
 import { finalize } from 'rxjs';
 import { apiErrorMessage, toApiError } from '../../../shared/api-error';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -8,11 +8,11 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 const SHARED_FILE_PAGE_SIZE = 50;
 
 @Injectable()
-export class SharedFileStore {
+export class SharedWithMeStore {
   private readonly sharingApi = inject(SharingApi);
   private readonly destroyRef = inject(DestroyRef);
 
-  private readonly _files = signal<readonly SharedFile[]>([]);
+  private readonly _files = signal<readonly SharedWithMeFile[]>([]);
   private readonly _loading = signal(false);
   private readonly _error = signal<string | null>(null);
   private readonly _nextCursor = signal<string | null>(null);
@@ -42,7 +42,7 @@ export class SharedFileStore {
     this._loadingMoreError.set(null);
 
     this.sharingApi
-      .getSharedFiles({ cursor: null, limit: SHARED_FILE_PAGE_SIZE })
+      .getSharedWithMeFiles({ cursor: null, limit: SHARED_FILE_PAGE_SIZE })
       .pipe(
         takeUntilDestroyed(this.destroyRef),
         finalize(() => this._loading.set(false)),
@@ -80,7 +80,7 @@ export class SharedFileStore {
     this._loadingMoreError.set(null);
 
     this.sharingApi
-      .getSharedFiles({ cursor, limit: SHARED_FILE_PAGE_SIZE })
+      .getSharedWithMeFiles({ cursor, limit: SHARED_FILE_PAGE_SIZE })
       .pipe(
         takeUntilDestroyed(this.destroyRef),
         finalize(() => this._loadingMore.set(false)),

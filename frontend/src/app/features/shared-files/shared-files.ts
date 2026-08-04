@@ -7,9 +7,9 @@ import {
   TrackByFunction,
   viewChild,
 } from '@angular/core';
-import { SharedFileStore } from './state/shared-files-store';
+import { SharedWithMeStore } from './state/shared-with-me-store';
 import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
-import { SharedFile } from '../../data-access/sharing/sharing-models';
+import { SharedWithMeFile } from '../../data-access/sharing/sharing-models';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DatePipe } from '@angular/common';
 import { Icon } from '../../shared/icon/icon';
@@ -23,11 +23,11 @@ const LOAD_MORE_THRESHOLD = 10;
   templateUrl: './shared-files.html',
 })
 export class SharedFiles implements OnInit, AfterViewInit {
-  readonly store = inject(SharedFileStore);
+  readonly store = inject(SharedWithMeStore);
   readonly destroyRef = inject(DestroyRef);
   readonly viewport = viewChild(CdkVirtualScrollViewport);
 
-  readonly trackFile: TrackByFunction<SharedFile> = (_index, file) => file.id;
+  readonly trackFile: TrackByFunction<SharedWithMeFile> = (_index, file) => file.id;
 
   ngOnInit(): void {
     this.store.load();

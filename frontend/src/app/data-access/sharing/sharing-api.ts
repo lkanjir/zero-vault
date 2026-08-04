@@ -3,7 +3,8 @@ import { inject, Injectable } from '@angular/core';
 import {
   FileShare,
   FileShareList,
-  SharedFileList,
+  SharedByMeFileList,
+  SharedWithMeFileList,
   ShareFileAcceptedResponse,
   ShareFileRequest,
   UpdateFileShareRequest,
@@ -15,9 +16,9 @@ import { CursorPageQuery } from '../../shared/cursor';
 export class SharingApi {
   private readonly http = inject(HttpClient);
 
-  getSharedFiles(params: CursorPageQuery): Observable<SharedFileList> {
+  getSharedWithMeFiles(params: CursorPageQuery): Observable<SharedWithMeFileList> {
     const httpParams = this.buildCursorParams(params);
-    return this.http.get<SharedFileList>('/api/files/shared-with-me', { params: httpParams });
+    return this.http.get<SharedWithMeFileList>('/api/files/shared-with-me', { params: httpParams });
   }
 
   shareFile(fileId: string, request: ShareFileRequest): Observable<ShareFileAcceptedResponse> {
@@ -51,6 +52,11 @@ export class SharingApi {
     const encodedShareId = encodeURIComponent(shareId);
 
     return this.http.delete<void>(`/api/files/${encodedFileId}/shares/${encodedShareId}`);
+  }
+
+  getSharedByMeFiles(query: CursorPageQuery): Observable<SharedByMeFileList> {
+    const params = this.buildCursorParams(query);
+    return this.http.get<SharedByMeFileList>('/api/files/shared-by-me', { params });
   }
 
   private buildCursorParams(query: CursorPageQuery): HttpParams {
