@@ -6,3 +6,8 @@ export type CursorPage<T> = {
     hasMore: boolean;
   };
 };
+
+export type CursorPageQuery = {
+  cursor: string | null;
+  limit: number;
+};

@@ -13,11 +13,6 @@ export type SharedFile = FileEntry & {
 
 export type SharedFileList = CursorPage<SharedFile>;
 
-export type SharedFileListParams = {
-  cursor: string | null;
-  limit: number;
-};
-
 export type FileSharePermission = 'viewer' | 'editor';
 
 export type ShareFileRequest = {
@@ -28,4 +23,18 @@ export type ShareFileRequest = {
 
 export type ShareFileAcceptedResponse = {
   status: 'accepted';
+};
+
+export type FileShare = {
+  shareId: string;
+  recipientEmail: string;
+  permission: FileSharePermission;
+  expiresAt: string | null;
+};
+
+export type FileShareList = CursorPage<FileShare>;
+
+export type UpdateFileShareRequest = {
+  permission: FileSharePermission;
+  expiresAt: string | null;
 };
