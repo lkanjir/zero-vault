@@ -1,7 +1,7 @@
 import { Routes } from '@angular/router';
-import { SharedFiles } from './shared-files';
+import { SharedWithMeFiles } from './shared-with-me-files';
 import { SharedWithMeStore } from './state/shared-with-me-store';
 
 export const SharedFilesRoutes: Routes = [
-  { path: '', component: SharedFiles, providers: [SharedWithMeStore] },
+  { path: '', component: SharedWithMeFiles, providers: [SharedWithMeStore] },
 ];

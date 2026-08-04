@@ -18,11 +18,11 @@ import { FileSizePipe } from '../../shared/pipes/file-size-pipe';
 const LOAD_MORE_THRESHOLD = 10;
 
 @Component({
-  selector: 'app-shared-files',
+  selector: 'app-shared-with-me-files',
   imports: [ScrollingModule, DatePipe, Icon, FileSizePipe],
-  templateUrl: './shared-files.html',
+  templateUrl: './shared-with-me-files.html',
 })
-export class SharedFiles implements OnInit, AfterViewInit {
+export class SharedWithMeFiles implements OnInit, AfterViewInit {
   readonly store = inject(SharedWithMeStore);
   readonly destroyRef = inject(DestroyRef);
   readonly viewport = viewChild(CdkVirtualScrollViewport);
