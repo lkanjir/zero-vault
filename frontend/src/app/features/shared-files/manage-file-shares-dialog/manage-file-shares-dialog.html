@@ -19,7 +19,7 @@
     } @else {
       @for (share of store.shares(); track share.shareId) {
         <div
-          class="grid min-h-14 grid-cols-[minmax(0,1fr)_8rem_11rem] items-center border-b border-border px-4 last:border-b-0"
+          class="grid min-h-14 grid-cols-[minmax(0,1fr)_6rem_10rem_6rem] items-center border-b border-border px-4 last:border-b-0"
         >
           <span class="truncate">
             {{ share.recipientEmail }}
@@ -29,17 +29,61 @@
             {{ share.permission === 'viewer' ? 'Pregled' : 'Uređivanje' }}
           </span>
 
-          <span class="text-right text-sm text-foreground-muted">
+          <span class="text-foreground-muted">
             @if (share.expiresAt) {
               Do {{ share.expiresAt | date: 'dd.MM.yyyy HH:mm' }}
             } @else {
               Bez isteka
             }
           </span>
+
+          <button
+            type="button"
+            (click)="requestRevoke(share)"
+            class="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-2 py-1 font-medium text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"
+            [disabled]="pendingShareId() !== null"
+          >
+            <app-icon [name]="'trash-2'" [size]="16" />
+            <span>Ukloni</span>
+          </button>
         </div>
       }
     }
   </div>
+
+  @if (revokeCandidate(); as share) {
+    <div class="mt-4 rounded-md border border-border bg-surface p-4">
+      <p class="text-base">
+        Ukloniti pristup korisniku
+        <span class="font-bold">{{ share.recipientEmail }}</span
+        >?
+      </p>
+
+      @if (error()) {
+        <p class="mt-2 text-sm text-danger">{{ error() }}</p>
+      }
+
+      <div class="mt-4 flex justify-end gap-3">
+        <button
+          type="button"
+          (click)="cancelRevoke()"
+          [disabled]="pendingShareId() !== null"
+          class="h-9 cursor-pointer rounded-md border border-border px-3 hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Odustani
+        </button>
+
+        <button
+          type="button"
+          (click)="confirmRevoke()"
+          [disabled]="pendingShareId() !== null"
+          class="h-9 cursor-pointer rounded-md bg-danger px-3 font-medium text-foreground hover:bg-danger/60 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {{ pendingShareId() ? 'Uklanjanje...' : 'Ukloni pristup' }}
+        </button>
+      </div>
+    </div>
+  }
 
   @if (store.loadingMore()) {
     <p class="py-3 text-center text-sm text-foreground-muted">Učitavanje dodatnih dijeljenja…</p>
@@ -57,7 +101,7 @@
     </button>
   }
 
-  <div class="mt-6 flex justify-end">
+  <div class="mt-4 flex justify-end">
     <button
       type="button"
       (click)="closeDialog()"

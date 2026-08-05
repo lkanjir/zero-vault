@@ -134,4 +134,14 @@ export class FileSharesStore {
   retryLoadMore(): void {
     this.loadMore();
   }
+
+  updateShare(updatedShare: FileShare): void {
+    this._shares.update((shares) =>
+      shares.map((share) => (share.shareId === updatedShare.shareId ? updatedShare : share)),
+    );
+  }
+
+  removeShare(shareId: string): void {
+    this._shares.update((shares) => shares.filter((share) => share.shareId !== shareId));
+  }
 }

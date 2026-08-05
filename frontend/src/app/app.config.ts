@@ -25,6 +25,7 @@ import {
   LucideShare2,
   LucideSquarePen,
   LucideTrash,
+  LucideTrash2,
   LucideUser,
   LucideX,
   provideLucideIcons,
@@ -59,6 +60,7 @@ export const appConfig: ApplicationConfig = {
       LucideFolder,
       LucideChevronRight,
       LucidePencil,
+      LucideTrash2,
     ),
   ],
 };
