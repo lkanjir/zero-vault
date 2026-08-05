@@ -1,4 +1,11 @@
 <section class="mx-auto flex h-full min-h-0 w-full flex-col md:w-4/5 lg:w-[70%]">
+  @if (downloadError()) {
+    <p class="mb-4 px-4 text-sm text-danger">{{ downloadError() }}</p>
+  }
+  @if (downloadFileIds().size > 0) {
+    <p class="mb-4 px-4 text-sm text-foreground-muted">Pripremanje preuzimanja</p>
+  }
+
   <div
     class="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_14rem_10rem_7rem_11rem] items-center border-b border-border text-sm text-foreground-muted"
   >
@@ -19,6 +26,8 @@
       <div
         *cdkVirtualFor="let file of store.files(); trackBy: trackFile"
         class="grid h-12 grid-cols-[minmax(0,1fr)_14rem_10rem_7rem_11rem] items-center hover:bg-surface-hover"
+        [cdkContextMenuTriggerFor]="fileMenu"
+        [cdkContextMenuTriggerData]="{ file }"
       >
         <div class="flex min-w-0 items-center gap-3 px-4 py-2">
           <app-icon [name]="'file-text'" />
@@ -97,3 +106,24 @@
     </div>
   }
 </section>
+
+<ng-template #fileMenu let-file="file">
+  <div
+    cdkMenu
+    cdkTargetMenuAim
+    class="min-w-40 overflow-hidden rounded-md border border-border bg-surface shadow-xl"
+  >
+    @if (file.access.capabilities.download) {
+      <button
+        type="button"
+        cdkMenuItem
+        (cdkMenuItemTriggered)="download(file)"
+        [disabled]="isDownloading(file.id)"
+        class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <app-icon [name]="'download'" [size]="16" />
+        <span>Preuzmi</span>
+      </button>
+    }
+  </div>
+</ng-template>
