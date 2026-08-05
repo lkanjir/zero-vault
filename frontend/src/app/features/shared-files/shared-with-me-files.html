@@ -58,7 +58,7 @@
 
           <div class="truncate text-xs text-foreground-muted">
             @if (file.expiresAt; as expiresAt) {
-              Do {{ expiresAt | date: 'dd.MM.yyyy' }}
+              Do {{ expiresAt | date: 'dd.MM.yyyy HH:mm' }}
             } @else {
               Bez isteka
             }
