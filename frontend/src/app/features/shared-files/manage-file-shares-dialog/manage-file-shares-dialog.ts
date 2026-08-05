@@ -4,9 +4,10 @@ import { FileSharesStore } from '../state/file-shares-store';
 import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
 import { FileEntry } from '../../../data-access/entries/entry-models';
 import { SharingActions } from '../actions/sharing-actions';
-import { FileShare } from '../../../data-access/sharing/sharing-models';
+import { FileShare, FileSharePermission } from '../../../data-access/sharing/sharing-models';
 import { apiErrorMessage } from '../../../shared/api-error';
 import { Icon } from '../../../shared/icon/icon';
+import { form, FormField, FormRoot, validate } from '@angular/forms/signals';
 
 export type ManageFileSharesDialogData = {
   file: FileEntry;
@@ -14,7 +15,7 @@ export type ManageFileSharesDialogData = {
 
 @Component({
   selector: 'app-manage-file-shares-dialog',
-  imports: [DatePipe, Icon],
+  imports: [DatePipe, Icon, FormField, FormRoot],
   providers: [FileSharesStore],
   templateUrl: './manage-file-shares-dialog.html',
 })
@@ -28,6 +29,65 @@ export class ManageFileSharesDialog implements OnInit {
   readonly error = signal<string | null>(null);
   readonly revokeCandidate = signal<FileShare | null>(null);
   readonly shareRevoked = output<void>();
+
+  readonly editCandidate = signal<FileShare | null>(null);
+  readonly updateModel = signal({ permission: 'viewer' as FileSharePermission, expiresAt: '' });
+  readonly updateForm = form(
+    this.updateModel,
+    (schema) => {
+      validate(schema.expiresAt, ({ value }) => {
+        const expiresAt = value();
+
+        if (expiresAt === '') {
+          return undefined;
+        }
+
+        const timestamp = new Date(expiresAt).getTime();
+        if (!Number.isFinite(timestamp) || timestamp <= Date.now()) {
+          return {
+            kind: 'invalid_grant_expiry',
+            message: 'Vrijeme isteka mora biti u budućnosti',
+          };
+        }
+
+        return undefined;
+      });
+    },
+    {
+      submission: {
+        action: async () => {
+          const share = this.editCandidate();
+
+          if (share === null || this.pendingShareId() !== null) {
+            return;
+          }
+
+          this.pendingShareId.set(share.shareId);
+          this.error.set(null);
+
+          const model = this.updateModel();
+          const result = await this.sharingActions.updateFileShare(
+            this.data.file.id,
+            share.shareId,
+            {
+              expiresAt: model.expiresAt === '' ? null : new Date(model.expiresAt).toISOString(),
+              permission: model.permission,
+            },
+          );
+
+          this.pendingShareId.set(null);
+
+          if (result.ok) {
+            this.store.updateShare(result.value);
+            this.editCandidate.set(null);
+            return;
+          }
+
+          this.error.set(apiErrorMessage(result.error, 'Ažuriranje nije uspjelo'));
+        },
+      },
+    },
+  );
 
   ngOnInit(): void {
     this.store.load(this.data.file.id);
@@ -55,6 +115,7 @@ export class ManageFileSharesDialog implements OnInit {
     }
 
     this.revokeCandidate.set(share);
+    this.editCandidate.set(null);
     this.error.set(null);
   }
 
@@ -88,5 +149,39 @@ export class ManageFileSharesDialog implements OnInit {
     }
 
     this.error.set(apiErrorMessage(result.error, 'Greška prilikom uklanjanja dijeljenja'));
+  }
+
+  requestEdit(share: FileShare): void {
+    if (this.pendingShareId() !== null) {
+      return;
+    }
+
+    this.revokeCandidate.set(null);
+    this.error.set(null);
+    this.updateForm().reset({
+      permission: share.permission,
+      expiresAt: this.toLocalDateTime(share.expiresAt),
+    });
+    this.editCandidate.set(share);
+  }
+
+  cancelEdit(): void {
+    if (this.pendingShareId() !== null) {
+      return;
+    }
+
+    this.editCandidate.set(null);
+    this.error.set(null);
+  }
+
+  private toLocalDateTime(value: string | null): string {
+    if (value === null) {
+      return '';
+    }
+
+    const date = new Date(value);
+    const localTimestamp = date.getTime() - date.getTimezoneOffset() * 60_000;
+
+    return new Date(localTimestamp).toISOString().slice(0, 16);
   }
 }

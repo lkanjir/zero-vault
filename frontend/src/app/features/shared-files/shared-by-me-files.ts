@@ -67,6 +67,7 @@ export class SharedByMeFiles implements OnInit, AfterViewInit {
       maxWidth: '42rem',
       autoFocus: 'first-tabbable',
       restoreFocus: true,
+      disableClose: true,
     });
 
     dialogRef.componentInstance?.shareRevoked.subscribe(() => this.store.shareRevoked(file.id));

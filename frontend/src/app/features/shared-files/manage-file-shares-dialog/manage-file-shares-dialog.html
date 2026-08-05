@@ -37,19 +37,95 @@
             }
           </span>
 
-          <button
-            type="button"
-            (click)="requestRevoke(share)"
-            class="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-2 py-1 font-medium text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"
-            [disabled]="pendingShareId() !== null"
-          >
-            <app-icon [name]="'trash-2'" [size]="16" />
-            <span>Ukloni</span>
-          </button>
+          <div class="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              (click)="requestEdit(share)"
+              [disabled]="pendingShareId() !== null"
+              class="inline-flex cursor-pointer items-center rounded-lg px-2 py-1 text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <app-icon [name]="'pencil'" [size]="16" />
+            </button>
+
+            <button
+              type="button"
+              (click)="requestRevoke(share)"
+              [disabled]="pendingShareId() !== null"
+              class="inline-flex cursor-pointer items-center rounded-lg px-2 py-1 text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <app-icon [name]="'trash-2'" [size]="16" />
+            </button>
+          </div>
         </div>
       }
     }
   </div>
+
+  @if (editCandidate(); as share) {
+    <form [formRoot]="updateForm" class="mt-4 rounded-md border border-border bg-surface p-4">
+      <p class="mb-4 text-base">
+        Uredi pristup korisniku
+        <span class="font-bold">{{ share.recipientEmail }}</span>
+      </p>
+
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="mb-2 block text-sm font-medium"> Razina pristupa </label>
+
+          <select
+            [formField]="updateForm.permission"
+            class="h-10 w-full rounded-md border border-border bg-background p-2"
+          >
+            <option value="viewer">Pregled</option>
+            <option value="editor">Uređivanje</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="mb-2 block text-sm font-medium"> Vrijeme isteka </label>
+
+          <input
+            type="datetime-local"
+            [formField]="updateForm.expiresAt"
+            class="h-10 w-full rounded-md border border-border bg-background p-2"
+          />
+
+          <p class="pt-1 text-xs text-foreground-muted">Ostavi prazno za pristup bez isteka.</p>
+        </div>
+      </div>
+
+      @if (updateForm.expiresAt().touched() && updateForm.expiresAt().invalid()) {
+        <ul class="pt-2 text-sm text-danger">
+          @for (validationError of updateForm.expiresAt().errors(); track validationError) {
+            <li>{{ validationError.message }}</li>
+          }
+        </ul>
+      }
+
+      @if (error()) {
+        <p class="mt-2 text-sm text-danger">{{ error() }}</p>
+      }
+
+      <div class="mt-4 flex justify-end gap-3">
+        <button
+          type="button"
+          (click)="cancelEdit()"
+          [disabled]="pendingShareId() !== null"
+          class="h-9 cursor-pointer rounded-md border border-border px-3 hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Odustani
+        </button>
+
+        <button
+          type="submit"
+          [disabled]="pendingShareId() !== null"
+          class="h-9 cursor-pointer rounded-md bg-foreground px-3 font-medium text-surface disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {{ updateForm().submitting() ? 'Spremanje...' : 'Spremi' }}
+        </button>
+      </div>
+    </form>
+  }
 
   @if (revokeCandidate(); as share) {
     <div class="mt-4 rounded-md border border-border bg-surface p-4">
@@ -105,7 +181,8 @@
     <button
       type="button"
       (click)="closeDialog()"
-      class="h-10 rounded-md border border-border bg-background px-3 font-semibold hover:cursor-pointer hover:bg-surface-hover"
+      [disabled]="pendingShareId() !== null"
+      class="h-10 rounded-md border border-border bg-background px-3 font-semibold hover:cursor-pointer hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
     >
       Zatvori
     </button>
