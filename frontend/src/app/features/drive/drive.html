@@ -140,26 +140,30 @@
     cdkTargetMenuAim
     class="min-w-40 overflow-hidden rounded-md border-border bg-surface shadow-xl"
   >
-    <button
-      cdkMenuItem
-      type="button"
-      class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
-      (cdkMenuItemTriggered)="download(entry)"
-      [disabled]="isDownloading(entry.id)"
-    >
-      <app-icon [name]="'download'" [size]="16" />
-      <span>Preuzmi</span>
-    </button>
+    @if (entry.access.capabilities.download) {
+      <button
+        cdkMenuItem
+        type="button"
+        class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+        (cdkMenuItemTriggered)="download(entry)"
+        [disabled]="isDownloading(entry.id)"
+      >
+        <app-icon [name]="'download'" [size]="16" />
+        <span>Preuzmi</span>
+      </button>
+    }
 
-    <button
-      cdkMenuItem
-      type="button"
-      class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
-      (cdkMenuItemTriggered)="rename(entry)"
-    >
-      <app-icon [name]="'square-pen'" [size]="16" />
-      <span>Preimenuj</span>
-    </button>
+    @if (entry.access.capabilities.rename) {
+      <button
+        cdkMenuItem
+        type="button"
+        class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
+        (cdkMenuItemTriggered)="rename(entry)"
+      >
+        <app-icon [name]="'square-pen'" [size]="16" />
+        <span>Preimenuj</span>
+      </button>
+    }
 
     @if (entry.kind === 'file' && entry.access.capabilities.manageSharing) {
       <button
@@ -173,24 +177,28 @@
       </button>
     }
 
-    <button
-      cdkMenuItem
-      type="button"
-      class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
-      (cdkMenuItemTriggered)="move(entry)"
-    >
-      <app-icon [name]="'move'" [size]="16" />
-      <span>Premjesti</span>
-    </button>
+    @if (entry.access.capabilities.move) {
+      <button
+        cdkMenuItem
+        type="button"
+        class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
+        (cdkMenuItemTriggered)="move(entry)"
+      >
+        <app-icon [name]="'move'" [size]="16" />
+        <span>Premjesti</span>
+      </button>
+    }
 
-    <button
-      cdkMenuItem
-      type="button"
-      class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
-      (cdkMenuItemTriggered)="delete(entry)"
-    >
-      <app-icon [name]="'trash'" [size]="16" />
-      <span>Obriši</span>
-    </button>
+    @if (entry.access.capabilities.delete) {
+      <button
+        cdkMenuItem
+        type="button"
+        class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
+        (cdkMenuItemTriggered)="delete(entry)"
+      >
+        <app-icon [name]="'trash'" [size]="16" />
+        <span>Obriši</span>
+      </button>
+    }
   </div>
 </ng-template>
