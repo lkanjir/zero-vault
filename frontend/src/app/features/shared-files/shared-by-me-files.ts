@@ -61,12 +61,14 @@ export class SharedByMeFiles implements OnInit, AfterViewInit {
   }
 
   manageShares(file: SharedByMeFile): void {
-    this.dialog.open(ManageFileSharesDialog, {
+    const dialogRef = this.dialog.open(ManageFileSharesDialog, {
       data: { file },
       width: 'calc(100vw - 2rem)',
       maxWidth: '42rem',
       autoFocus: 'first-tabbable',
       restoreFocus: true,
     });
+
+    dialogRef.componentInstance?.shareRevoked.subscribe(() => this.store.shareRevoked(file.id));
   }
 }

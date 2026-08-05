@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, inject, OnInit, output, signal } from '@angular/core';
 import { FileSharesStore } from '../state/file-shares-store';
 import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
 import { FileEntry } from '../../../data-access/entries/entry-models';
@@ -27,6 +27,7 @@ export class ManageFileSharesDialog implements OnInit {
   readonly pendingShareId = signal<string | null>(null);
   readonly error = signal<string | null>(null);
   readonly revokeCandidate = signal<FileShare | null>(null);
+  readonly shareRevoked = output<void>();
 
   ngOnInit(): void {
     this.store.load(this.data.file.id);
@@ -82,6 +83,7 @@ export class ManageFileSharesDialog implements OnInit {
     if (result.ok) {
       this.store.removeShare(share.shareId);
       this.revokeCandidate.set(null);
+      this.shareRevoked.emit();
       return;
     }
 

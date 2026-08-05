@@ -115,4 +115,28 @@ export class SharedByMeStore {
   retryLoadMore(): void {
     this.loadMore();
   }
+
+  shareRevoked(fileId: string): void {
+    this._files.update((files) => {
+      const index = files.findIndex((file) => file.id === fileId);
+
+      if (index === -1) {
+        return files;
+      }
+
+      const file = files[index];
+      const updatedFiles = [...files];
+
+      if (file.shareCount <= 1) {
+        updatedFiles.splice(index, 1);
+      } else {
+        updatedFiles[index] = {
+          ...file,
+          shareCount: file.shareCount - 1,
+        };
+      }
+
+      return updatedFiles;
+    });
+  }
 }
