@@ -3,7 +3,7 @@
     <p class="mb-4 px-4 text-sm text-danger">{{ downloadError() }}</p>
   }
   @if (downloadFileIds().size > 0) {
-    <p class="mb-4 px-4 text-sm text-foreground-muted">Pripremanje preuzimanja</p>
+    <p class="mb-4 px-4 text-sm text-foreground-muted">Pripremanje preuzimanja...</p>
   }
 
   <div
@@ -123,6 +123,17 @@
       >
         <app-icon [name]="'download'" [size]="16" />
         <span>Preuzmi</span>
+      </button>
+    }
+    @if (file.access.capabilities.rename) {
+      <button
+        type="button"
+        cdkMenuItem
+        (cdkMenuItemTriggered)="rename(file)"
+        class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <app-icon [name]="'square-pen'" [size]="16" />
+        <span>Preimenuj</span>
       </button>
     }
   </div>

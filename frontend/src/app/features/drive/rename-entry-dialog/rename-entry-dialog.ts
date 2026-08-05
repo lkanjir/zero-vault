@@ -16,7 +16,7 @@ export type RenameDialogData = {
 })
 export class RenameEntryDialog {
   private readonly entryActions = inject(EntryActions);
-  private readonly dialogRef = inject(DialogRef);
+  private readonly dialogRef = inject<DialogRef<EntryResponse>>(DialogRef);
 
   readonly data = inject<RenameDialogData>(DIALOG_DATA);
   readonly formModel = signal({ name: this.data.entry.name });
@@ -57,7 +57,7 @@ export class RenameEntryDialog {
           );
 
           if (result.ok) {
-            this.dialogRef.close();
+            this.dialogRef.close(result.value);
             return;
           }
 

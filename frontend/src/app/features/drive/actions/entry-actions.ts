@@ -38,10 +38,8 @@ export class EntryActions {
     return result;
   }
 
-  async renameEntry(entryId: string, name: string): Promise<Result<EntryResponse, ApiError>> {
-    const sourceParentId = this.store.parentId();
-
-    const result = await firstValueFrom(
+  renameEntry(entryId: string, name: string): Promise<Result<EntryResponse, ApiError>> {
+    return firstValueFrom(
       this.entryApi.updateEntry(entryId, { name }).pipe(
         map((updatedEntry): Result<EntryResponse, ApiError> => ({
           ok: true,
@@ -52,12 +50,6 @@ export class EntryActions {
         ),
       ),
     );
-
-    if (result.ok) {
-      this.store.reloadIfCurrent(sourceParentId);
-    }
-
-    return result;
   }
 
   async moveEntry(command: MoveEntryCommand): Promise<Result<EntryResponse, ApiError>> {

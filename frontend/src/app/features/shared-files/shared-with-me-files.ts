@@ -19,6 +19,9 @@ import { FileSizePipe } from '../../shared/pipes/file-size-pipe';
 import { CdkContextMenuTrigger, CdkMenu, CdkMenuItem, CdkTargetMenuAim } from '@angular/cdk/menu';
 import { EntryDownloadService } from '../drive/actions/download/entry-download-service';
 import { apiErrorMessage } from '../../shared/api-error';
+import { Dialog } from '@angular/cdk/dialog';
+import { RenameEntryDialog } from '../drive/rename-entry-dialog/rename-entry-dialog';
+import { EntryResponse } from '../../data-access/entries/entry-models';
 
 const LOAD_MORE_THRESHOLD = 10;
 
@@ -42,6 +45,7 @@ export class SharedWithMeFiles implements OnInit, AfterViewInit {
   readonly viewport = viewChild(CdkVirtualScrollViewport);
   readonly document = inject(DOCUMENT);
   readonly entryDownloadService = inject(EntryDownloadService);
+  readonly dialog = inject(Dialog);
 
   private readonly _downloadFileIds = signal<ReadonlySet<string>>(new Set());
   private readonly _downloadError = signal<string | null>(null);
@@ -117,5 +121,21 @@ export class SharedWithMeFiles implements OnInit, AfterViewInit {
 
   isDownloading(fileId: string): boolean {
     return this._downloadFileIds().has(fileId);
+  }
+
+  rename(file: SharedWithMeFile): void {
+    const dialogRef = this.dialog.open<EntryResponse>(RenameEntryDialog, {
+      data: { entry: file },
+      width: 'calc(100vw - 2rem)',
+      maxWidth: '28rem',
+      autoFocus: 'first-tabbable',
+      restoreFocus: true,
+    });
+
+    dialogRef.closed.subscribe((updatedEntry) => {
+      if (updatedEntry !== undefined) {
+        this.store.fileRenamed(updatedEntry);
+      }
+    });
   }
 }
