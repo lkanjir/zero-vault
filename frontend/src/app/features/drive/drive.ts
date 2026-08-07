@@ -216,4 +216,14 @@ export class Drive implements OnInit, AfterViewInit {
       restoreFocus: true,
     });
   }
+
+  sortByName(): void {
+    const nextSort = this.store.sort() === 'name-asc' ? 'name-desc' : 'name-asc';
+    this.store.setSort(nextSort);
+  }
+
+  sortByUpdatedAt(): void {
+    const nextSort = this.store.sort() === 'updated-desc' ? 'updated-asc' : 'updated-desc';
+    this.store.setSort(nextSort);
+  }
 }

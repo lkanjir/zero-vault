@@ -17,7 +17,7 @@ export class Sidebar {
   readonly open = signal<boolean>(false);
 
   readonly failedTransferCount = input<number>(0);
-  
+
   readonly transfersRequested = output<void>();
   readonly logoutRequested = output<void>();
 

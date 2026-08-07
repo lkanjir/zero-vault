@@ -56,9 +56,41 @@
   <div
     class="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_7rem_11rem] items-center border-b border-border text-sm text-foreground-muted"
   >
-    <div class="px-4 font-medium">Naziv</div>
+    <button
+      type="button"
+      (click)="sortByName()"
+      class="flex h-full items-center gap-2 px-4 font-medium hover:text-foreground"
+    >
+      <span>Naziv</span>
+
+      @if (store.sort() === 'name-asc' || store.sort() === 'name-desc') {
+        <app-icon
+          [name]="'chevron-down'"
+          [size]="14"
+          [class.rotate-180]="store.sort() === 'name-asc'"
+        />
+      } @else {
+        <app-icon [name]="'arrow-up-down'" [size]="14" class="opacity-50" />
+      }
+    </button>
     <div class="px-4 font-medium whitespace-nowrap">Veličina</div>
-    <div class="px-4 text-right font-medium whitespace-nowrap">Datum promjene</div>
+    <button
+      type="button"
+      (click)="sortByUpdatedAt()"
+      class="flex h-full items-center justify-end gap-2 px-4 font-medium whitespace-nowrap hover:text-foreground"
+    >
+      <span>Datum promjene</span>
+
+      @if (store.sort() === 'updated-asc' || store.sort() === 'updated-desc') {
+        <app-icon
+          [name]="'chevron-down'"
+          [size]="14"
+          [class.rotate-180]="store.sort() === 'updated-asc'"
+        />
+      } @else {
+        <app-icon [name]="'arrow-up-down'" [size]="14" class="opacity-50" />
+      }
+    </button>
   </div>
 
   <div class="relative min-h-0 flex-1">
