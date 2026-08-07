@@ -1,5 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { Topbar } from './topbar/topbar';
 import { Sidebar } from './sidebar/sidebar';
 import { Dialog, DialogModule } from '@angular/cdk/dialog';
@@ -9,6 +9,8 @@ import { TransferStore } from '../../features/transfers/state/transfer-store';
 import { TransferPanel } from '../../features/transfers/ui/transfer-panel/transfer-panel';
 import { AuthService } from '../../auth/auth-service';
 import { EntryKindFilter } from '../../data-access/entries/entry-models';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { filter, map } from 'rxjs';
 
 @Component({
   selector: 'app-app-shell',
@@ -19,6 +21,7 @@ export class AppShell {
   private readonly dialog = inject(Dialog);
   private readonly driveStore = inject(DriveStore);
   private readonly authService = inject(AuthService);
+  private readonly router = inject(Router);
 
   readonly transferStore = inject(TransferStore);
   readonly transfersOpen = signal(false);
@@ -70,4 +73,14 @@ export class AppShell {
   onKindChanged(kind: EntryKindFilter): void {
     this.driveStore.setKind(kind);
   }
+
+  readonly isDriveRoute = toSignal(
+    this.router.events.pipe(
+      filter((event) => event instanceof NavigationEnd),
+      map((event) => event.urlAfterRedirects.startsWith('/drive')),
+    ),
+    {
+      initialValue: this.router.url.startsWith('/drive'),
+    },
+  );
 }

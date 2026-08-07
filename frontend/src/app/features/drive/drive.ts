@@ -2,6 +2,7 @@ import {
   afterRenderEffect,
   AfterViewInit,
   Component,
+  computed,
   DestroyRef,
   DOCUMENT,
   inject,
@@ -66,6 +67,25 @@ export class Drive implements OnInit, AfterViewInit {
 
   readonly trackEntry: TrackByFunction<EntryListItem> = (_index, entry) => entry.id;
   readonly viewport = viewChild(CdkVirtualScrollViewport);
+
+  readonly emptyMessage = computed(() => {
+    const search = this.store.search();
+    const kind = this.store.kind();
+
+    if (search !== null) {
+      return `Nema rezultata za "${search}".`;
+    }
+
+    if (kind === 'file') {
+      return `U ovom direktoriju nema datoteka.`;
+    }
+
+    if (kind === 'folder') {
+      return 'U ovom direktoriju nema poddirektorija.';
+    }
+
+    return 'Ovaj direktorij je prazan.';
+  });
 
   constructor() {
     afterRenderEffect({
