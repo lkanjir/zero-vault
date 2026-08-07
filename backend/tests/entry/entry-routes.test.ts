@@ -80,14 +80,20 @@ describe('entry routes', () => {
       parentId: null,
       cursor: null,
       limit: 50,
+      search: null,
+      kind: null,
+      sort: 'name-asc',
     });
   });
 
-  it('passes the parent, cursor and limit query to the listing service', async () => {
+  it('passes listing, search, filter and sort query values to the service', async () => {
     const response = await request(createTestApp(userService, entryService)).get('/entries').query({
       parentId: ENTRY_ID,
       cursor: 'cursor-value',
       limit: 25,
+      search: '  Report  ',
+      kind: 'file',
+      sort: 'updated-desc',
     });
 
     expect(response.status).toBe(200);
@@ -95,7 +101,38 @@ describe('entry routes', () => {
       parentId: ENTRY_ID,
       cursor: 'cursor-value',
       limit: 25,
+      search: 'Report',
+      kind: 'file',
+      sort: 'updated-desc',
     });
+  });
+
+  it('normalizes an empty search value to no search', async () => {
+    const response = await request(createTestApp(userService, entryService))
+      .get('/entries')
+      .query({ search: '   ' });
+
+    expect(response.status).toBe(200);
+    expect(entryService.listEntries).toHaveBeenCalledExactlyOnceWith(USER, {
+      parentId: null,
+      cursor: null,
+      limit: 50,
+      search: null,
+      kind: null,
+      sort: 'name-asc',
+    });
+  });
+
+  it.each([
+    ['kind', { kind: 'document' }],
+    ['sort', { sort: 'size-desc' }],
+  ])('rejects an unsupported listing %s value', async (_field, query) => {
+    const response = await request(createTestApp(userService, entryService))
+      .get('/entries')
+      .query(query);
+
+    expect(response.status).toBe(400);
+    expect(entryService.listEntries).not.toHaveBeenCalled();
   });
 
   it('renames an entry without adding parentId to the update request', async () => {

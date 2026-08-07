@@ -51,6 +51,9 @@ describe('EntryService', () => {
       parentId,
       cursor: null,
       limit: 2,
+      search: null,
+      kind: null,
+      sort: 'name-asc',
     });
 
     expect(repository.getEntries).toHaveBeenCalledExactlyOnceWith({
@@ -58,6 +61,9 @@ describe('EntryService', () => {
       parentId,
       cursor: null,
       limit: 3,
+      search: null,
+      kind: null,
+      sort: 'name-asc',
     });
     expect(response.items.map((entry) => entry.name)).toStrictEqual(['Alpha', 'Beta']);
     expect(response.items.map((entry) => entry.access)).toStrictEqual([
@@ -91,32 +97,71 @@ describe('EntryService', () => {
     });
     expect(response.page.nextCursor).not.toBeNull();
     expect(decodeCursor(response.page.nextCursor!)).toStrictEqual({
-      v: 1,
+      v: 2,
       parentId,
+      search: null,
+      kind: null,
+      sort: 'name-asc',
       kindRank: 0,
       sortName: 'beta',
+      updatedAt: NOW.toISOString(),
       entryId: 11,
     });
   });
 
-  it('rejects a cursor issued for another parent before querying the repository', async () => {
+  it('rejects a cursor issued for another listing query before querying the repository', async () => {
+    const parentId = '20000000-0000-4000-8000-000000000001';
     const cursor = encodeCursor({
-      v: 1,
-      parentId: '20000000-0000-4000-8000-000000000001',
+      v: 2,
+      parentId,
+      search: 'report',
+      kind: 'file',
+      sort: 'updated-desc',
       kindRank: 0,
       sortName: 'alpha',
+      updatedAt: NOW.toISOString(),
       entryId: 10,
     });
 
-    await expect(
-      service.listEntries(USER, {
+    const mismatchedRequests = [
+      {
         parentId: '20000000-0000-4000-8000-000000000002',
-        cursor,
-        limit: 50,
-      }),
-    ).rejects.toMatchObject({
-      code: 'cursor_parent_mismatch',
-    });
+        search: 'report',
+        kind: 'file' as const,
+        sort: 'updated-desc' as const,
+      },
+      {
+        parentId,
+        search: 'invoice',
+        kind: 'file' as const,
+        sort: 'updated-desc' as const,
+      },
+      {
+        parentId,
+        search: 'report',
+        kind: 'folder' as const,
+        sort: 'updated-desc' as const,
+      },
+      {
+        parentId,
+        search: 'report',
+        kind: 'file' as const,
+        sort: 'name-asc' as const,
+      },
+    ];
+
+    for (const request of mismatchedRequests) {
+      await expect(
+        service.listEntries(USER, {
+          ...request,
+          cursor,
+          limit: 50,
+        }),
+      ).rejects.toMatchObject({
+        code: 'invalid_cursor',
+      });
+    }
+
     expect(repository.getEntries).not.toHaveBeenCalled();
   });
 
@@ -137,6 +182,7 @@ function makeFolderRecord(entryId: number, name: string) {
     cursor: {
       kindRank: 0 as const,
       sortName: name.toLowerCase(),
+      updatedAt: NOW.toISOString(),
       entryId,
     },
     entry: {
@@ -153,6 +199,7 @@ function makeFileRecord(entryId: number, name: string) {
     cursor: {
       kindRank: 1 as const,
       sortName: name.toLowerCase(),
+      updatedAt: NOW.toISOString(),
       entryId,
     },
     entry: {

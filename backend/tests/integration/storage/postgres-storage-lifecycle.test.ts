@@ -562,6 +562,9 @@ describe('PostgreSQL storage lifecycle', () => {
         parentId: current.publicId,
         cursor: null,
         limit: 50,
+        search: null,
+        kind: null,
+        sort: 'name-asc',
       });
 
       expect(listing.path).toStrictEqual([
@@ -574,6 +577,116 @@ describe('PostgreSQL storage lifecycle', () => {
       ]);
       expect(listing.entries.map((record) => record.entry.kind)).toStrictEqual(['folder', 'file']);
     });
+
+    it('searches names case-insensitively as literal text and filters by kind', async () => {
+      const owner = await createUser();
+      const matchingFile = await createFile(owner.id, null, 'Q1_100%.txt', 'objects/matching');
+      const matchingFolder = await createFolder(owner.id, 'Q1_100% archive');
+      await createFile(owner.id, null, 'Q1A100-final.txt', 'objects/wildcard-decoy');
+
+      const allMatches = await entryRepository.getEntries({
+        ownerId: owner.id,
+        parentId: null,
+        cursor: null,
+        limit: 50,
+        search: 'q1_100%',
+        kind: null,
+        sort: 'name-asc',
+      });
+      const fileMatches = await entryRepository.getEntries({
+        ownerId: owner.id,
+        parentId: null,
+        cursor: null,
+        limit: 50,
+        search: 'q1_100%',
+        kind: 'file',
+        sort: 'name-asc',
+      });
+      const folderMatches = await entryRepository.getEntries({
+        ownerId: owner.id,
+        parentId: null,
+        cursor: null,
+        limit: 50,
+        search: 'q1_100%',
+        kind: 'folder',
+        sort: 'name-asc',
+      });
+
+      expect(allMatches.entries.map((record) => record.entry.id)).toStrictEqual([
+        matchingFolder.publicId,
+        matchingFile.publicId,
+      ]);
+      expect(fileMatches.entries.map((record) => record.entry.id)).toStrictEqual([
+        matchingFile.publicId,
+      ]);
+      expect(folderMatches.entries.map((record) => record.entry.id)).toStrictEqual([
+        matchingFolder.publicId,
+      ]);
+    });
+
+    it.each([
+      ['name-asc', ['Alpha.txt', 'bravo.txt', 'Charlie.txt', 'delta.txt']],
+      ['name-desc', ['delta.txt', 'Charlie.txt', 'bravo.txt', 'Alpha.txt']],
+      ['updated-asc', ['delta.txt', 'Charlie.txt', 'Alpha.txt', 'bravo.txt']],
+      ['updated-desc', ['bravo.txt', 'Alpha.txt', 'Charlie.txt', 'delta.txt']],
+    ] as const)(
+      'paginates without gaps or duplicates using %s ordering',
+      async (sort, expected) => {
+        const owner = await createUser();
+        const delta = await createFile(owner.id, null, 'delta.txt', 'objects/delta');
+        const alpha = await createFile(owner.id, null, 'Alpha.txt', 'objects/alpha');
+        const charlie = await createFile(owner.id, null, 'Charlie.txt', 'objects/charlie');
+        const bravo = await createFile(owner.id, null, 'bravo.txt', 'objects/bravo');
+
+        const oldest = new Date('2026-07-28T10:00:00.100Z');
+        const middle = new Date('2026-07-28T10:01:00.200Z');
+        const newest = new Date('2026-07-28T10:02:00.300Z');
+
+        await database.update(entries).set({ updatedAt: oldest }).where(eq(entries.id, delta.id));
+        await database.update(entries).set({ updatedAt: newest }).where(eq(entries.id, alpha.id));
+        await database.update(entries).set({ updatedAt: middle }).where(eq(entries.id, charlie.id));
+        await database.update(entries).set({ updatedAt: newest }).where(eq(entries.id, bravo.id));
+
+        const firstPage = await entryRepository.getEntries({
+          ownerId: owner.id,
+          parentId: null,
+          cursor: null,
+          limit: 2,
+          search: null,
+          kind: 'file',
+          sort,
+        });
+        const lastFirstPageEntry = firstPage.entries.at(-1);
+
+        if (!lastFirstPageEntry) {
+          throw new Error('Expected the first listing page to contain entries');
+        }
+
+        const secondPage = await entryRepository.getEntries({
+          ownerId: owner.id,
+          parentId: null,
+          cursor: {
+            v: 2,
+            parentId: null,
+            search: null,
+            kind: 'file',
+            sort,
+            ...lastFirstPageEntry.cursor,
+          },
+          limit: 2,
+          search: null,
+          kind: 'file',
+          sort,
+        });
+
+        const names = [...firstPage.entries, ...secondPage.entries].map(
+          (record) => record.entry.name,
+        );
+
+        expect(names).toStrictEqual(expected);
+        expect(new Set(names).size).toBe(expected.length);
+      },
+    );
   });
 
   async function createUser() {
