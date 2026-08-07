@@ -1,4 +1,5 @@
 import {
+  afterRenderEffect,
   AfterViewInit,
   Component,
   DestroyRef,
@@ -65,6 +66,18 @@ export class Drive implements OnInit, AfterViewInit {
 
   readonly trackEntry: TrackByFunction<EntryListItem> = (_index, entry) => entry.id;
   readonly viewport = viewChild(CdkVirtualScrollViewport);
+
+  constructor() {
+    afterRenderEffect({
+      write: () => {
+        this.store.search();
+        this.store.kind();
+        this.store.sort();
+
+        this.viewport()?.scrollToIndex(0);
+      },
+    });
+  }
 
   ngOnInit(): void {
     this.route.paramMap

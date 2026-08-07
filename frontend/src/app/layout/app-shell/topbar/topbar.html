@@ -1,6 +1,27 @@
-<div id="topbar" class="flex h-16 cursor-pointer items-center justify-center gap-3">
+<div id="topbar" class="flex h-16 items-center justify-center gap-3">
   <div class="flex w-[70%] justify-center gap-3">
-    <div id="search-bar" class="flex h-10 w-[70%] cursor-pointer gap-2 rounded-md bg-surface px-2">
+    <div class="relative shrink-0">
+      <select
+        #kindFilter
+        (change)="onKindChanged(kindFilter.value)"
+        class="h-10 shrink-0 cursor-pointer appearance-none rounded-md bg-surface py-0 pr-9 pl-3 text-sm font-semibold text-foreground"
+      >
+        <option value="">Sve</option>
+        <option value="file">Datoteke</option>
+        <option value="folder">Direktoriji</option>
+      </select>
+
+      <app-icon
+        [name]="'chevron-down'"
+        [size]="16"
+        class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-foreground"
+      />
+    </div>
+
+    <div
+      id="search-bar"
+      class="flex h-10 min-w-0 flex-1 cursor-pointer gap-2 rounded-md bg-surface px-2"
+    >
       <app-icon [name]="'search'" [size]="16" [stroke]="3" class="gap-2 text-foreground-muted" />
       <input
         #search

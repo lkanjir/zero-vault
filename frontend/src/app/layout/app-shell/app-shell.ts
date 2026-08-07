@@ -8,6 +8,7 @@ import { DriveStore } from '../../features/drive/state/drive-store';
 import { TransferStore } from '../../features/transfers/state/transfer-store';
 import { TransferPanel } from '../../features/transfers/ui/transfer-panel/transfer-panel';
 import { AuthService } from '../../auth/auth-service';
+import { EntryKindFilter } from '../../data-access/entries/entry-models';
 
 @Component({
   selector: 'app-app-shell',
@@ -64,5 +65,9 @@ export class AppShell {
 
   onSearchChanged(value: string): void {
     this.driveStore.setSearch(value);
+  }
+
+  onKindChanged(kind: EntryKindFilter): void {
+    this.driveStore.setKind(kind);
   }
 }

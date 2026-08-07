@@ -11,6 +11,7 @@
         (createFolderRequested)="openCreateFolderDialog()"
         (uploadFileRequested)="fileInput.click()"
         (searchChanged)="onSearchChanged($event)"
+        (kindChanged)="onKindChanged($event)"
       />
 
       <input type="file" #fileInput hidden (change)="onFileChanged($event)" multiple />
