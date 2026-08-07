@@ -10,6 +10,7 @@
       <app-topbar
         (createFolderRequested)="openCreateFolderDialog()"
         (uploadFileRequested)="fileInput.click()"
+        (searchChanged)="onSearchChanged($event)"
       />
 
       <input type="file" #fileInput hidden (change)="onFileChanged($event)" multiple />

@@ -10,7 +10,7 @@ export class EntryApi {
   private readonly http = inject(HttpClient);
 
   getEntries(params: EntryRequestParams): Observable<EntryList> {
-    let httpParams = new HttpParams().set('limit', params.limit);
+    let httpParams = new HttpParams().set('limit', params.limit).set('sort', params.sort);
 
     if (params.parentId !== null) {
       httpParams = httpParams.set('parentId', params.parentId);
@@ -18,6 +18,14 @@ export class EntryApi {
 
     if (params.cursor !== null) {
       httpParams = httpParams.set('cursor', params.cursor);
+    }
+
+    if (params.search !== null) {
+      httpParams = httpParams.set('search', params.search);
+    }
+
+    if (params.kind !== null) {
+      httpParams = httpParams.set('kind', params.kind);
     }
 
     return this.http.get<EntryList>('/api/entries', { params: httpParams });

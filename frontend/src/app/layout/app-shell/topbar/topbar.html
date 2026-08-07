@@ -1,17 +1,13 @@
 <div id="topbar" class="flex h-16 cursor-pointer items-center justify-center gap-3">
   <div class="flex w-[70%] justify-center gap-3">
     <div id="search-bar" class="flex h-10 w-[70%] cursor-pointer gap-2 rounded-md bg-surface px-2">
-      <app-icon
-        [name]="'search'"
-        [size]="16"
-        [stroke]="3"
-        class="gap-2"
-        class="text-foreground-muted"
-      />
+      <app-icon [name]="'search'" [size]="16" [stroke]="3" class="gap-2 text-foreground-muted" />
       <input
+        #search
         id="search"
         type="text"
         placeholder="Pretraži po nazivu"
+        (input)="onSearchInput(search.value)"
         class="w-full text-sm font-semibold text-foreground-muted placeholder-foreground-muted"
       />
     </div>

@@ -2,7 +2,11 @@ import { inject, Injectable, signal } from '@angular/core';
 import { finalize, Subscription } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { apiErrorMessage, toApiError } from '../../../shared/api-error';
-import { EntryList } from '../../../data-access/entries/entry-models';
+import {
+  EntryKindFilter,
+  EntryList,
+  EntryListSort,
+} from '../../../data-access/entries/entry-models';
 import { EntryApi } from '../../../data-access/entries/entry-api';
 
 const ENTRY_PAGE_SIZE = 50;
@@ -20,6 +24,9 @@ export class DriveStore {
   private readonly _hasMore = signal(false);
   private readonly _loadingMore = signal(false);
   private readonly _loadMoreError = signal<string | null>(null);
+  private readonly _search = signal<string | null>(null);
+  private readonly _kind = signal<EntryKindFilter>(null);
+  private readonly _sort = signal<EntryListSort>('name-asc');
 
   readonly path = this._path.asReadonly();
   readonly parentId = this._parentId.asReadonly();
@@ -30,6 +37,9 @@ export class DriveStore {
   readonly hasMore = this._hasMore.asReadonly();
   readonly loadingMore = this._loadingMore.asReadonly();
   readonly loadMoreError = this._loadMoreError.asReadonly();
+  readonly search = this._search.asReadonly();
+  readonly kind = this._kind.asReadonly();
+  readonly sort = this._sort.asReadonly();
 
   private loadSubscription?: Subscription;
   private loadMoreSubscription?: Subscription;
@@ -51,7 +61,14 @@ export class DriveStore {
     this._error.set(null);
 
     this.loadSubscription = this.entryApi
-      .getEntries({ parentId: parentId, cursor: null, limit: ENTRY_PAGE_SIZE })
+      .getEntries({
+        parentId: parentId,
+        cursor: null,
+        limit: ENTRY_PAGE_SIZE,
+        sort: this._sort(),
+        kind: this._kind(),
+        search: this._search(),
+      })
       .pipe(finalize(() => this._loading.set(false)))
       .subscribe({
         next: (response) => {
@@ -98,6 +115,9 @@ export class DriveStore {
         parentId,
         cursor,
         limit: ENTRY_PAGE_SIZE,
+        sort: this._sort(),
+        kind: this._kind(),
+        search: this._search(),
       })
       .pipe(finalize(() => this._loadingMore.set(false)))
       .subscribe({
@@ -142,6 +162,39 @@ export class DriveStore {
     }
 
     this._entries.update((entries) => entries.filter((entry) => entry.id !== entryId));
+  }
+
+  setSearch(value: string): void {
+    const search = value.trim() || null;
+    if (this._search() === search) {
+      return;
+    }
+
+    this._search.set(search);
+    this.reloadForQueryChange();
+  }
+
+  setKind(kind: EntryKindFilter): void {
+    if (this._kind() === kind) {
+      return;
+    }
+
+    this._kind.set(kind);
+    this.reloadForQueryChange();
+  }
+
+  setSort(sort: EntryListSort): void {
+    if (this._sort() === sort) {
+      return;
+    }
+
+    this._sort.set(sort);
+    this.reloadForQueryChange();
+  }
+
+  private reloadForQueryChange(): void {
+    this._entries.set([]);
+    this.loadFolder(this._parentId());
   }
 
   private resetPagination(): void {

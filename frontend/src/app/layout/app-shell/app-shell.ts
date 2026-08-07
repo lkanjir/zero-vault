@@ -61,4 +61,8 @@ export class AppShell {
   logout(): Promise<void> {
     return this.authService.logout();
   }
+
+  onSearchChanged(value: string): void {
+    this.driveStore.setSearch(value);
+  }
 }

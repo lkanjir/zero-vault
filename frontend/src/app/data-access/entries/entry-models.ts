@@ -47,8 +47,15 @@ export type EntryList = CursorPage<EntryListItem> & {
 
 export type EntryUpdateRequest = { name: string } | { parentId: string | null };
 
+export type EntryKindFilter = 'file' | 'folder' | null;
+
+export type EntryListSort = 'name-asc' | 'name-desc' | 'updated-desc' | 'updated-asc';
+
 export type EntryRequestParams = {
   parentId: string | null;
   cursor: string | null;
   limit: number;
+  search: string | null;
+  kind: EntryKindFilter;
+  sort: EntryListSort;
 };

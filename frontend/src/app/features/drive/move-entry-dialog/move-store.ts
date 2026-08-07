@@ -6,6 +6,11 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { apiErrorMessage, toApiError } from '../../../shared/api-error';
 
 const DESTINATION_PAGE_SIZE = 50;
+const DESTINATION_QUERY = {
+  search: null,
+  kind: 'folder',
+  sort: 'name-asc',
+} as const;
 
 @Injectable()
 export class MoveStore {
@@ -48,7 +53,7 @@ export class MoveStore {
     this.resetPagination();
 
     this.loadSubscription = this.entryApi
-      .getEntries({ parentId, cursor: null, limit: DESTINATION_PAGE_SIZE })
+      .getEntries({ parentId, cursor: null, limit: DESTINATION_PAGE_SIZE, ...DESTINATION_QUERY })
       .pipe(
         takeUntilDestroyed(this.destroyRef),
         finalize(() => this._loading.set(false)),
@@ -56,13 +61,12 @@ export class MoveStore {
       .subscribe({
         next: (response) => {
           const folders = response.items.filter((entry) => entry.kind === 'folder');
-          const reachedFiles = response.items.some((entry) => entry.kind === 'file');
 
           this._parentId.set(parentId);
           this._path.set(response.path);
           this._folders.set(folders);
           this._nextCursor.set(response.page.nextCursor);
-          this._hasMore.set(response.page.hasMore && !reachedFiles);
+          this._hasMore.set(response.page.hasMore);
         },
         error: (error) => {
           this._error.set(apiErrorMessage(toApiError(error), 'Direktorij se ne može učitati.'));
@@ -90,7 +94,12 @@ export class MoveStore {
     this._loadMoreError.set(null);
 
     this.loadMoreSubscription = this.entryApi
-      .getEntries({ parentId: this._parentId(), cursor, limit: DESTINATION_PAGE_SIZE })
+      .getEntries({
+        parentId: this._parentId(),
+        cursor,
+        limit: DESTINATION_PAGE_SIZE,
+        ...DESTINATION_QUERY,
+      })
       .pipe(
         takeUntilDestroyed(this.destroyRef),
         finalize(() => this._loadingMore.set(false)),
@@ -98,11 +107,10 @@ export class MoveStore {
       .subscribe({
         next: (response) => {
           const folders = response.items.filter((entry) => entry.kind === 'folder');
-          const reachedFiles = response.items.some((entry) => entry.kind === 'file');
 
           this._folders.update((current) => [...current, ...folders]);
           this._nextCursor.set(response.page.nextCursor);
-          this._hasMore.set(response.page.hasMore && !reachedFiles);
+          this._hasMore.set(response.page.hasMore);
         },
         error: (error) => {
           this._loadMoreError.set(
