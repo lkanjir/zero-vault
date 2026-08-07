@@ -9,12 +9,12 @@ import type {
   ResolvedFolderPath,
   UpdateEntryCommand,
 } from './entry-repository.js';
-import { eq, isNull, sql, and, or, gt, type SQL } from 'drizzle-orm';
+import { eq, isNull, sql, and, or, gt, type SQL, ilike, asc, desc, lt } from 'drizzle-orm';
 import { entries, files } from '../db/schema.js';
 import { db, type Transaction } from '../db/db-client.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
-import type { Entry } from './entry.js';
+import type { Entry, EntryListSort } from './entry.js';
 import { mapEntryDatabaseError } from './map-entry-db-error.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 import { enqueueObjectDeletionInTransaction } from '../object-deletion/object-deletion-helpers.js';
@@ -48,10 +48,12 @@ export class PostgresEntryRepository implements EntryRepository {
 
   readonly kindRankExpression = sql<number>`case when ${entries.kind} = 'folder' then 0 else 1 end`;
   readonly sortNameExpression = sql<string>`lower(${entries.name})`;
+  readonly sortUpdatedAtExpression = sql<Date>`date_trunc('milliseconds', ${entries.updatedAt})`;
 
   async getEntries(query: EntriesQuery): Promise<EntryListing> {
     const resolvedFolder = await this.resolveFolderPath(query.ownerId, query.parentId);
-    const filter = this.createFilter(query.cursor);
+    const cursorFilter = this.createCursorFilter(query.cursor);
+    const ordering = this.createOrdering(query.sort);
 
     const condition: SQL[] = [
       eq(entries.ownerId, query.ownerId),
@@ -61,8 +63,17 @@ export class PostgresEntryRepository implements EntryRepository {
       isNull(entries.deletedAt),
     ];
 
-    if (filter) {
-      condition.push(filter);
+    if (query.search !== null) {
+      const escapedSearch = query.search.replace(/[\\%_]/g, '\\$&');
+      condition.push(ilike(entries.name, `%${escapedSearch}%`));
+    }
+
+    if (query.kind !== null) {
+      condition.push(eq(entries.kind, query.kind));
+    }
+
+    if (cursorFilter) {
+      condition.push(cursorFilter);
     }
 
     const rows = await db
@@ -79,7 +90,7 @@ export class PostgresEntryRepository implements EntryRepository {
       .from(entries)
       .leftJoin(files, eq(files.entryId, entries.id))
       .where(and(...condition))
-      .orderBy(this.kindRankExpression, this.sortNameExpression, entries.id)
+      .orderBy(...ordering)
       .limit(query.limit);
 
     return {
@@ -461,23 +472,60 @@ export class PostgresEntryRepository implements EntryRepository {
     };
   }
 
-  private createFilter(cursor: EntryListCursor | null): SQL | undefined {
-    if (!cursor) {
+  private createCursorFilter(cursor: EntryListCursor | null): SQL | undefined {
+    if (cursor === null) {
       return undefined;
     }
 
     return or(
       gt(this.kindRankExpression, cursor.kindRank),
-      and(
-        eq(this.kindRankExpression, cursor.kindRank),
-        gt(this.sortNameExpression, cursor.sortName),
-      ),
-      and(
-        eq(this.kindRankExpression, cursor.kindRank),
-        eq(this.sortNameExpression, cursor.sortName),
-        gt(entries.id, cursor.entryId),
-      ),
+      and(eq(this.kindRankExpression, cursor.kindRank), this.createCursorPositionFilter(cursor)),
     );
+  }
+
+  private createCursorPositionFilter(cursor: EntryListCursor): SQL | undefined {
+    switch (cursor.sort) {
+      case 'name-asc':
+        return or(
+          gt(this.sortNameExpression, cursor.sortName),
+          and(eq(this.sortNameExpression, cursor.sortName), gt(entries.id, cursor.entryId)),
+        );
+
+      case 'name-desc':
+        return or(
+          lt(this.sortNameExpression, cursor.sortName),
+          and(eq(this.sortNameExpression, cursor.sortName), lt(entries.id, cursor.entryId)),
+        );
+
+      case 'updated-asc': {
+        const updatedAt = new Date(cursor.updatedAt);
+        return or(
+          gt(this.sortUpdatedAtExpression, updatedAt),
+          and(eq(this.sortUpdatedAtExpression, updatedAt), gt(entries.id, cursor.entryId)),
+        );
+      }
+
+      case 'updated-desc': {
+        const updatedAt = new Date(cursor.updatedAt);
+        return or(
+          lt(this.sortUpdatedAtExpression, updatedAt),
+          and(eq(this.sortUpdatedAtExpression, updatedAt), lt(entries.id, cursor.entryId)),
+        );
+      }
+    }
+  }
+
+  private createOrdering(sort: EntryListSort): SQL[] {
+    switch (sort) {
+      case 'name-asc':
+        return [asc(this.kindRankExpression), asc(this.sortNameExpression), asc(entries.id)];
+      case 'name-desc':
+        return [asc(this.kindRankExpression), desc(this.sortNameExpression), desc(entries.id)];
+      case 'updated-asc':
+        return [asc(this.kindRankExpression), asc(this.sortUpdatedAtExpression), asc(entries.id)];
+      case 'updated-desc':
+        return [asc(this.kindRankExpression), desc(this.sortUpdatedAtExpression), desc(entries.id)];
+    }
   }
 
   private toFolder(row: typeof entries.$inferSelect): Folder {
