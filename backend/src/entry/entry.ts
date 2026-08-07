@@ -11,3 +11,7 @@ export type Entry = {
   updatedAt: Date;
   deletedAt: Date | null;
 };
+
+export const ENTRY_LIST_SORTS = ['name-asc', 'name-desc', 'updated-desc', 'updated-asc'] as const;
+
+export type EntryListSort = (typeof ENTRY_LIST_SORTS)[number];

@@ -27,6 +27,9 @@ export function createEntryRouter(deps: EntryRouterDeps): Router {
         limit: validated.query.limit,
         cursor: validated.query.cursor,
         parentId: validated.query.parentId,
+        sort: validated.query.sort,
+        kind: validated.query.kind,
+        search: validated.query.search,
       });
 
       res.status(200).json(result);

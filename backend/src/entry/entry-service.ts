@@ -16,13 +16,14 @@ export class EntryService {
     const projectedAt = new Date();
     const cursor = request.cursor ? decodeCursor(request.cursor) : null;
 
-    if (cursor && cursor.parentId !== request.parentId) {
-      throw new AppError('cursor_parent_mismatch', {
-        context: {
-          cursorParentId: cursor.parentId,
-          requestedParentId: request.parentId,
-        },
-      });
+    if (
+      cursor &&
+      (cursor.parentId !== request.parentId ||
+        cursor.search !== request.search ||
+        cursor.kind !== request.kind ||
+        cursor.sort !== request.sort)
+    ) {
+      throw new AppError('invalid_cursor');
     }
 
     const entriesResult = await this.entryRepository.getEntries({
@@ -30,6 +31,9 @@ export class EntryService {
       limit: request.limit + 1,
       ownerId: user.id,
       parentId: request.parentId,
+      search: request.search,
+      kind: request.kind,
+      sort: request.sort,
     });
 
     const pageEntries = entriesResult.entries.slice(0, request.limit);
@@ -38,7 +42,14 @@ export class EntryService {
 
     const nextCursor =
       hasMore && lastEntry
-        ? encodeCursor({ v: 1, parentId: request.parentId, ...lastEntry.cursor })
+        ? encodeCursor({
+            v: 2,
+            parentId: request.parentId,
+            sort: request.sort,
+            kind: request.kind,
+            search: request.search,
+            ...lastEntry.cursor,
+          })
         : null;
 
     return {

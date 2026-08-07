@@ -1,9 +1,14 @@
 import z from 'zod';
 import { AppError } from '../shared/errors/api/app-error.js';
+import { ENTRY_LIST_SORTS } from './entry.js';
 
 const entryListCursorSchema = z.object({
-  v: z.literal(1),
+  v: z.literal(2),
   parentId: z.uuid().nullable(),
+  search: z.string().max(500).nullable(),
+  kind: z.enum(['file', 'folder']).nullable(),
+  sort: z.enum(ENTRY_LIST_SORTS),
+  updatedAt: z.iso.datetime(),
   kindRank: z.union([z.literal(0), z.literal(1)]), // 0 - folder, 1 - file --- folder prije file
   sortName: z.string().min(1).max(500),
   entryId: z.number().int().positive(),

@@ -506,6 +506,7 @@ function toEntryListRecord(row: QueryDbRow): EntryListRecord {
         kindRank: 0,
         sortName: row.sortName,
         entryId: row.entryId,
+        updatedAt: row.updatedAt.toISOString(),
       },
       entry: {
         kind: 'folder',
@@ -525,6 +526,7 @@ function toEntryListRecord(row: QueryDbRow): EntryListRecord {
       kindRank: 1,
       sortName: row.sortName,
       entryId: row.entryId,
+      updatedAt: row.updatedAt.toISOString(),
     },
     entry: {
       kind: 'file',

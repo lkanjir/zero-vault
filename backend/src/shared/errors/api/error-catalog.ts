@@ -121,11 +121,6 @@ export const errorCatalog = {
     message: 'Kursor za nastavak popisa nije ispravan.',
   },
 
-  cursor_parent_mismatch: {
-    status: 400,
-    message: 'Kursor ne pripada traženom direktoriju.',
-  },
-
   upload_not_found: {
     status: 404,
     message: 'Prijenos nije pronađen.',

@@ -1,6 +1,7 @@
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
 import type { FolderPath } from './folder-path.js';
+import type { EntryKind, EntryListSort } from './entry.js';
 
 export type ListedEntry =
   | {
@@ -18,7 +19,10 @@ export type ListedEntry =
       updatedAt: Date;
     };
 
-export type EntryCursorPosition = Pick<EntryListCursor, 'kindRank' | 'sortName' | 'entryId'>;
+export type EntryCursorPosition = Pick<
+  EntryListCursor,
+  'kindRank' | 'sortName' | 'entryId' | 'updatedAt'
+>;
 
 export type EntryListRecord = {
   entry: ListedEntry;
@@ -38,6 +42,9 @@ export type ResolvedFolderPath = {
 export type EntriesQuery = {
   ownerId: number;
   parentId: string | null;
+  search: string | null;
+  kind: EntryKind | null;
+  sort: EntryListSort;
   cursor: EntryListCursor | null;
   limit: number;
 };
