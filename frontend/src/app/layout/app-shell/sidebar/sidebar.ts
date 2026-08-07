@@ -15,9 +15,11 @@ import { SidebarItem } from './sidebar-item/sidebar-item';
 })
 export class Sidebar {
   readonly open = signal<boolean>(false);
-  readonly transfersRequested = output<void>();
 
   readonly failedTransferCount = input<number>(0);
+  
+  readonly transfersRequested = output<void>();
+  readonly logoutRequested = output<void>();
 
   toggleOpen() {
     this.open.update((current) => !current);

@@ -2,129 +2,49 @@ name: local
 variables:
   - name: apiBaseUrl
     value: http://localhost:3000
-    enabled: true
-    secret: false
-    type: text
-    description: Zero Vault backend base URL
   - name: oidcIssuer
     value: http://localhost:8080/realms/zero-vault
-    enabled: true
-    secret: false
-    type: text
-    description: Keycloak realm issuer URL
   - name: clientId
     value: zero-vault-cli
-    enabled: true
-    secret: false
-    type: text
-    description: Direct Access Grant client
   - name: ownerUsername
-    value: ''
-    enabled: true
-    secret: false
-    type: text
-    description: Existing Keycloak owner username
-  - name: ownerPassword
-    value: ''
-    enabled: true
-    secret: true
-    type: text
-    description: Existing Keycloak owner password
+    value: ""
+  - secret: true
+    name: ownerPassword
   - name: recipientUsername
-    value: ''
-    enabled: true
-    secret: false
-    type: text
-    description: Existing Keycloak recipient username
-  - name: recipientPassword
-    value: ''
-    enabled: true
-    secret: true
-    type: text
-    description: Existing Keycloak recipient password
+    value: ""
+  - secret: true
+    name: recipientPassword
   - name: recipientEmail
-    value: ''
-    enabled: true
-    secret: false
-    type: text
-    description: Verified normalized email belonging to the recipient
-  - name: ownerAccessToken
-    value: ''
-    enabled: true
-    secret: true
-    type: text
-  - name: recipientAccessToken
-    value: ''
-    enabled: true
-    secret: true
-    type: text
+    value: ""
+  - secret: true
+    name: ownerAccessToken
+  - secret: true
+    name: recipientAccessToken
   - name: demoRunId
-    value: ''
-    enabled: true
-    secret: false
-    type: text
+    value: ""
   - name: sourceFolderId
-    value: ''
-    enabled: true
-    secret: false
-    type: text
+    value: ""
   - name: targetFolderId
-    value: ''
-    enabled: true
-    secret: false
-    type: text
+    value: ""
   - name: uploadId
-    value: ''
-    enabled: true
-    secret: false
-    type: text
-  - name: uploadUrl
-    value: ''
-    enabled: true
-    secret: true
-    type: text
+    value: ""
+  - secret: true
+    name: uploadUrl
   - name: uploadRequiredContentType
-    value: ''
-    enabled: true
-    secret: false
-    type: text
+    value: ""
   - name: uploadChecksumBase64
-    value: ''
-    enabled: true
-    secret: false
-    type: text
+    value: ""
   - name: fileId
-    value: ''
-    enabled: true
-    secret: false
-    type: text
-  - name: fileDownloadUrl
-    value: ''
-    enabled: true
-    secret: true
-    type: text
+    value: ""
+  - secret: true
+    name: fileDownloadUrl
   - name: folderDownloadId
-    value: ''
-    enabled: true
-    secret: false
-    type: text
-  - name: folderDownloadUrl
-    value: ''
-    enabled: true
-    secret: true
-    type: text
+    value: ""
+  - secret: true
+    name: folderDownloadUrl
   - name: shareId
-    value: ''
-    enabled: true
-    secret: false
-    type: text
+    value: ""
   - name: sharedFileId
-    value: ''
-    enabled: true
-    secret: false
-    type: text
-  - name: recipientDownloadUrl
-    value: ''
-    enabled: true
-    secret: true
-    type: text
+    value: ""
+  - secret: true
+    name: recipientDownloadUrl

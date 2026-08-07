@@ -45,4 +45,16 @@
     [text]="'Aktivni prijenosi'"
   >
   </app-sidebar-item>
+
+  <button
+    type="button"
+    (click)="logoutRequested.emit()"
+    class="mt-auto grid h-12 shrink-0 cursor-pointer grid-cols-[4rem_minmax(0,1fr)] items-center rounded-md hover:bg-surface-hover"
+  >
+    <span class="flex items-center justify-center">
+      <app-icon [name]="'log-out'" />
+    </span>
+
+    <span class="truncate text-left text-lg font-semibold">Odjava</span>
+  </button>
 </aside>

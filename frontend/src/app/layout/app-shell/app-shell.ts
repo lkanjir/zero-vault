@@ -7,6 +7,7 @@ import { CreateFolderDialog } from '../../features/drive/create-folder-dialog/cr
 import { DriveStore } from '../../features/drive/state/drive-store';
 import { TransferStore } from '../../features/transfers/state/transfer-store';
 import { TransferPanel } from '../../features/transfers/ui/transfer-panel/transfer-panel';
+import { AuthService } from '../../auth/auth-service';
 
 @Component({
   selector: 'app-app-shell',
@@ -16,8 +17,9 @@ import { TransferPanel } from '../../features/transfers/ui/transfer-panel/transf
 export class AppShell {
   private readonly dialog = inject(Dialog);
   private readonly driveStore = inject(DriveStore);
-  readonly transferStore = inject(TransferStore);
+  private readonly authService = inject(AuthService);
 
+  readonly transferStore = inject(TransferStore);
   readonly transfersOpen = signal(false);
 
   openCreateFolderDialog(): void {
@@ -54,5 +56,9 @@ export class AppShell {
 
   closeTransfers() {
     this.transfersOpen.set(false);
+  }
+
+  logout(): Promise<void> {
+    return this.authService.logout();
   }
 }
