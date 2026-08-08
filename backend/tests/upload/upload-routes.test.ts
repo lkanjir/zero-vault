@@ -168,6 +168,7 @@ describe('upload routes contract', () => {
     'upload_checksum_mismatch',
     'upload_size_mismatch',
     'upload_content_type_mismatch',
+    'replacement_conflict',
     'storage_unavailable',
   ] as const)('returns the %s completion error contract', async (code) => {
     completeUploadUseCase.execute.mockRejectedValue(new AppError(code));

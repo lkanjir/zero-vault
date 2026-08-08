@@ -79,13 +79,14 @@ describe('UploadService', () => {
 
     expect(repo.save).toHaveBeenCalledOnce();
     expect(repo.save.mock.lastCall![0]).toMatchObject({
-      uploadId: result.uploadId,
-      createdByUserId: USER.id,
+      upload: {
+        uploadId: result.uploadId,
+        createdByUserId: USER.id,
+        contentType: 'text/plain',
+        expectedSizeBytes: 12,
+        expectedSha256: EXPECTED_SHA256,
+      },
       fileName: 'document.txt',
-      contentType: 'text/plain',
-      expectedSizeBytes: 12,
-      expectedSha256: EXPECTED_SHA256,
-      status: 'pending',
       parentFolderId,
     });
   });
@@ -128,6 +129,65 @@ describe('UploadService', () => {
     });
     expect(storage.createPresignedUploadUrl).not.toHaveBeenCalled();
     expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('creates a replacement intent and returns required upload headers', async () => {
+    storage.createPresignedUploadUrl.mockResolvedValue(SIGNED_URL);
+    const filePublicId = '20000000-0000-4000-8000-000000000001';
+
+    const result = await service.createReplacementUpload(USER, filePublicId, {
+      contentType: 'application/pdf',
+      size: 24,
+      sha256: EXPECTED_SHA256,
+    });
+
+    expect(repo.assertReplacementTargetAvailable).toHaveBeenCalledExactlyOnceWith({
+      userId: USER.id,
+      filePublicId,
+    });
+    expect(storage.createPresignedUploadUrl).toHaveBeenCalledOnce();
+    expect(storage.createPresignedUploadUrl.mock.lastCall![0]).toMatchObject({
+      contentType: 'application/pdf',
+      expiresInSeconds: 60,
+      sha256Hex: EXPECTED_SHA256,
+    });
+    expect(repo.saveReplacement).toHaveBeenCalledOnce();
+    expect(repo.saveReplacement.mock.lastCall![0]).toMatchObject({
+      filePublicId,
+      upload: {
+        uploadId: result.uploadId,
+        createdByUserId: USER.id,
+        contentType: 'application/pdf',
+        expectedSizeBytes: 24,
+        expectedSha256: EXPECTED_SHA256,
+      },
+    });
+    expect(result).toStrictEqual({
+      uploadId: result.uploadId,
+      uploadUrl: SIGNED_URL,
+      expiresInSeconds: 60,
+      requiredHeaders: {
+        'Content-Type': 'application/pdf',
+        'x-amz-checksum-sha256': EXPECTED_SHA256_BASE64,
+      },
+    });
+  });
+
+  it('does not presign or save a replacement when fail-fast authorization rejects it', async () => {
+    const filePublicId = '20000000-0000-4000-8000-000000000001';
+    const authorizationError = new AppError('entry_not_found');
+    repo.assertReplacementTargetAvailable.mockRejectedValue(authorizationError);
+
+    await expect(
+      service.createReplacementUpload(USER, filePublicId, {
+        contentType: 'text/plain',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+      }),
+    ).rejects.toBe(authorizationError);
+
+    expect(storage.createPresignedUploadUrl).not.toHaveBeenCalled();
+    expect(repo.saveReplacement).not.toHaveBeenCalled();
   });
 
   it('verifies the uploaded object and completes a pending upload', async () => {
@@ -344,6 +404,42 @@ describe('UploadService', () => {
       code: 'upload_not_found',
     });
   });
+
+  it('maps a superseded replacement completion to replacement_conflict', async () => {
+    const intent = makePendingIntent({
+      operation: 'replace',
+      fileName: null,
+      targetFileId: 10,
+      expectedContentVersion: 1,
+    });
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
+    storage.headObject.mockResolvedValue(makeObjectMetadata(intent));
+    repo.completeVerifiedUpload.mockResolvedValue({ kind: 'superseded' });
+
+    await expect(service.completeUpload(USER, intent.uploadId)).rejects.toMatchObject({
+      code: 'replacement_conflict',
+    });
+
+    expect(storage.headObject).toHaveBeenCalledExactlyOnceWith(intent.objectKey);
+  });
+
+  it('returns replacement_conflict for an already superseded intent without reading storage', async () => {
+    const intent = makePendingIntent({
+      operation: 'replace',
+      status: 'superseded',
+      fileName: null,
+      targetFileId: 10,
+      expectedContentVersion: 1,
+    });
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
+    repo.completeVerifiedUpload.mockResolvedValue({ kind: 'superseded' });
+
+    await expect(service.completeUpload(USER, intent.uploadId)).rejects.toMatchObject({
+      code: 'replacement_conflict',
+    });
+
+    expect(storage.headObject).not.toHaveBeenCalled();
+  });
 });
 
 function makePendingIntent(overrides: Partial<UploadIntent> = {}): UploadIntent {
@@ -363,6 +459,9 @@ function makePendingIntent(overrides: Partial<UploadIntent> = {}): UploadIntent 
     uploadUrlExpiresAt: new Date(Date.now() + 60_000),
     finalizeDeadline: new Date(Date.now() + 600_000),
     completedAt: null,
+    operation: 'create',
+    targetFileId: null,
+    expectedContentVersion: null,
     ...overrides,
   };
 }

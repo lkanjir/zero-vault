@@ -12,10 +12,12 @@ import { requestContext } from '../../src/shared/http/request-context.js';
 import type { ErrorResponse } from '../../src/shared/errors/api/error-response.js';
 import type { FileSharingService } from '../../src/sharing/file-sharing-service.js';
 import { AppError } from '../../src/shared/errors/api/app-error.js';
+import type { UploadService } from '../../src/upload/upload-service.js';
 
 const FILE_ID = '20000000-0000-4000-8000-000000000001';
 const SHARE_ID = '30000000-0000-4000-8000-000000000001';
 const DOWNLOAD_URL = 'https://storage.example.test/download';
+const EXPECTED_SHA256 = 'a'.repeat(64);
 
 const PRINCIPAL: AuthenticatedPrincipal = {
   issuer: process.env['OIDC_ISSUER']!,
@@ -42,11 +44,13 @@ describe('files routes', () => {
   let userService: MockProxy<UserService>;
   let downloadService: MockProxy<FileDownloadService>;
   let sharingService: MockProxy<FileSharingService>;
+  let uploadService: MockProxy<UploadService>;
 
   beforeEach(() => {
     userService = mock<UserService>();
     downloadService = mock<FileDownloadService>();
     sharingService = mock<FileSharingService>();
+    uploadService = mock<UploadService>();
 
     userService.resolveUser.mockResolvedValue(USER);
     downloadService.createDownloadUrl.mockResolvedValue({
@@ -77,6 +81,15 @@ describe('files routes', () => {
       recipientEmail: 'recipient@example.com',
       permission: 'editor',
       expiresAt: null,
+    });
+    uploadService.createReplacementUpload.mockResolvedValue({
+      uploadId: '40000000-0000-4000-8000-000000000001',
+      uploadUrl: 'https://storage.example.test/upload',
+      expiresInSeconds: 60,
+      requiredHeaders: {
+        'Content-Type': 'application/pdf',
+        'x-amz-checksum-sha256': Buffer.from(EXPECTED_SHA256, 'hex').toString('base64'),
+      },
     });
     sharingService.listSharedFiles.mockResolvedValue({
       items: [
@@ -145,6 +158,71 @@ describe('files routes', () => {
     expect(typeof body.requestId).toBe('string');
     expect(Array.isArray(body.details?.issues)).toBe(true);
     expect(downloadService.createDownloadUrl).not.toHaveBeenCalled();
+  });
+
+  it('creates a replacement upload intent for a valid file', async () => {
+    const response = await request(
+      createTestApp(userService, downloadService, sharingService, uploadService),
+    )
+      .post(`/files/${FILE_ID}/replacements`)
+      .send({
+        contentType: ' Application/PDF; charset=binary ',
+        size: 24,
+        sha256: EXPECTED_SHA256.toUpperCase(),
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body).toStrictEqual({
+      uploadId: '40000000-0000-4000-8000-000000000001',
+      uploadUrl: 'https://storage.example.test/upload',
+      expiresInSeconds: 60,
+      requiredHeaders: {
+        'Content-Type': 'application/pdf',
+        'x-amz-checksum-sha256': Buffer.from(EXPECTED_SHA256, 'hex').toString('base64'),
+      },
+    });
+    expect(uploadService.createReplacementUpload).toHaveBeenCalledExactlyOnceWith(USER, FILE_ID, {
+      contentType: 'application/pdf',
+      size: 24,
+      sha256: EXPECTED_SHA256,
+    });
+  });
+
+  it.each([
+    ['an invalid file ID', '/files/not-a-uuid/replacements', validReplacementBody()],
+    [
+      'an invalid content type',
+      `/files/${FILE_ID}/replacements`,
+      validReplacementBody({ contentType: '; charset=utf-8' }),
+    ],
+    ['an invalid size', `/files/${FILE_ID}/replacements`, validReplacementBody({ size: 0 })],
+    [
+      'an invalid checksum',
+      `/files/${FILE_ID}/replacements`,
+      validReplacementBody({ sha256: 'invalid' }),
+    ],
+  ])('rejects %s before creating a replacement intent', async (_case, url, body) => {
+    const response = await request(
+      createTestApp(userService, downloadService, sharingService, uploadService),
+    )
+      .post(url)
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(uploadService.createReplacementUpload).not.toHaveBeenCalled();
+  });
+
+  it('preserves a hidden replacement authorization failure', async () => {
+    uploadService.createReplacementUpload.mockRejectedValue(new AppError('entry_not_found'));
+
+    const response = await request(
+      createTestApp(userService, downloadService, sharingService, uploadService),
+    )
+      .post(`/files/${FILE_ID}/replacements`)
+      .send(validReplacementBody());
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({ code: 'entry_not_found' });
   });
 
   it('accepts a share request without disclosing recipient state', async () => {
@@ -484,6 +562,7 @@ function createTestApp(
   userService: UserService,
   downloadService: FileDownloadService,
   sharingService: FileSharingService,
+  uploadService: UploadService = mock<UploadService>(),
 ) {
   const app = express();
 
@@ -493,8 +572,20 @@ function createTestApp(
     req.principal = PRINCIPAL;
     next();
   });
-  app.use('/files', createFilesRouter({ userService, downloadService, sharingService }));
+  app.use(
+    '/files',
+    createFilesRouter({ userService, downloadService, sharingService, uploadService }),
+  );
   app.use(errorHandler);
 
   return app;
+}
+
+function validReplacementBody(overrides: Record<string, unknown> = {}) {
+  return {
+    contentType: 'application/pdf',
+    size: 24,
+    sha256: EXPECTED_SHA256,
+    ...overrides,
+  };
 }

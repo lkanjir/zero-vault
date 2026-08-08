@@ -20,6 +20,7 @@ import type { PostgresFolderDownloadRepository } from '../../../src/folder/downl
 import type { PostgresObjectDeletionRepository } from '../../../src/object-deletion/postgres-object-deletion-repository.js';
 import type { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
 import type { SaveUploadIntentCommand } from '../../../src/upload/upload-intent-repository.js';
+import type { UploadIntentInput } from '../../../src/upload/upload-intent.js';
 
 const OWNER_ISSUER = 'https://issuer.example.test/realms/zero-vault';
 const SHA256 = 'a'.repeat(64);
@@ -509,7 +510,7 @@ describe('PostgreSQL storage lifecycle', () => {
       expect(storedIntents.map((intent) => intent.status)).toStrictEqual(['expired', 'pending']);
       expect(jobs).toHaveLength(1);
       expect(jobs[0]).toMatchObject({
-        objectKey: due.objectKey,
+        objectKey: due.upload.objectKey,
         reason: 'expired_upload',
       });
     });
@@ -527,7 +528,7 @@ describe('PostgreSQL storage lifecycle', () => {
       await expect(
         intentRepository.completeVerifiedUpload({
           userId: owner.id,
-          uploadId: intent.uploadId,
+          uploadId: intent.upload.uploadId,
           completedAt: now,
         }),
       ).resolves.toStrictEqual({ kind: 'expired' });
@@ -535,15 +536,15 @@ describe('PostgreSQL storage lifecycle', () => {
       const [storedIntent] = await database
         .select()
         .from(uploadIntents)
-        .where(eq(uploadIntents.uploadId, intent.uploadId));
+        .where(eq(uploadIntents.uploadId, intent.upload.uploadId));
       const [job] = await database
         .select()
         .from(objectDeletionJobs)
-        .where(eq(objectDeletionJobs.objectKey, intent.objectKey));
+        .where(eq(objectDeletionJobs.objectKey, intent.upload.objectKey));
 
       expect(storedIntent?.status).toBe('expired');
       expect(job).toMatchObject({
-        objectKey: intent.objectKey,
+        objectKey: intent.upload.objectKey,
         reason: 'expired_upload',
       });
     });
@@ -806,25 +807,24 @@ describe('PostgreSQL storage lifecycle', () => {
 
 function makeIntent(
   userId: number,
-  overrides: Partial<SaveUploadIntentCommand> = {},
+  overrides: Partial<UploadIntentInput> = {},
 ): SaveUploadIntentCommand {
   const createdAt = new Date('2026-07-28T09:00:00.000Z');
 
   return {
-    uploadId: randomUUID(),
-    createdByUserId: userId,
     parentFolderId: null,
-    fileId: null,
     fileName: `${randomUUID()}.txt`,
-    objectKey: `integration-tests/${randomUUID()}`,
-    contentType: 'text/plain',
-    expectedSizeBytes: 12,
-    expectedSha256: SHA256,
-    status: 'pending',
-    createdAt,
-    uploadUrlExpiresAt: new Date(createdAt.getTime() + 60_000),
-    finalizeDeadline: new Date(createdAt.getTime() + 120_000),
-    completedAt: null,
-    ...overrides,
+    upload: {
+      uploadId: randomUUID(),
+      createdByUserId: userId,
+      objectKey: `integration-tests/${randomUUID()}`,
+      contentType: 'text/plain',
+      expectedSizeBytes: 12,
+      expectedSha256: SHA256,
+      createdAt,
+      uploadUrlExpiresAt: new Date(createdAt.getTime() + 60_000),
+      finalizeDeadline: new Date(createdAt.getTime() + 120_000),
+      ...overrides,
+    },
   };
 }
