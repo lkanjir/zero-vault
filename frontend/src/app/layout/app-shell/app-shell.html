@@ -32,8 +32,9 @@
 
     <app-transfer-panel
       [open]="transferStore.panelOpen()"
-      (dismissed)="closeTransfers()"
       [transfers]="transferStore.transfers()"
+      (dismissed)="closeTransfers()"
+      (clearRequested)="transferStore.clearFinished()"
     ></app-transfer-panel>
   </div>
 </div>

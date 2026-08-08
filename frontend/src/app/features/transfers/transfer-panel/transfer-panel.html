@@ -1,76 +1,93 @@
 <aside
-  class="fixed inset-y-0 right-0 z-30 block w-96 max-w-full border-l border-border bg-surface shadow-xl transition-transform duration-200 ease-out"
+  class="fixed inset-y-0 right-0 z-30 flex w-96 max-w-full flex-col border-l border-border bg-surface shadow-xl transition-transform duration-200 ease-out"
   [class.translate-x-0]="open()"
   [class.translate-x-full]="!open()"
   [class.pointer-events-auto]="open()"
   [class.pointer-events-none]="!open()"
 >
-  <header class="flex h-16 items-center justify-between px-5">
+  <header class="flex h-16 shrink-0 items-center justify-between px-5">
     <h2 class="text-lg font-semibold">Aktivni prijenosi</h2>
-    <button type="button" (click)="dismissed.emit()" class="rounded-sm hover:bg-surface-hover">
-      <app-icon class="text-foreground" [name]="'x'" [size]="24" />
-    </button>
+    <div class="flex items-center gap-2">
+      <button
+        type="button"
+        (click)="clearRequested.emit()"
+        [disabled]="!canClear()"
+        class="cursor-pointer rounded-sm p-1 hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <app-icon class="text-foreground" [name]="'trash-2'" [size]="24" />
+      </button>
+
+      <button
+        type="button"
+        (click)="dismissed.emit()"
+        class="cursor-pointer rounded-sm p-1 hover:bg-surface-hover"
+      >
+        <app-icon class="text-foreground" [name]="'x'" [size]="24" />
+      </button>
+    </div>
   </header>
 
-  @for (transfer of transfers(); track transfer.id) {
-    <section class="px-5 pt-2">
-      <div class="flex items-center gap-2">
-        <div
-          class="flex size-10 shrink-0 items-center justify-center rounded-md bg-surface-hover text-foreground"
-        >
-          <app-icon class="bg-surface-hover text-foreground" [name]="'file-text'" [size]="24" />
-        </div>
-        <div class="flex size-10 w-full min-w-0 flex-col">
-          <span class="truncate font-medium">{{ transfer.fileName }}</span>
+  <div class="min-h-0 flex-1 overflow-y-auto pb-5">
+    @for (transfer of transfers(); track transfer.id) {
+      <section class="px-5 pt-2">
+        <div class="flex items-center gap-2">
+          <div
+            class="flex size-10 shrink-0 items-center justify-center rounded-md bg-surface-hover text-foreground"
+          >
+            <app-icon class="bg-surface-hover text-foreground" [name]="'file-text'" [size]="24" />
+          </div>
+          <div class="flex size-10 w-full min-w-0 flex-col">
+            <span class="truncate font-medium">{{ transfer.fileName }}</span>
 
-          <div class="flex w-full items-center justify-between">
-            <span #sizeSpan class="mt-0.5 text-xs text-foreground-muted">{{
-              transfer.sizeBytes | fileSize
-            }}</span>
+            <div class="flex w-full items-center justify-between">
+              <span #sizeSpan class="mt-0.5 text-xs text-foreground-muted">{{
+                transfer.sizeBytes | fileSize
+              }}</span>
 
-            @switch (transfer.phase) {
-              @case ('preparing') {
-                <span class="mt-0.5 text-xs text-foreground-muted">Priprema…</span>
-              }
-
-              @case ('uploading') {
-                @if (transfer.bytesPerSecond !== null) {
-                  <span class="mt-0.5 text-xs text-foreground-muted">
-                    {{ transfer.bytesPerSecond | fileSize }}/s
-                  </span>
-                } @else {
-                  <span class="mt-0.5 text-xs text-foreground-muted">—</span>
+              @switch (transfer.phase) {
+                @case ('preparing') {
+                  <span class="mt-0.5 text-xs text-foreground-muted">Priprema…</span>
                 }
 
-                <span class="mt-0.5 text-xs text-foreground-muted"
-                  >{{ transfer.progress ?? 0 }}%</span
-                >
-              }
+                @case ('uploading') {
+                  @if (transfer.bytesPerSecond !== null) {
+                    <span class="mt-0.5 text-xs text-foreground-muted">
+                      {{ transfer.bytesPerSecond | fileSize }}/s
+                    </span>
+                  } @else {
+                    <span class="mt-0.5 text-xs text-foreground-muted">—</span>
+                  }
 
-              @case ('finalizing') {
-                <span class="mt-0.5 text-xs text-foreground-muted">Dovršavanje…</span>
-              }
+                  <span class="mt-0.5 text-xs text-foreground-muted"
+                    >{{ transfer.progress ?? 0 }}%</span
+                  >
+                }
 
-              @case ('completed') {
-                <span class="mt-0.5 text-xs text-foreground-muted">Dovršeno</span>
-              }
+                @case ('finalizing') {
+                  <span class="mt-0.5 text-xs text-foreground-muted">Dovršavanje…</span>
+                }
 
-              @case ('failed') {
-                <span class="text-d anger mt-0.5 text-xs">
-                  {{ transfer.error?.message }}
-                </span>
+                @case ('completed') {
+                  <span class="mt-0.5 text-xs text-foreground-muted">Dovršeno</span>
+                }
+
+                @case ('failed') {
+                  <span class="mt-0.5 text-xs text-danger">
+                    {{ transfer.error?.message }}
+                  </span>
+                }
               }
-            }
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="mt-4 h-1 overflow-hidden rounded-full bg-border">
-        <div
-          class="h-full rounded-full bg-foreground transition-[width] duration-200 ease-out"
-          [style.width.%]="transfer.progress"
-        ></div>
-      </div>
-    </section>
-  }
+        <div class="mt-4 h-1 overflow-hidden rounded-full bg-border">
+          <div
+            class="h-full rounded-full bg-foreground transition-[width] duration-200 ease-out"
+            [style.width.%]="transfer.progress"
+          ></div>
+        </div>
+      </section>
+    }
+  </div>
 </aside>

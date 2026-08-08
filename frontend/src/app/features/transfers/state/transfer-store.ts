@@ -60,13 +60,9 @@ export class TransferStore {
     );
   }
 
-  remove(transferId: string): void {
+  clearFinished(): void {
     this._transfers.update((transfers) =>
-      transfers.filter((transfer) => {
-        if (transfer.id !== transferId) return true;
-
-        return transfer.phase !== 'failed' && transfer.phase !== 'completed';
-      }),
+      transfers.filter((transfer) => transfer.phase !== 'completed' && transfer.phase !== 'failed'),
     );
   }
 
