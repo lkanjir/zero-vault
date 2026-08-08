@@ -14,11 +14,14 @@ import {
 } from './validation-schemas.js';
 import type { FileSharingService } from '../sharing/file-sharing-service.js';
 import type { ShareFileAcceptedResponse } from './dto.js';
+import { replacementUploadRequestSchema } from '../upload/validation-schemas.js';
+import type { UploadService } from '../upload/upload-service.js';
 
 export type FileRouterDeps = {
   userService: UserService;
   downloadService: FileDownloadService;
   sharingService: FileSharingService;
+  uploadService: UploadService;
 };
 
 export function createFilesRouter(deps: FileRouterDeps): Router {
@@ -137,6 +140,25 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
       res.status(200).json(result);
     }),
+  );
+
+  router.post(
+    '/:fileId/replacements',
+    validateRequest(
+      { params: fileIdParamsSchema, body: replacementUploadRequestSchema },
+      async (req, res, validated) => {
+        const principal = requirePrincipal(req);
+        const user = await deps.userService.resolveUser(principal);
+
+        const result = await deps.uploadService.createReplacementUpload(
+          user,
+          validated.params.fileId,
+          validated.body,
+        );
+
+        res.status(201).json(result);
+      },
+    ),
   );
 
   return router;

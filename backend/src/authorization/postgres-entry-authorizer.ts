@@ -21,9 +21,7 @@ export class PostgresEntryAuthorizer {
       actions: readonly AuthorizationAction[];
     },
   ): Promise<Entry> {
-    if (input.actions.length === 0) {
-      throw new Error('Got empty actions array, expected at least one action');
-    }
+    this.assertActionsProvided(input.actions);
 
     const [entry] = await tx
       .select()
@@ -36,36 +34,31 @@ export class PostgresEntryAuthorizer {
       throw new AppError('entry_not_found');
     }
 
-    const grant = await this.findGrant(tx, entry, input.actorUserId);
-    const now = new Date();
-    const context: EntryAuthorizationContext = {
-      scope: 'entry',
-      actor: {
-        userId: input.actorUserId,
-      },
-      resource: {
-        id: entry.id,
-        kind: entry.kind,
-        ownerId: entry.ownerId,
-        deletedAt: entry.deletedAt,
-      },
-      relationship: {
-        grant,
-      },
-      environment: {
-        now,
-      },
-    };
+    return this.authorizeLockedEntry(tx, entry, input.actorUserId, input.actions);
+  }
 
-    for (const action of input.actions) {
-      this.authzService.authorizeEntryContext({
-        action: action,
-        entryPublicId: input.entryPublicId,
-        context: context,
-      });
+  async authorizeForUpdateByDbId(
+    tx: Transaction,
+    input: {
+      actorUserId: number;
+      entryDbId: number;
+      actions: readonly AuthorizationAction[];
+    },
+  ): Promise<Entry> {
+    this.assertActionsProvided(input.actions);
+
+    const [entry] = await tx
+      .select()
+      .from(entries)
+      .where(eq(entries.id, input.entryDbId))
+      .for('update')
+      .limit(1);
+
+    if (!entry) {
+      throw new AppError('entry_not_found');
     }
 
-    return entry;
+    return this.authorizeLockedEntry(tx, entry, input.actorUserId, input.actions);
   }
 
   async authorizeParentForCreate(
@@ -158,6 +151,44 @@ export class PostgresEntryAuthorizer {
     });
   }
 
+  private async authorizeLockedEntry(
+    tx: Transaction,
+    entry: Entry,
+    actorUserId: number,
+    actions: Readonly<AuthorizationAction[]>,
+  ): Promise<Entry> {
+    const grant = await this.findGrant(tx, entry, actorUserId);
+    const now = new Date();
+    const context: EntryAuthorizationContext = {
+      scope: 'entry',
+      actor: {
+        userId: actorUserId,
+      },
+      resource: {
+        id: entry.id,
+        kind: entry.kind,
+        ownerId: entry.ownerId,
+        deletedAt: entry.deletedAt,
+      },
+      relationship: {
+        grant,
+      },
+      environment: {
+        now,
+      },
+    };
+
+    for (const action of actions) {
+      this.authzService.authorizeEntryContext({
+        action: action,
+        entryPublicId: entry.publicId,
+        context: context,
+      });
+    }
+
+    return entry;
+  }
+
   private async findGrant(tx: Transaction, entry: Entry, actorUserId: number) {
     if (entry.kind !== 'file' || entry.ownerId === actorUserId) return null;
 
@@ -171,5 +202,11 @@ export class PostgresEntryAuthorizer {
       .limit(1);
 
     return grant ?? null;
+  }
+
+  private assertActionsProvided(actions: Readonly<AuthorizationAction[]>): void {
+    if (actions.length === 0) {
+      throw new Error('Got empty actions array, expected at least one action');
+    }
   }
 }
