@@ -1,4 +1,6 @@
-export type UploadIntentStatus = 'pending' | 'completed' | 'expired';
+export type UploadIntentStatus = 'pending' | 'completed' | 'expired' | 'superseded';
+
+export type UploadIntentOperation = 'create' | 'replace';
 
 export type UploadIntent = {
   id?: number;
@@ -6,7 +8,7 @@ export type UploadIntent = {
   fileId?: number | null;
   createdByUserId: number;
   targetParentId?: number | null;
-  fileName: string;
+  fileName: string | null;
   objectKey: string;
   contentType: string;
   expectedSizeBytes: number;
@@ -16,4 +18,7 @@ export type UploadIntent = {
   uploadUrlExpiresAt: Date;
   completedAt?: Date | null;
   finalizeDeadline: Date;
+  operation: UploadIntentOperation;
+  targetFileId: number | null;
+  expectedContentVersion: number | null;
 };

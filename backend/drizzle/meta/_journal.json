@@ -78,6 +78,13 @@
       "when": 1785691637934,
       "tag": "0010_lying_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786187989593,
+      "tag": "0011_square_taskmaster",
+      "breakpoints": true
     }
   ]
 }

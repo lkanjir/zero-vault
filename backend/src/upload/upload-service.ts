@@ -54,6 +54,9 @@ export class UploadService {
       createdAt: new Date(),
       uploadUrlExpiresAt: new Date(Date.now() + this.EXPIRES_IN_SECONDS * 1000),
       finalizeDeadline: new Date(Date.now() + this.FINALIZE_DEADLINE_SECONDS * 1000),
+      operation: 'create',
+      targetFileId: null,
+      expectedContentVersion: null,
     };
 
     const uploadUrl = await this.createPresignedUploadUrl(intent);
@@ -177,6 +180,8 @@ export class UploadService {
         throw new AppError('upload_not_found');
       case 'expired':
         throw new AppError('upload_expired');
+      case 'superseded':
+        throw new AppError('replacement_conflict');
     }
   }
 }

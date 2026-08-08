@@ -98,6 +98,8 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         };
       case 'expired':
         return { kind: 'expired' };
+      case 'superseded':
+        return { kind: 'superseded' };
       case 'pending':
         return this.completePendingIntent(tx, intent, command);
     }
@@ -224,6 +226,10 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     userId: number,
     intent: UploadIntentRow,
   ): Promise<EntryRow | null> {
+    if (intent.operation !== 'create' || intent.fileName === null) {
+      throw new Error('Create upload intent is missing create metadata');
+    }
+
     const [entry] = await tx
       .insert(entries)
       .values({
@@ -266,6 +272,9 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       uploadUrlExpiresAt: row.uploadUrlExpiresAt,
       completedAt: row.completedAt,
       finalizeDeadline: row.finalizeDeadline,
+      operation: row.operation,
+      targetFileId: row.targetFileId,
+      expectedContentVersion: row.expectedContentVersion,
     };
   }
 
@@ -282,6 +291,9 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       createdAt: intent.createdAt,
       uploadUrlExpiresAt: intent.uploadUrlExpiresAt,
       finalizeDeadline: intent.finalizeDeadline,
+      operation: intent.operation,
+      targetFileId: intent.targetFileId,
+      expectedContentVersion: intent.expectedContentVersion,
     };
   }
 

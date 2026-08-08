@@ -17,7 +17,10 @@ export const uploadIntentStatus = pgEnum('upload_intent_status', [
   'pending',
   'completed',
   'expired',
+  'superseded',
 ]);
+
+export const uploadIntentOperation = pgEnum('upload_intent_operation', ['create', 'replace']);
 
 export const entryKind = pgEnum('entry_kind', ['file', 'folder']);
 
@@ -33,7 +36,7 @@ export const uploadIntents = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     targetParentId: bigint('target_parent_id', { mode: 'number' }),
-    fileName: text('file_name').notNull(),
+    fileName: text('file_name'),
     objectKey: text('object_key').notNull(),
     contentType: text('content_type').notNull(),
     expectedSizeBytes: bigint('expected_size_bytes', { mode: 'number' }).notNull(),
@@ -49,13 +52,20 @@ export const uploadIntents = pgTable(
       withTimezone: true,
       mode: 'date',
     }).notNull(),
+    operation: uploadIntentOperation('operation').default('create').notNull(),
+    targetFileId: bigint('target_file_id', { mode: 'number' }).references(() => files.entryId, {
+      onDelete: 'restrict',
+    }),
+    expectedContentVersion: integer('expected_content_version'),
   },
   (table) => [
     unique('upload_intents_upload_id_key').on(table.uploadId),
     unique('upload_intents_object_key_key').on(table.objectKey),
     check(
       'upload_intents_file_name_length_check',
-      sql`char_length(btrim(${table.fileName})) between 1 and 500`,
+      sql`
+        ${table.fileName} is null 
+        or char_length(btrim(${table.fileName})) between 1 and 500`,
     ),
     check(
       'upload_intents_object_key_not_blank_check',
@@ -90,6 +100,25 @@ export const uploadIntents = pgTable(
         and ${table.completedAt} is null
       )
     `,
+    ),
+    check(
+      'upload_intents_operation_target_check',
+      sql`
+      (
+        ${table.operation} = 'create'
+        and ${table.fileName} is not null
+        and ${table.targetFileId} is null
+        and ${table.expectedContentVersion} is null
+      ) 
+      or 
+      (
+        ${table.operation} = 'replace'
+        and ${table.fileName} is null
+        and ${table.targetParentId} is null
+        and ${table.targetFileId} is not null
+        and ${table.expectedContentVersion} is not null
+        and ${table.expectedContentVersion} > 0
+      )`,
     ),
     index('upload_intents_user_id_upload_id_idx').on(table.createdByUserId, table.uploadId),
     index('upload_intents_pending_finalize_deadline_idx')

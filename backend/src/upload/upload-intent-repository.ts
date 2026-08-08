@@ -18,7 +18,8 @@ export type CompletedUploadFile = {
 export type CompletedVerifiedUploadResult =
   | { kind: 'completed'; file: CompletedUploadFile }
   | { kind: 'not_found' }
-  | { kind: 'expired' };
+  | { kind: 'expired' }
+  | { kind: 'superseded' };
 
 export type SaveUploadIntentCommand = Omit<UploadIntent, 'id' | 'targetParentId'> & {
   parentFolderId: string | null;

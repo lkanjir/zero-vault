@@ -156,6 +156,11 @@ export const errorCatalog = {
     message: 'Tip prenesene datoteke ne odgovara očekivanom.',
   },
 
+  replacement_conflict: {
+    status: 409,
+    message: 'Sadržaj datoteke u međuvremenu je promijenjen. Pokušajte ponovno.',
+  },
+
   storage_unavailable: {
     status: 503,
     message: 'Spremište datoteka nije dostupno.',

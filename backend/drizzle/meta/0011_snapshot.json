@@ -1,0 +1,1309 @@
+{
+  "id": "115e77a7-dd20-4e1a-876b-2f5010e91706",
+  "prevId": "5cb2efbe-d991-4d67-860c-b05a6326a79e",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.entries": {
+      "name": "entries",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "entries_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "public_id": {
+          "name": "public_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "entry_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "entries_owner_parent_listing_index": {
+          "name": "entries_owner_parent_listing_index",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "parent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "(case when \"kind\" = 'folder' then 0 else 1 end)",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"entries\".\"deleted_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "entries_owner_id_users_id_fk": {
+          "name": "entries_owner_id_users_id_fk",
+          "tableFrom": "entries",
+          "tableTo": "users",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "entries_parent_owner_fk": {
+          "name": "entries_parent_owner_fk",
+          "tableFrom": "entries",
+          "tableTo": "entries",
+          "columnsFrom": [
+            "parent_id",
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id",
+            "owner_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "entries_public_id_key": {
+          "name": "entries_public_id_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "public_id"
+          ]
+        },
+        "entries_id_owner_id_key": {
+          "name": "entries_id_owner_id_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "owner_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "entries_not_own_parent_check": {
+          "name": "entries_not_own_parent_check",
+          "value": "\"entries\".\"parent_id\" is null or \"entries\".\"parent_id\" <> \"entries\".\"id\""
+        },
+        "entries_name_not_blank_check": {
+          "name": "entries_name_not_blank_check",
+          "value": "char_length(btrim(\"entries\".\"name\")) between 1 and 500"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.file_grants": {
+      "name": "file_grants",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "file_grants_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "public_id": {
+          "name": "public_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "file_id": {
+          "name": "file_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient_user_id": {
+          "name": "recipient_user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recipient_email": {
+          "name": "recipient_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "permission": {
+          "name": "permission",
+          "type": "file_grant_permission",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "activation_deadline": {
+          "name": "activation_deadline",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "file_grants_pending_email_idx": {
+          "name": "file_grants_pending_email_idx",
+          "columns": [
+            {
+              "expression": "recipient_email",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"file_grants\".\"recipient_user_id\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "file_grants_pending_deadline_idx": {
+          "name": "file_grants_pending_deadline_idx",
+          "columns": [
+            {
+              "expression": "activation_deadline",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"file_grants\".\"recipient_user_id\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "file_grants_file_id_files_entry_id_fk": {
+          "name": "file_grants_file_id_files_entry_id_fk",
+          "tableFrom": "file_grants",
+          "tableTo": "files",
+          "columnsFrom": [
+            "file_id"
+          ],
+          "columnsTo": [
+            "entry_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "file_grants_recipient_user_id_users_id_fk": {
+          "name": "file_grants_recipient_user_id_users_id_fk",
+          "tableFrom": "file_grants",
+          "tableTo": "users",
+          "columnsFrom": [
+            "recipient_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "file_grants_created_by_user_id_users_id_fk": {
+          "name": "file_grants_created_by_user_id_users_id_fk",
+          "tableFrom": "file_grants",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "file_grants_file_owner_fk": {
+          "name": "file_grants_file_owner_fk",
+          "tableFrom": "file_grants",
+          "tableTo": "entries",
+          "columnsFrom": [
+            "file_id",
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id",
+            "owner_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "file_grants_public_id_key": {
+          "name": "file_grants_public_id_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "public_id"
+          ]
+        },
+        "file_grants_file_recipient_email_key": {
+          "name": "file_grants_file_recipient_email_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "file_id",
+            "recipient_email"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "file_grants_recipient_not_owner_check": {
+          "name": "file_grants_recipient_not_owner_check",
+          "value": "\"file_grants\".\"recipient_user_id\" is null or \"file_grants\".\"created_by_user_id\" <> \"file_grants\".\"recipient_user_id\""
+        },
+        "file_grants_expiry_after_creation_check": {
+          "name": "file_grants_expiry_after_creation_check",
+          "value": "\"file_grants\".\"expires_at\" is null or \"file_grants\".\"expires_at\" > \"file_grants\".\"created_at\""
+        },
+        "file_grants_recipient_email_normalized_check": {
+          "name": "file_grants_recipient_email_normalized_check",
+          "value": "\n      \"file_grants\".\"recipient_email\" = lower(btrim(\"file_grants\".\"recipient_email\"))\n      and char_length(\"file_grants\".\"recipient_email\") between 3 and 254\n    "
+        },
+        "file_grants_state_check": {
+          "name": "file_grants_state_check",
+          "value": "\n      (\n        \"file_grants\".\"recipient_user_id\" is null\n        and \"file_grants\".\"activation_deadline\" is not null\n      )\n      or\n      (\n        \"file_grants\".\"recipient_user_id\" is not null\n        and \"file_grants\".\"activation_deadline\" is null\n      )\n    "
+        },
+        "file_grants_activation_after_creation_check": {
+          "name": "file_grants_activation_after_creation_check",
+          "value": "\n      \"file_grants\".\"activation_deadline\" is null\n      or \"file_grants\".\"activation_deadline\" > \"file_grants\".\"created_at\"\n    "
+        },
+        "file_grants_activation_before_expiry_check": {
+          "name": "file_grants_activation_before_expiry_check",
+          "value": "\n      \"file_grants\".\"activation_deadline\" is null\n      or \"file_grants\".\"expires_at\" is null\n      or \"file_grants\".\"activation_deadline\" <= \"file_grants\".\"expires_at\"\n    "
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.files": {
+      "name": "files",
+      "schema": "",
+      "columns": {
+        "entry_id": {
+          "name": "entry_id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "object_key": {
+          "name": "object_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'application/octet-stream'"
+        },
+        "content_version": {
+          "name": "content_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "size_bytes": {
+          "name": "size_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sha256": {
+          "name": "sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "files_entry_id_entries_id_fk": {
+          "name": "files_entry_id_entries_id_fk",
+          "tableFrom": "files",
+          "tableTo": "entries",
+          "columnsFrom": [
+            "entry_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "files_object_key_key": {
+          "name": "files_object_key_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "object_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "files_object_key_not_blank_check": {
+          "name": "files_object_key_not_blank_check",
+          "value": "char_length(btrim(\"files\".\"object_key\")) > 0"
+        },
+        "files_content_type_check": {
+          "name": "files_content_type_check",
+          "value": "char_length(btrim(\"files\".\"content_type\")) between 1 and 500"
+        },
+        "files_content_version_check": {
+          "name": "files_content_version_check",
+          "value": "\"files\".\"content_version\" > 0"
+        },
+        "files_size_check": {
+          "name": "files_size_check",
+          "value": "\"files\".\"size_bytes\" > 0"
+        },
+        "files_sha256_check": {
+          "name": "files_sha256_check",
+          "value": "\"files\".\"sha256\" ~ '^[0-9a-f]{64}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.folder_downloads": {
+      "name": "folder_downloads",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "folder_downloads_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "download_id": {
+          "name": "download_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "folder_id": {
+          "name": "folder_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "folder_name": {
+          "name": "folder_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "archive_object_key": {
+          "name": "archive_object_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "folder_download_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'queued'"
+        },
+        "attempt_count": {
+          "name": "attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "archive_size_bytes": {
+          "name": "archive_size_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_code": {
+          "name": "failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "folder_downloads_queued_created_at_idx": {
+          "name": "folder_downloads_queued_created_at_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"folder_downloads\".\"status\" = 'queued'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "folder_downloads_processing_lease_idx": {
+          "name": "folder_downloads_processing_lease_idx",
+          "columns": [
+            {
+              "expression": "lease_expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"folder_downloads\".\"status\" = 'processing'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "folder_downloads_ready_expires_at_idx": {
+          "name": "folder_downloads_ready_expires_at_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"folder_downloads\".\"status\" = 'ready'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "folder_downloads_owner_fk": {
+          "name": "folder_downloads_owner_fk",
+          "tableFrom": "folder_downloads",
+          "tableTo": "users",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "folder_downloads_folder_owner_fk": {
+          "name": "folder_downloads_folder_owner_fk",
+          "tableFrom": "folder_downloads",
+          "tableTo": "entries",
+          "columnsFrom": [
+            "folder_id",
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id",
+            "owner_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "folder_downloads_download_id_key": {
+          "name": "folder_downloads_download_id_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "download_id"
+          ]
+        },
+        "folder_downloads_archive_object_key_key": {
+          "name": "folder_downloads_archive_object_key_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "archive_object_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.object_deletion_jobs": {
+      "name": "object_deletion_jobs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "object_deletion_jobs_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "object_key": {
+          "name": "object_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "object_deletion_reason",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "available_at": {
+          "name": "available_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "attempt_count": {
+          "name": "attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error_code": {
+          "name": "last_error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "object_deletion_jobs_claim_idx": {
+          "name": "object_deletion_jobs_claim_idx",
+          "columns": [
+            {
+              "expression": "available_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"object_deletion_jobs\".\"completed_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "object_deletion_jobs_object_key_key": {
+          "name": "object_deletion_jobs_object_key_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "object_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "object_deletion_jobs_object_key_not_blank_check": {
+          "name": "object_deletion_jobs_object_key_not_blank_check",
+          "value": "char_length(btrim(\"object_deletion_jobs\".\"object_key\")) > 0"
+        },
+        "object_deletion_jobs_attempt_count_check": {
+          "name": "object_deletion_jobs_attempt_count_check",
+          "value": "\"object_deletion_jobs\".\"attempt_count\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.upload_intents": {
+      "name": "upload_intents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "upload_intents_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "upload_id": {
+          "name": "upload_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "file_id": {
+          "name": "file_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_parent_id": {
+          "name": "target_parent_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "file_name": {
+          "name": "file_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "object_key": {
+          "name": "object_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expected_size_bytes": {
+          "name": "expected_size_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expected_sha256": {
+          "name": "expected_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "upload_intent_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "upload_url_expires_at": {
+          "name": "upload_url_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "finalize_deadline": {
+          "name": "finalize_deadline",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation": {
+          "name": "operation",
+          "type": "upload_intent_operation",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'create'"
+        },
+        "target_file_id": {
+          "name": "target_file_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expected_content_version": {
+          "name": "expected_content_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "upload_intents_user_id_upload_id_idx": {
+          "name": "upload_intents_user_id_upload_id_idx",
+          "columns": [
+            {
+              "expression": "created_by_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "upload_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "upload_intents_pending_finalize_deadline_idx": {
+          "name": "upload_intents_pending_finalize_deadline_idx",
+          "columns": [
+            {
+              "expression": "finalize_deadline",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"upload_intents\".\"status\" = 'pending'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "upload_intents_file_id_idx": {
+          "name": "upload_intents_file_id_idx",
+          "columns": [
+            {
+              "expression": "file_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"upload_intents\".\"file_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "upload_intents_file_id_files_entry_id_fk": {
+          "name": "upload_intents_file_id_files_entry_id_fk",
+          "tableFrom": "upload_intents",
+          "tableTo": "files",
+          "columnsFrom": [
+            "file_id"
+          ],
+          "columnsTo": [
+            "entry_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "upload_intents_created_by_user_id_users_id_fk": {
+          "name": "upload_intents_created_by_user_id_users_id_fk",
+          "tableFrom": "upload_intents",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "upload_intents_target_file_id_files_entry_id_fk": {
+          "name": "upload_intents_target_file_id_files_entry_id_fk",
+          "tableFrom": "upload_intents",
+          "tableTo": "files",
+          "columnsFrom": [
+            "target_file_id"
+          ],
+          "columnsTo": [
+            "entry_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "upload_intents_target_parent_owner_fk": {
+          "name": "upload_intents_target_parent_owner_fk",
+          "tableFrom": "upload_intents",
+          "tableTo": "entries",
+          "columnsFrom": [
+            "target_parent_id",
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id",
+            "owner_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "upload_intents_upload_id_key": {
+          "name": "upload_intents_upload_id_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "upload_id"
+          ]
+        },
+        "upload_intents_object_key_key": {
+          "name": "upload_intents_object_key_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "object_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "upload_intents_file_name_length_check": {
+          "name": "upload_intents_file_name_length_check",
+          "value": "\n        \"upload_intents\".\"file_name\" is null \n        or char_length(btrim(\"upload_intents\".\"file_name\")) between 1 and 500"
+        },
+        "upload_intents_object_key_not_blank_check": {
+          "name": "upload_intents_object_key_not_blank_check",
+          "value": "char_length(btrim(\"upload_intents\".\"object_key\")) > 0"
+        },
+        "upload_intents_content_type_check": {
+          "name": "upload_intents_content_type_check",
+          "value": "char_length(btrim(\"upload_intents\".\"content_type\")) between 1 and 500"
+        },
+        "upload_intents_size_check": {
+          "name": "upload_intents_size_check",
+          "value": "\"upload_intents\".\"expected_size_bytes\" > 0"
+        },
+        "upload_intents_sha256_check": {
+          "name": "upload_intents_sha256_check",
+          "value": "\"upload_intents\".\"expected_sha256\" ~ '^[0-9a-f]{64}$'"
+        },
+        "upload_intents_upload_url_deadline_check": {
+          "name": "upload_intents_upload_url_deadline_check",
+          "value": "\"upload_intents\".\"upload_url_expires_at\" > \"upload_intents\".\"created_at\""
+        },
+        "upload_intents_finalize_deadline_check": {
+          "name": "upload_intents_finalize_deadline_check",
+          "value": "\"upload_intents\".\"finalize_deadline\" > \"upload_intents\".\"upload_url_expires_at\""
+        },
+        "upload_intents_completion_state_check": {
+          "name": "upload_intents_completion_state_check",
+          "value": "\n      (\n        \"upload_intents\".\"status\" = 'completed'\n        and \"upload_intents\".\"file_id\" is not null\n        and \"upload_intents\".\"completed_at\" is not null\n      )\n      or\n      (\n        \"upload_intents\".\"status\" <> 'completed'\n        and \"upload_intents\".\"file_id\" is null\n        and \"upload_intents\".\"completed_at\" is null\n      )\n    "
+        },
+        "upload_intents_operation_target_check": {
+          "name": "upload_intents_operation_target_check",
+          "value": "\n      (\n        \"upload_intents\".\"operation\" = 'create'\n        and \"upload_intents\".\"file_name\" is not null\n        and \"upload_intents\".\"target_file_id\" is null\n        and \"upload_intents\".\"expected_content_version\" is null\n      ) \n      or \n      (\n        \"upload_intents\".\"operation\" = 'replace'\n        and \"upload_intents\".\"file_name\" is null\n        and \"upload_intents\".\"target_parent_id\" is null\n        and \"upload_intents\".\"target_file_id\" is not null\n        and \"upload_intents\".\"expected_content_version\" is not null\n        and \"upload_intents\".\"expected_content_version\" > 0\n      )"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.users": {
+      "name": "users",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "users_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "public_id": {
+          "name": "public_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "issuer": {
+          "name": "issuer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject": {
+          "name": "subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_name": {
+          "name": "first_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_name": {
+          "name": "last_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "users_issuer_subject_key": {
+          "name": "users_issuer_subject_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "issuer",
+            "subject"
+          ]
+        },
+        "users_public_id_key": {
+          "name": "users_public_id_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "public_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "users_email_normalized_check": {
+          "name": "users_email_normalized_check",
+          "value": "\n      \"users\".\"email\" = lower(btrim(\"users\".\"email\"))\n      and char_length(\"users\".\"email\") between 3 and 254\n    "
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.entry_kind": {
+      "name": "entry_kind",
+      "schema": "public",
+      "values": [
+        "file",
+        "folder"
+      ]
+    },
+    "public.file_grant_permission": {
+      "name": "file_grant_permission",
+      "schema": "public",
+      "values": [
+        "viewer",
+        "editor"
+      ]
+    },
+    "public.folder_download_status": {
+      "name": "folder_download_status",
+      "schema": "public",
+      "values": [
+        "queued",
+        "processing",
+        "ready",
+        "failed",
+        "expired"
+      ]
+    },
+    "public.object_deletion_reason": {
+      "name": "object_deletion_reason",
+      "schema": "public",
+      "values": [
+        "expired_upload",
+        "deleted_file",
+        "expired_folder_archive",
+        "stale_folder_archive_attempt"
+      ]
+    },
+    "public.upload_intent_operation": {
+      "name": "upload_intent_operation",
+      "schema": "public",
+      "values": [
+        "create",
+        "replace"
+      ]
+    },
+    "public.upload_intent_status": {
+      "name": "upload_intent_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "completed",
+        "expired",
+        "superseded"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
