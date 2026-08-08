@@ -6,7 +6,7 @@ import { Dialog, DialogModule } from '@angular/cdk/dialog';
 import { CreateFolderDialog } from '../../features/drive/create-folder-dialog/create-folder-dialog';
 import { DriveStore } from '../../features/drive/state/drive-store';
 import { TransferStore } from '../../features/transfers/state/transfer-store';
-import { TransferPanel } from '../../features/transfers/ui/transfer-panel/transfer-panel';
+import { TransferPanel } from '../../features/transfers/transfer-panel/transfer-panel';
 import { AuthService } from '../../auth/auth-service';
 import { EntryKindFilter } from '../../data-access/entries/entry-models';
 import { toSignal } from '@angular/core/rxjs-interop';

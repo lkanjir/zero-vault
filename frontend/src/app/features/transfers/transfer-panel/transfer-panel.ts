@@ -1,7 +1,7 @@
 import { Component, input, output } from '@angular/core';
-import { Icon } from '../../../../shared/icon/icon';
-import { FileSizePipe } from '../../../../shared/pipes/file-size-pipe';
-import { UploadTransfer } from '../../state/transfer-models';
+import { Icon } from '../../../shared/icon/icon';
+import { FileSizePipe } from '../../../shared/pipes/file-size-pipe';
+import { UploadTransfer } from '../state/transfer-models';
 
 @Component({
   selector: 'app-transfer-panel',

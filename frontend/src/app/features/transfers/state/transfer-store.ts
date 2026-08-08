@@ -5,9 +5,9 @@ import { HttpEventType } from '@angular/common/http';
 import { apiErrorMessage, toApiError } from '../../../shared/api-error';
 import { calcualteSha256 } from '../../../shared/util/sha256';
 import { FileEntry } from '../../../data-access/entries/entry-models';
-import { UploadApi } from '../data-access/upload-api';
+import { UploadApi } from '../../../data-access/uploads/upload-api';
 import { TransferFailure, UploadTransfer } from './transfer-models';
-import { FileUploadRequest, UploadIntentRequest } from '../data-access/upload-models';
+import { FileUploadRequest, UploadIntentRequest } from '../../../data-access/uploads/upload-models';
 
 type FailureContext = 'preparing' | 'presigning' | 'uploading' | 'finalizing';
 
