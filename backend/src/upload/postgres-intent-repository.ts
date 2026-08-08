@@ -147,6 +147,19 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       return { kind: 'expired' };
     }
 
+    switch (intent.operation) {
+      case 'create':
+        return this.completePendingCreateIntent(tx, intent, command);
+      case 'replace':
+        return this.completePendingReplaceIntent(tx, intent, command);
+    }
+  }
+
+  private async completePendingCreateIntent(
+    tx: Transaction,
+    intent: UploadIntentRow,
+    command: CompleteVerifiedUploadCommand,
+  ): Promise<CompletedVerifiedUploadResult> {
     await this.authorizer.reauthorizeParentForCreate(tx, {
       actorUserId: command.userId,
       ownerId: command.userId,
@@ -173,6 +186,91 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       contentType: file.contentType,
       sizeBytes: file.sizeBytes,
       updatedAt: entry.updatedAt,
+    };
+
+    return { kind: 'completed', file: completedFile };
+  }
+
+  private async completePendingReplaceIntent(
+    tx: Transaction,
+    intent: UploadIntentRow,
+    command: CompleteVerifiedUploadCommand,
+  ): Promise<CompletedVerifiedUploadResult> {
+    const targetFileId = intent.targetFileId;
+    const expectedContentVersion = intent.expectedContentVersion;
+
+    if (targetFileId === null || expectedContentVersion === null) {
+      throw new Error('Replace intent is missing replacement metadata');
+    }
+
+    const target = await this.authorizer.authorizeForUpdateByDbId(tx, {
+      actorUserId: command.userId,
+      entryDbId: targetFileId,
+      actions: ['file:replace'],
+    });
+
+    const [currentFile] = await tx
+      .select({ objectKey: files.objectKey, contentVersion: files.contentVersion })
+      .from(files)
+      .where(eq(files.entryId, target.id))
+      .limit(1);
+
+    if (!currentFile) {
+      throw new Error('Replacement target is missing file metadata');
+    }
+
+    if (currentFile.contentVersion !== expectedContentVersion) {
+      await this.markIntentSuperseded(tx, intent.id, intent.objectKey);
+      return { kind: 'superseded' };
+    }
+
+    const [updatedFile] = await tx
+      .update(files)
+      .set({
+        objectKey: intent.objectKey,
+        contentType: intent.contentType,
+        sizeBytes: intent.expectedSizeBytes,
+        sha256: intent.expectedSha256,
+        contentVersion: sql`${files.contentVersion} + 1`,
+      })
+      .where(and(eq(files.entryId, target.id), eq(files.contentVersion, expectedContentVersion)))
+      .returning({
+        entryId: files.entryId,
+        contentType: files.contentType,
+        sizeBytes: files.sizeBytes,
+      });
+
+    if (!updatedFile) {
+      await this.markIntentSuperseded(tx, intent.id, intent.objectKey);
+      return { kind: 'superseded' };
+    }
+
+    const [updatedEntry] = await tx
+      .update(entries)
+      .set({ updatedAt: command.completedAt })
+      .where(eq(entries.id, target.id))
+      .returning({ publicId: entries.publicId, name: entries.name, updatedAt: entries.updatedAt });
+
+    if (!updatedEntry) {
+      throw new Error('Replacement target entry could not be updated');
+    }
+
+    await this.markIntentCompleted(tx, intent.id, updatedFile.entryId, command.completedAt);
+
+    await enqueueObjectDeletionsInTransaction(tx, [
+      {
+        objectKey: currentFile.objectKey,
+        reason: 'replaced_file',
+      },
+    ]);
+
+    const completedFile: CompletedUploadFile = {
+      entryId: updatedFile.entryId,
+      publicId: updatedEntry.publicId,
+      name: updatedEntry.name,
+      contentType: updatedFile.contentType,
+      sizeBytes: updatedFile.sizeBytes,
+      updatedAt: updatedEntry.updatedAt,
     };
 
     return { kind: 'completed', file: completedFile };
@@ -259,6 +357,24 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       .update(uploadIntents)
       .set({ status: 'completed', fileId: entryId, completedAt: completedAt })
       .where(eq(uploadIntents.id, intentId));
+  }
+
+  private async markIntentSuperseded(
+    tx: Transaction,
+    intentId: number,
+    objectKey: string,
+  ): Promise<void> {
+    const [superseded] = await tx
+      .update(uploadIntents)
+      .set({ status: 'superseded' })
+      .where(and(eq(uploadIntents.id, intentId), eq(uploadIntents.status, 'pending')))
+      .returning({ id: uploadIntents.id });
+
+    if (!superseded) {
+      throw new Error('Failed to supersede upload intent');
+    }
+
+    await enqueueObjectDeletionsInTransaction(tx, [{ objectKey, reason: 'superseded_upload' }]);
   }
 
   async assertReplacementTargetAvailable(

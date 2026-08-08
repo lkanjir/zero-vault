@@ -1,0 +1,2 @@
+ALTER TYPE "public"."object_deletion_reason" ADD VALUE 'replaced_file' BEFORE 'expired_folder_archive';--> statement-breakpoint
+ALTER TYPE "public"."object_deletion_reason" ADD VALUE 'superseded_upload' BEFORE 'expired_folder_archive';

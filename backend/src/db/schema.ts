@@ -282,6 +282,8 @@ export const folderDownloads = pgTable(
 export const objectDeletionReason = pgEnum('object_deletion_reason', [
   'expired_upload',
   'deleted_file',
+  'replaced_file',
+  'superseded_upload',
   'expired_folder_archive',
   'stale_folder_archive_attempt',
 ]);

@@ -85,6 +85,13 @@
       "when": 1786187989593,
       "tag": "0011_square_taskmaster",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786202753335,
+      "tag": "0012_regular_risque",
+      "breakpoints": true
     }
   ]
 }
