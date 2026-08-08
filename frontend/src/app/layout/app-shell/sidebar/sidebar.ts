@@ -1,6 +1,7 @@
 import { Component, input, output, signal } from '@angular/core';
 import { Icon } from '../../../shared/icon/icon';
 import { SidebarItem } from './sidebar-item/sidebar-item';
+import { UserProfile } from '../../../auth/user';
 
 @Component({
   selector: 'app-sidebar',
@@ -15,9 +16,8 @@ import { SidebarItem } from './sidebar-item/sidebar-item';
 })
 export class Sidebar {
   readonly open = signal<boolean>(false);
-
+  readonly userProfile = input<UserProfile | null>(null);
   readonly failedTransferCount = input<number>(0);
-
   readonly transfersRequested = output<void>();
   readonly logoutRequested = output<void>();
 

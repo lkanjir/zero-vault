@@ -20,10 +20,10 @@ import { filter, map } from 'rxjs';
 export class AppShell {
   private readonly dialog = inject(Dialog);
   private readonly driveStore = inject(DriveStore);
-  private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
 
   readonly transferStore = inject(TransferStore);
+  readonly authService = inject(AuthService);
 
   openCreateFolderDialog(): void {
     this.dialog.open(CreateFolderDialog, {

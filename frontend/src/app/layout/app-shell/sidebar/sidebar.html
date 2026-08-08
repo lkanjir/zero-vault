@@ -9,7 +9,11 @@
         <app-icon [name]="'user'" />
       </span>
 
-      <span class="truncate text-lg font-semibold">Luka Kanjir</span>
+      @if (userProfile(); as profile) {
+        <span class="truncate text-lg font-semibold"
+          >{{ profile.firstName }} {{ profile.lastName }}</span
+        >
+      }
     </div>
 
     <button
