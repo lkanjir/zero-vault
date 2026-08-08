@@ -1,15 +1,16 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { Result } from '../../../shared/result';
-import { firstValueFrom, from, lastValueFrom, mergeMap, tap, toArray } from 'rxjs';
+import { firstValueFrom, from, lastValueFrom, mergeMap, Observable, tap, toArray } from 'rxjs';
 import { HttpEventType } from '@angular/common/http';
 import { apiErrorMessage, toApiError } from '../../../shared/api-error';
 import { calcualteSha256 } from '../../../shared/util/sha256';
 import { FileEntry } from '../../../data-access/entries/entry-models';
 import { UploadApi } from '../../../data-access/uploads/upload-api';
-import { TransferFailure, UploadTransfer } from './transfer-models';
+import { TransferFailure, TransferOperation, UploadTransfer } from './transfer-models';
 import {
   FileUploadRequest,
-  CreateUploadIntentRequest,
+  UploadContentRequest,
+  UploadIntentResponse,
 } from '../../../data-access/uploads/upload-models';
 
 type FailureContext = 'preparing' | 'presigning' | 'uploading' | 'finalizing';
@@ -27,9 +28,52 @@ export class TransferStore {
     () => this._transfers().filter((transfer) => transfer.phase === 'failed').length,
   );
 
-  async startUpload(
+  startUpload(
     file: File,
     targetParentId: string | null,
+  ): Promise<Result<FileEntry, TransferFailure>> {
+    return this.startTransfer(file, 'create', file.name, (content) =>
+      this.uploadApi.createIntent({
+        ...content,
+        fileName: file.name,
+        parentFolderId: targetParentId,
+      }),
+    );
+  }
+
+  startReplacement(file: File, targetFile: FileEntry): Promise<Result<FileEntry, TransferFailure>> {
+    return this.startTransfer(file, 'replace', targetFile.name, (content) =>
+      this.uploadApi.createReplaceIntent(targetFile.id, content),
+    );
+  }
+
+  async startUploads(
+    files: readonly File[],
+    targetParentId: string | null,
+  ): Promise<Result<FileEntry, TransferFailure>[]> {
+    return lastValueFrom(
+      from(files).pipe(
+        mergeMap((file) => this.startUpload(file, targetParentId), MAX_CONCURRENT_UPLOADS),
+        toArray(),
+      ),
+    );
+  }
+
+  remove(transferId: string): void {
+    this._transfers.update((transfers) =>
+      transfers.filter((transfer) => {
+        if (transfer.id !== transferId) return true;
+
+        return transfer.phase !== 'failed' && transfer.phase !== 'completed';
+      }),
+    );
+  }
+
+  private async startTransfer(
+    file: File,
+    operation: TransferOperation,
+    displayName: string,
+    createIntent: (content: UploadContentRequest) => Observable<UploadIntentResponse>,
   ): Promise<Result<FileEntry, TransferFailure>> {
     const transferId = crypto.randomUUID();
     const contentType = file.type.trim() || 'application/octet-stream';
@@ -38,8 +82,8 @@ export class TransferStore {
       {
         id: transferId,
         uploadId: null,
-        targetParentId,
-        fileName: file.name,
+        operation,
+        fileName: displayName,
         sizeBytes: file.size,
         phase: 'preparing',
         progress: null,
@@ -55,15 +99,13 @@ export class TransferStore {
       const sha256 = await calcualteSha256(file);
 
       failureContext = 'presigning';
-      const intentRequest: CreateUploadIntentRequest = {
-        fileName: file.name,
+      const content: UploadContentRequest = {
         contentType,
         size: file.size,
         sha256,
-        parentFolderId: targetParentId,
       };
 
-      const intent = await firstValueFrom(this.uploadApi.createIntent(intentRequest));
+      const intent = await firstValueFrom(createIntent(content));
 
       this.patch(transferId, { uploadId: intent.uploadId, phase: 'uploading', progress: 0 });
       failureContext = 'uploading';
@@ -112,28 +154,6 @@ export class TransferStore {
 
       return { ok: false, error: failure };
     }
-  }
-
-  async startUploads(
-    files: readonly File[],
-    targetParentId: string | null,
-  ): Promise<Result<FileEntry, TransferFailure>[]> {
-    return lastValueFrom(
-      from(files).pipe(
-        mergeMap((file) => this.startUpload(file, targetParentId), MAX_CONCURRENT_UPLOADS),
-        toArray(),
-      ),
-    );
-  }
-
-  remove(transferId: string): void {
-    this._transfers.update((transfers) =>
-      transfers.filter((transfer) => {
-        if (transfer.id !== transferId) return true;
-
-        return transfer.phase !== 'failed' && transfer.phase !== 'completed';
-      }),
-    );
   }
 
   private patch(transferId: string, changes: Partial<UploadTransfer>): void {
