@@ -266,7 +266,7 @@ export class Drive implements OnInit, AfterViewInit {
         return;
       }
 
-      this.startReplacement(replacementFile, targetFile, parentId);
+      void this.startReplacement(replacementFile, targetFile, parentId);
     });
   }
 

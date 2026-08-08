@@ -2,7 +2,6 @@ import { Injectable, signal } from '@angular/core';
 import Keycloak from 'keycloak-js';
 import { environment } from '../../environments/environment';
 import { UserProfile } from './user';
-import { first } from 'rxjs';
 
 @Injectable({
   providedIn: 'root',

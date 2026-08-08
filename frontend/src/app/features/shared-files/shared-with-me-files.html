@@ -137,6 +137,18 @@
           <span>Preimenuj</span>
         </button>
       }
+
+      @if (file.access.capabilities.replaceContent) {
+        <button
+          type="button"
+          cdkMenuItem
+          (cdkMenuItemTriggered)="replaceContent(file)"
+          class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <app-icon [name]="'cloud'" [size]="16" />
+          <span>Zamijeni sadržaj</span>
+        </button>
+      }
     </div>
   }
 </ng-template>

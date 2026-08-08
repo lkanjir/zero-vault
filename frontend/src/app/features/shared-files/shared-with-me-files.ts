@@ -21,7 +21,9 @@ import { EntryDownloadService } from '../drive/actions/download/entry-download-s
 import { apiErrorMessage } from '../../shared/api-error';
 import { Dialog } from '@angular/cdk/dialog';
 import { RenameEntryDialog } from '../drive/rename-entry-dialog/rename-entry-dialog';
-import { EntryResponse } from '../../data-access/entries/entry-models';
+import { EntryResponse, FileEntry } from '../../data-access/entries/entry-models';
+import { TransferStore } from '../transfers/state/transfer-store';
+import { ReplaceContentDialog } from '../transfers/replace-content-dialog/replace-content-dialog';
 
 const LOAD_MORE_THRESHOLD = 10;
 
@@ -41,19 +43,22 @@ const LOAD_MORE_THRESHOLD = 10;
 })
 export class SharedWithMeFiles implements OnInit, AfterViewInit {
   readonly store = inject(SharedWithMeStore);
+  readonly transferStore = inject(TransferStore);
   readonly destroyRef = inject(DestroyRef);
-  readonly viewport = viewChild(CdkVirtualScrollViewport);
   readonly document = inject(DOCUMENT);
   readonly entryDownloadService = inject(EntryDownloadService);
   readonly dialog = inject(Dialog);
+
+  readonly viewport = viewChild(CdkVirtualScrollViewport);
 
   private readonly _downloadFileIds = signal<ReadonlySet<string>>(new Set());
   private readonly _downloadError = signal<string | null>(null);
 
   readonly downloadFileIds = this._downloadFileIds.asReadonly();
   readonly downloadError = this._downloadError.asReadonly();
-  readonly trackFile: TrackByFunction<SharedWithMeFile> = (_index, file) => file.id;
   readonly contextMenuFile = signal<SharedWithMeFile | null>(null);
+
+  readonly trackFile: TrackByFunction<SharedWithMeFile> = (_index, file) => file.id;
 
   ngOnInit(): void {
     this.store.load();
@@ -133,9 +138,36 @@ export class SharedWithMeFiles implements OnInit, AfterViewInit {
     });
 
     dialogRef.closed.subscribe((updatedEntry) => {
-      if (updatedEntry !== undefined) {
-        this.store.fileRenamed(updatedEntry);
+      if (updatedEntry?.kind === 'file') {
+        this.store.fileUpdated(updatedEntry);
       }
     });
+  }
+
+  replaceContent(targetFile: SharedWithMeFile): void {
+    const dialogRef = this.dialog.open<File>(ReplaceContentDialog, {
+      data: { targetFile },
+      width: 'calc(100vw - 2rem)',
+      maxWidth: '28rem',
+      autoFocus: 'first-tabbable',
+      restoreFocus: true,
+    });
+
+    dialogRef.closed.subscribe((replacementFile) => {
+      if (replacementFile !== undefined) {
+        void this.startReplacement(replacementFile, targetFile);
+      }
+    });
+  }
+
+  private async startReplacement(
+    replacementFile: File,
+    targetFile: SharedWithMeFile,
+  ): Promise<void> {
+    const result = await this.transferStore.startReplacement(replacementFile, targetFile);
+
+    if (result.ok) {
+      this.store.fileUpdated(result.value);
+    }
   }
 }
