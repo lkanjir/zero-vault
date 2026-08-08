@@ -70,6 +70,7 @@ export class Drive implements OnInit, AfterViewInit {
 
   readonly trackEntry: TrackByFunction<EntryListItem> = (_index, entry) => entry.id;
   readonly viewport = viewChild(CdkVirtualScrollViewport);
+  readonly contextMenuEntry = signal<EntryListItem | null>(null);
 
   readonly emptyMessage = computed(() => {
     const search = this.store.search();

@@ -52,8 +52,8 @@ export class SharedWithMeFiles implements OnInit, AfterViewInit {
 
   readonly downloadFileIds = this._downloadFileIds.asReadonly();
   readonly downloadError = this._downloadError.asReadonly();
-
   readonly trackFile: TrackByFunction<SharedWithMeFile> = (_index, file) => file.id;
+  readonly contextMenuFile = signal<SharedWithMeFile | null>(null);
 
   ngOnInit(): void {
     this.store.load();
