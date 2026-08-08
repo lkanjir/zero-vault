@@ -1,0 +1,50 @@
+meta {
+  name: 04 Create stale replacement intent
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{apiBaseUrl}}/api/files/{{fileId}}/replacements
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ownerAccessToken}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "contentType": "text/plain",
+    "size": 27,
+    "sha256": "24883a042b2bbc014d52e6597d9cbbf6796efc26b480f59eddd22d242eed7ee0"
+  }
+}
+
+script:post-response {
+  if (res.status === 201) {
+    bru.setGlobalEnvVar('staleReplacementUploadId', res.body.uploadId);
+    bru.setGlobalEnvVar('staleReplacementUploadUrl', res.body.uploadUrl);
+    bru.setGlobalEnvVar(
+      'staleReplacementRequiredContentType',
+      res.body.requiredHeaders['Content-Type']
+    );
+    bru.setGlobalEnvVar(
+      'staleReplacementChecksumBase64',
+      res.body.requiredHeaders['x-amz-checksum-sha256']
+    );
+  }
+}
+
+tests {
+  test('creates a second intent against the same content version', function () {
+    expect(res.status).to.equal(201);
+    expect(res.body.uploadId).to.be.a('string');
+    expect(res.body.uploadId).not.to.equal(bru.getGlobalEnvVar('replacementUploadId'));
+  });
+}

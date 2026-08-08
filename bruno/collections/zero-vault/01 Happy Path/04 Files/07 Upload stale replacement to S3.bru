@@ -1,0 +1,26 @@
+meta {
+  name: 07 Upload stale replacement to S3
+  type: http
+  seq: 7
+}
+
+put {
+  url: {{staleReplacementUploadUrl}}
+  body: text
+  auth: none
+}
+
+headers {
+  Content-Type: {{staleReplacementRequiredContentType}}
+  x-amz-checksum-sha256: {{staleReplacementChecksumBase64}}
+}
+
+body:text {
+  Zero Vault replaced content
+}
+
+tests {
+  test('uploads an object belonging to the stale replacement intent', function () {
+    expect(res.status).to.be.oneOf([200, 204]);
+  });
+}

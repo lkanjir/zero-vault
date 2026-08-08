@@ -1,0 +1,26 @@
+meta {
+  name: 05 Upload replacement object to S3
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{replacementUploadUrl}}
+  body: text
+  auth: none
+}
+
+headers {
+  Content-Type: {{replacementRequiredContentType}}
+  x-amz-checksum-sha256: {{replacementChecksumBase64}}
+}
+
+body:text {
+  Zero Vault replaced content
+}
+
+tests {
+  test('uploads the replacement payload directly to object storage', function () {
+    expect(res.status).to.be.oneOf([200, 204]);
+  });
+}

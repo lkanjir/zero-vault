@@ -34,6 +34,32 @@ variables:
     value: ""
   - name: uploadChecksumBase64
     value: ""
+  - name: replacementUploadId
+    value: ""
+  - secret: true
+    name: replacementUploadUrl
+  - name: replacementRequiredContentType
+    value: ""
+  - name: replacementChecksumBase64
+    value: ""
+  - name: staleReplacementUploadId
+    value: ""
+  - secret: true
+    name: staleReplacementUploadUrl
+  - name: staleReplacementRequiredContentType
+    value: ""
+  - name: staleReplacementChecksumBase64
+    value: ""
+  - secret: true
+    name: replacementDownloadUrl
+  - name: editorReplacementUploadId
+    value: ""
+  - secret: true
+    name: editorReplacementUploadUrl
+  - name: editorReplacementRequiredContentType
+    value: ""
+  - name: editorReplacementChecksumBase64
+    value: ""
   - name: fileId
     value: ""
   - secret: true

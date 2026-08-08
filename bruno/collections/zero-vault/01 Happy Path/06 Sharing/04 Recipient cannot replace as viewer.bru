@@ -1,0 +1,34 @@
+meta {
+  name: 04 Recipient cannot replace as viewer
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{apiBaseUrl}}/api/files/{{sharedFileId}}/replacements
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{recipientAccessToken}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "contentType": "text/plain",
+    "size": 29,
+    "sha256": "85e8bb542651337c8b83fe78d97e7213789749f6e275836d0ba6d8cf0df0423e"
+  }
+}
+
+tests {
+  test('denies content replacement to a viewer with visible file access', function () {
+    expect(res.status).to.equal(403);
+    expect(res.body.code).to.equal('authorization_denied');
+  });
+}

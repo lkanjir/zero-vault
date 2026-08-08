@@ -1,0 +1,26 @@
+meta {
+  name: 11 Editor uploads replacement to S3
+  type: http
+  seq: 11
+}
+
+put {
+  url: {{editorReplacementUploadUrl}}
+  body: text
+  auth: none
+}
+
+headers {
+  Content-Type: {{editorReplacementRequiredContentType}}
+  x-amz-checksum-sha256: {{editorReplacementChecksumBase64}}
+}
+
+body:text {
+  Zero Vault editor replacement
+}
+
+tests {
+  test('uploads the editor replacement directly to object storage', function () {
+    expect(res.status).to.be.oneOf([200, 204]);
+  });
+}
