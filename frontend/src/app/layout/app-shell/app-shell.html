@@ -23,15 +23,15 @@
 
     <div
       class="fixed inset-0 z-20 bg-black/50 transition-opacity duration-200 ease-out"
-      [class.opacity-100]="transfersOpen()"
-      [class.opacity-0]="!transfersOpen()"
-      [class.pointer-events-auto]="transfersOpen()"
-      [class.pointer-events-none]="!transfersOpen()"
+      [class.opacity-100]="transferStore.panelOpen()"
+      [class.opacity-0]="!transferStore.panelOpen()"
+      [class.pointer-events-auto]="transferStore.panelOpen()"
+      [class.pointer-events-none]="!transferStore.panelOpen()"
       (click)="closeTransfers()"
     ></div>
 
     <app-transfer-panel
-      [open]="transfersOpen()"
+      [open]="transferStore.panelOpen()"
       (dismissed)="closeTransfers()"
       [transfers]="transferStore.transfers()"
     ></app-transfer-panel>

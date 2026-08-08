@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { Topbar } from './topbar/topbar';
 import { Sidebar } from './sidebar/sidebar';
@@ -24,7 +24,6 @@ export class AppShell {
   private readonly router = inject(Router);
 
   readonly transferStore = inject(TransferStore);
-  readonly transfersOpen = signal(false);
 
   openCreateFolderDialog(): void {
     this.dialog.open(CreateFolderDialog, {
@@ -45,8 +44,6 @@ export class AppShell {
     }
 
     const targetParentId = this.driveStore.parentId();
-    this.transfersOpen.set(true);
-
     const result = await this.transferStore.startUploads(files, targetParentId);
 
     if (result.some((result) => result.ok)) {
@@ -55,11 +52,11 @@ export class AppShell {
   }
 
   toggleTransfers() {
-    this.transfersOpen.update((curr) => !curr);
+    this.transferStore.togglePanel();
   }
 
   closeTransfers() {
-    this.transfersOpen.set(false);
+    this.transferStore.closePanel();
   }
 
   logout(): Promise<void> {

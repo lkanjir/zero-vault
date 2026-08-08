@@ -10,7 +10,6 @@ export const appIconNames = [
   'download',
   'square-pen',
   'move',
-  'trash',
   'folder-up',
   'folder-open',
   'arrow-up-down',

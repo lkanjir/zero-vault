@@ -20,13 +20,14 @@ const MAX_CONCURRENT_UPLOADS = 3;
 @Injectable({ providedIn: 'root' })
 export class TransferStore {
   private readonly uploadApi = inject(UploadApi);
-
   private readonly _transfers = signal<UploadTransfer[]>([]);
+  private readonly _panelOpen = signal(false);
 
   readonly transfers = this._transfers.asReadonly();
   readonly failedCount = computed(
     () => this._transfers().filter((transfer) => transfer.phase === 'failed').length,
   );
+  readonly panelOpen = this._panelOpen.asReadonly();
 
   startUpload(
     file: File,
@@ -75,6 +76,8 @@ export class TransferStore {
     displayName: string,
     createIntent: (content: UploadContentRequest) => Observable<UploadIntentResponse>,
   ): Promise<Result<FileEntry, TransferFailure>> {
+    this._panelOpen.set(true);
+
     const transferId = crypto.randomUUID();
     const contentType = file.type.trim() || 'application/octet-stream';
 
@@ -184,5 +187,13 @@ export class TransferStore {
     const message = context === 'uploading' ? fallback : apiErrorMessage(error, fallback);
 
     return { ...error, message };
+  }
+
+  togglePanel(): void {
+    this._panelOpen.update((open) => !open);
+  }
+
+  closePanel(): void {
+    this._panelOpen.set(false);
   }
 }

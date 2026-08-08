@@ -221,6 +221,18 @@
       </button>
     }
 
+    @if (entry.kind === 'file' && entry.access.capabilities.replaceContent) {
+      <button
+        cdkMenuItem
+        type="button"
+        class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
+        (cdkMenuItemTriggered)="replaceContent(entry)"
+      >
+        <app-icon [name]="'cloud'" [size]="16" />
+        <span>Zamijeni sadržaj</span>
+      </button>
+    }
+
     @if (entry.access.capabilities.delete) {
       <button
         cdkMenuItem
@@ -228,7 +240,7 @@
         class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
         (cdkMenuItemTriggered)="delete(entry)"
       >
-        <app-icon [name]="'trash'" [size]="16" />
+        <app-icon [name]="'trash-2'" [size]="16" />
         <span>Obriši</span>
       </button>
     }

@@ -33,6 +33,8 @@ import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrollin
 import { MoveEntryDialog } from './move-entry-dialog/move-entry-dialog';
 import { DeleteEntryDialog } from './delete-entry-dialog/delete-entry-dialog';
 import { ShareFileDialog } from '../shared-files/share-file-dialog/share-file-dialog';
+import { TransferStore } from '../transfers/state/transfer-store';
+import { ReplaceContentDialog } from '../transfers/replace-content-dialog/replace-content-dialog';
 
 const LOAD_MORE_THRESHOLD = 10;
 
@@ -53,6 +55,7 @@ const LOAD_MORE_THRESHOLD = 10;
 export class Drive implements OnInit, AfterViewInit {
   readonly store = inject(DriveStore);
   readonly entryDownloadService = inject(EntryDownloadService);
+  readonly transferStore = inject(TransferStore);
 
   readonly route = inject(ActivatedRoute);
   readonly destroyRef = inject(DestroyRef);
@@ -245,5 +248,36 @@ export class Drive implements OnInit, AfterViewInit {
   sortByUpdatedAt(): void {
     const nextSort = this.store.sort() === 'updated-desc' ? 'updated-asc' : 'updated-desc';
     this.store.setSort(nextSort);
+  }
+
+  replaceContent(targetFile: FileEntry): void {
+    const parentId = this.store.parentId();
+    const dialogRef = this.dialog.open<File>(ReplaceContentDialog, {
+      data: { targetFile },
+      width: 'calc(100vw - 2rem)',
+      maxWidth: '28rem',
+      autoFocus: 'first-tabbable',
+      restoreFocus: true,
+    });
+
+    dialogRef.closed.subscribe((replacementFile) => {
+      if (replacementFile === undefined) {
+        return;
+      }
+
+      this.startReplacement(replacementFile, targetFile, parentId);
+    });
+  }
+
+  private async startReplacement(
+    replacementFile: File,
+    targetFile: FileEntry,
+    parentId: string | null,
+  ): Promise<void> {
+    const result = await this.transferStore.startReplacement(replacementFile, targetFile);
+
+    if (result.ok) {
+      this.store.reloadIfCurrent(parentId);
+    }
   }
 }
