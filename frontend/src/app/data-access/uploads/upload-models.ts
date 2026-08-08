@@ -1,8 +1,11 @@
-export type UploadIntentRequest = {
-  fileName: string;
+export type UploadContentRequest = {
   contentType: string;
   size: number;
   sha256: string;
+};
+
+export type CreateUploadIntentRequest = UploadContentRequest & {
+  fileName: string;
   parentFolderId: string | null;
 };
 

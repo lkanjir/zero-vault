@@ -2,15 +2,28 @@ import { HttpClient, HttpEvent } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import { FileEntry } from '../entries/entry-models';
-import { UploadIntentRequest, UploadIntentResponse, FileUploadRequest } from './upload-models';
-
+import {
+  CreateUploadIntentRequest,
+  UploadIntentResponse,
+  FileUploadRequest,
+  UploadContentRequest,
+} from './upload-models';
 
 @Injectable({ providedIn: 'root' })
 export class UploadApi {
   private readonly http = inject(HttpClient);
 
-  createIntent(request: UploadIntentRequest): Observable<UploadIntentResponse> {
+  createIntent(request: CreateUploadIntentRequest): Observable<UploadIntentResponse> {
     return this.http.post<UploadIntentResponse>('/api/uploads/presign', request);
+  }
+
+  createReplaceIntent(
+    fileId: string,
+    request: UploadContentRequest,
+  ): Observable<UploadIntentResponse> {
+    const encoded = encodeURIComponent(fileId);
+
+    return this.http.post<UploadIntentResponse>(`/api/files/${encoded}/replacements`, request);
   }
 
   upload(request: FileUploadRequest): Observable<HttpEvent<void>> {

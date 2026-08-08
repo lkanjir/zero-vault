@@ -7,7 +7,10 @@ import { calcualteSha256 } from '../../../shared/util/sha256';
 import { FileEntry } from '../../../data-access/entries/entry-models';
 import { UploadApi } from '../../../data-access/uploads/upload-api';
 import { TransferFailure, UploadTransfer } from './transfer-models';
-import { FileUploadRequest, UploadIntentRequest } from '../../../data-access/uploads/upload-models';
+import {
+  FileUploadRequest,
+  CreateUploadIntentRequest,
+} from '../../../data-access/uploads/upload-models';
 
 type FailureContext = 'preparing' | 'presigning' | 'uploading' | 'finalizing';
 
@@ -52,7 +55,7 @@ export class TransferStore {
       const sha256 = await calcualteSha256(file);
 
       failureContext = 'presigning';
-      const intentRequest: UploadIntentRequest = {
+      const intentRequest: CreateUploadIntentRequest = {
         fileName: file.name,
         contentType,
         size: file.size,
