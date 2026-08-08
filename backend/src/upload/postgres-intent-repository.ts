@@ -1,13 +1,15 @@
 import type {
+  AssertReplacementTargetAvailableCommand,
   AssertUploadTargetAvailableCommand,
   CompletedUploadFile,
   CompletedVerifiedUploadResult,
   CompleteVerifiedUploadCommand,
   ExpirePendingIntentsCommand,
+  SaveReplacementUploadIntentCommand,
   SaveUploadIntentCommand,
   UploadIntentRepository,
 } from './upload-intent-repository.js';
-import type { UploadIntent } from './upload-intent.js';
+import type { UploadIntent, UploadIntentInput } from './upload-intent.js';
 import { db, type Transaction } from '../db/db-client.js';
 import { entries, files, uploadIntents } from '../db/schema.js';
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
@@ -34,15 +36,19 @@ export class PostgresIntentRepository implements UploadIntentRepository {
   }
 
   async save(command: SaveUploadIntentCommand): Promise<void> {
+    const upload = command.upload;
+
     await db.transaction(async (tx) => {
       const targetParentDbId = await this.authorizer.authorizeParentForCreate(tx, {
-        actorUserId: command.createdByUserId,
-        ownerId: command.createdByUserId,
+        actorUserId: upload.createdByUserId,
+        ownerId: upload.createdByUserId,
         parentPublicId: command.parentFolderId,
       });
 
       await tx.insert(uploadIntents).values({
-        ...this.toInsert(command),
+        ...this.toPendingInsert(upload),
+        operation: 'create',
+        fileName: command.fileName,
         targetParentId: targetParentDbId,
       });
     });
@@ -255,6 +261,48 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       .where(eq(uploadIntents.id, intentId));
   }
 
+  async assertReplacementTargetAvailable(
+    command: AssertReplacementTargetAvailableCommand,
+  ): Promise<void> {
+    await db.transaction(async (tx) => {
+      await this.authorizer.authorizeForUpdate(tx, {
+        actorUserId: command.userId,
+        entryPublicId: command.filePublicId,
+        actions: ['file:replace'],
+      });
+    });
+  }
+
+  async saveReplacement(command: SaveReplacementUploadIntentCommand): Promise<void> {
+    const upload = command.upload;
+
+    await db.transaction(async (tx) => {
+      const target = await this.authorizer.authorizeForUpdate(tx, {
+        actorUserId: upload.createdByUserId,
+        entryPublicId: command.filePublicId,
+        actions: ['file:replace'],
+      });
+
+      const [file] = await tx
+        .select({ contentVersion: files.contentVersion })
+        .from(files)
+        .where(eq(files.entryId, target.id))
+        .limit(1);
+
+      if (!file) {
+        throw new Error('Replacement target is missing file metadata');
+      }
+
+      await tx.insert(uploadIntents).values({
+        ...this.toPendingInsert(upload),
+        operation: 'replace',
+        fileName: null,
+        targetFileId: target.id,
+        expectedContentVersion: file.contentVersion,
+      });
+    });
+  }
+
   private toDomain(row: typeof uploadIntents.$inferSelect): UploadIntent {
     return {
       id: row.id,
@@ -278,22 +326,18 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     };
   }
 
-  private toInsert(intent: Omit<UploadIntent, 'id'>): typeof uploadIntents.$inferInsert {
+  private toPendingInsert(upload: UploadIntentInput): typeof uploadIntents.$inferInsert {
     return {
-      uploadId: intent.uploadId,
-      createdByUserId: intent.createdByUserId,
-      fileName: intent.fileName,
-      objectKey: intent.objectKey,
-      contentType: intent.contentType,
-      expectedSizeBytes: intent.expectedSizeBytes,
-      expectedSha256: intent.expectedSha256,
-      status: intent.status,
-      createdAt: intent.createdAt,
-      uploadUrlExpiresAt: intent.uploadUrlExpiresAt,
-      finalizeDeadline: intent.finalizeDeadline,
-      operation: intent.operation,
-      targetFileId: intent.targetFileId,
-      expectedContentVersion: intent.expectedContentVersion,
+      uploadId: upload.uploadId,
+      createdByUserId: upload.createdByUserId,
+      objectKey: upload.objectKey,
+      contentType: upload.contentType,
+      expectedSizeBytes: upload.expectedSizeBytes,
+      expectedSha256: upload.expectedSha256,
+      status: 'pending',
+      createdAt: upload.createdAt,
+      uploadUrlExpiresAt: upload.uploadUrlExpiresAt,
+      finalizeDeadline: upload.finalizeDeadline,
     };
   }
 

@@ -22,3 +22,15 @@ export type UploadIntent = {
   targetFileId: number | null;
   expectedContentVersion: number | null;
 };
+
+export type UploadIntentInput = {
+  uploadId: string;
+  createdByUserId: number;
+  objectKey: string;
+  contentType: string;
+  expectedSizeBytes: number;
+  expectedSha256: string;
+  createdAt: Date;
+  uploadUrlExpiresAt: Date;
+  finalizeDeadline: Date;
+};

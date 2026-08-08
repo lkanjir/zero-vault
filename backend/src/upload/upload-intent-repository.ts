@@ -1,4 +1,4 @@
-import type { UploadIntent } from './upload-intent.js';
+import type { UploadIntentInput, UploadIntent } from './upload-intent.js';
 
 export type CompleteVerifiedUploadCommand = {
   userId: number;
@@ -21,8 +21,10 @@ export type CompletedVerifiedUploadResult =
   | { kind: 'expired' }
   | { kind: 'superseded' };
 
-export type SaveUploadIntentCommand = Omit<UploadIntent, 'id' | 'targetParentId'> & {
+export type SaveUploadIntentCommand = {
+  upload: UploadIntentInput;
   parentFolderId: string | null;
+  fileName: string;
 };
 
 export type ExpirePendingIntentsCommand = {
@@ -36,6 +38,16 @@ export type AssertUploadTargetAvailableCommand = {
   fileName: string;
 };
 
+export type AssertReplacementTargetAvailableCommand = {
+  userId: number;
+  filePublicId: string;
+};
+
+export type SaveReplacementUploadIntentCommand = {
+  upload: UploadIntentInput;
+  filePublicId: string;
+};
+
 export interface UploadIntentRepository {
   findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null>;
   save(intent: SaveUploadIntentCommand): Promise<void>;
@@ -44,4 +56,6 @@ export interface UploadIntentRepository {
   ): Promise<CompletedVerifiedUploadResult>;
   expirePendingIntents(command: ExpirePendingIntentsCommand): Promise<number>;
   assertUploadTargetAvailable(command: AssertUploadTargetAvailableCommand): Promise<void>;
+  assertReplacementTargetAvailable(command: AssertReplacementTargetAvailableCommand): Promise<void>;
+  saveReplacement(command: SaveReplacementUploadIntentCommand): Promise<void>;
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { UploadResponse } from './dto.js';
 import type { UploadRequestBody } from './validation-schemas.js';
-import type { UploadIntent } from './upload-intent.js';
+import type { UploadIntent, UploadIntentInput } from './upload-intent.js';
 import type { ObjectMetadata, ObjectStorage } from '../storage/object-storage.js';
 import type {
   CompletedUploadFile,
@@ -42,58 +42,50 @@ export class UploadService {
     const objectKey = `users/${user.publicId}/objects/${objectId}`;
     const uploadId = randomUUID();
 
-    const intent: UploadIntent = {
-      uploadId: uploadId,
+    const upload: UploadIntentInput = {
+      uploadId,
       createdByUserId: user.id,
-      fileName: requestBody.fileName,
-      objectKey: objectKey,
+      objectKey,
       contentType: requestBody.contentType,
       expectedSizeBytes: requestBody.size,
       expectedSha256: requestBody.sha256,
-      status: 'pending',
       createdAt: new Date(),
       uploadUrlExpiresAt: new Date(Date.now() + this.EXPIRES_IN_SECONDS * 1000),
       finalizeDeadline: new Date(Date.now() + this.FINALIZE_DEADLINE_SECONDS * 1000),
-      operation: 'create',
-      targetFileId: null,
-      expectedContentVersion: null,
     };
 
-    const uploadUrl = await this.createPresignedUploadUrl(intent);
+    const uploadUrl = await this.createPresignedUploadUrl(upload);
 
-    await this.intentRepo.save({
-      ...intent,
-      parentFolderId,
-    });
+    await this.intentRepo.save({ upload, parentFolderId, fileName: requestBody.fileName });
 
     const response: UploadResponse = {
       uploadId,
       uploadUrl,
       expiresInSeconds: this.EXPIRES_IN_SECONDS,
       requiredHeaders: {
-        'Content-Type': intent.contentType,
-        'x-amz-checksum-sha256': sha256HexToBase64(intent.expectedSha256),
+        'Content-Type': upload.contentType,
+        'x-amz-checksum-sha256': sha256HexToBase64(upload.expectedSha256),
       },
     };
 
     return response;
   }
 
-  private async createPresignedUploadUrl(intent: UploadIntent): Promise<string> {
+  private async createPresignedUploadUrl(upload: UploadIntentInput): Promise<string> {
     try {
       return await this.storage.createPresignedUploadUrl({
-        objectKey: intent.objectKey,
-        contentType: intent.contentType,
+        objectKey: upload.objectKey,
+        contentType: upload.contentType,
         expiresInSeconds: this.EXPIRES_IN_SECONDS,
-        sha256Hex: intent.expectedSha256,
+        sha256Hex: upload.expectedSha256,
       });
     } catch (error) {
       if (error instanceof StorageError) {
         throw new AppError('storage_unavailable', {
           cause: error,
           context: {
-            uploadId: intent.uploadId,
-            objectKey: intent.objectKey,
+            uploadId: upload.uploadId,
+            objectKey: upload.objectKey,
             storageOperation: error.context.operation,
           },
         });

@@ -15,7 +15,13 @@ export const contentTypeSchema = z
   .transform(normalizedContentType)
   .pipe(z.string().min(1).max(500));
 
-export const uploadRequestSchema = z.object({
+const uploadContentSchema = z.object({
+  contentType: contentTypeSchema,
+  size: z.number().int().positive().max(SINGLE_PART_MAX_BYTES),
+  sha256: sha256Schema,
+});
+
+export const uploadRequestSchema = uploadContentSchema.extend({
   parentFolderId: z.uuid().nullable().optional(),
   fileName: z
     .string()
@@ -25,9 +31,6 @@ export const uploadRequestSchema = z.object({
     .refine((value) => !/[\\/]+/.test(value), {
       error: 'Naziv datoteke ne smije sadržavati znak / ili \\',
     }),
-  contentType: contentTypeSchema,
-  size: z.number().int().positive().max(SINGLE_PART_MAX_BYTES),
-  sha256: sha256Schema,
 });
 
 export type UploadRequestBody = z.output<typeof uploadRequestSchema>;
@@ -35,3 +38,7 @@ export type UploadRequestBody = z.output<typeof uploadRequestSchema>;
 export const completeUploadSchema = z.object({
   uploadId: z.uuid(),
 });
+
+export const replacementUploadRequestSchema = uploadContentSchema;
+
+export type ReplacementUploadRequestBody = z.output<typeof replacementUploadRequestSchema>;
