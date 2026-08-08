@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { UploadResponse } from './dto.js';
-import type { UploadRequestBody } from './validation-schemas.js';
+import type { ReplacementUploadRequestBody, UploadRequestBody } from './validation-schemas.js';
 import type { UploadIntent, UploadIntentInput } from './upload-intent.js';
 import type { ObjectMetadata, ObjectStorage } from '../storage/object-storage.js';
 import type {
@@ -38,37 +38,30 @@ export class UploadService {
       fileName: requestBody.fileName,
     });
 
-    const objectId = randomUUID();
-    const objectKey = `users/${user.publicId}/objects/${objectId}`;
-    const uploadId = randomUUID();
-
-    const upload: UploadIntentInput = {
-      uploadId,
-      createdByUserId: user.id,
-      objectKey,
-      contentType: requestBody.contentType,
-      expectedSizeBytes: requestBody.size,
-      expectedSha256: requestBody.sha256,
-      createdAt: new Date(),
-      uploadUrlExpiresAt: new Date(Date.now() + this.EXPIRES_IN_SECONDS * 1000),
-      finalizeDeadline: new Date(Date.now() + this.FINALIZE_DEADLINE_SECONDS * 1000),
-    };
-
+    const upload = this.createUploadIntentInput(user, requestBody);
     const uploadUrl = await this.createPresignedUploadUrl(upload);
 
     await this.intentRepo.save({ upload, parentFolderId, fileName: requestBody.fileName });
 
-    const response: UploadResponse = {
-      uploadId,
-      uploadUrl,
-      expiresInSeconds: this.EXPIRES_IN_SECONDS,
-      requiredHeaders: {
-        'Content-Type': upload.contentType,
-        'x-amz-checksum-sha256': sha256HexToBase64(upload.expectedSha256),
-      },
-    };
+    return this.toUploadResponse(upload, uploadUrl);
+  }
 
-    return response;
+  async createReplacementUpload(
+    user: User,
+    filePublicId: string,
+    request: ReplacementUploadRequestBody,
+  ): Promise<UploadResponse> {
+    await this.intentRepo.assertReplacementTargetAvailable({
+      userId: user.id,
+      filePublicId,
+    });
+
+    const upload = this.createUploadIntentInput(user, request);
+    const uploadUrl = await this.createPresignedUploadUrl(upload);
+
+    await this.intentRepo.saveReplacement({ upload, filePublicId });
+
+    return this.toUploadResponse(upload, uploadUrl);
   }
 
   private async createPresignedUploadUrl(upload: UploadIntentInput): Promise<string> {
@@ -175,5 +168,38 @@ export class UploadService {
       case 'superseded':
         throw new AppError('replacement_conflict');
     }
+  }
+
+  private createUploadIntentInput(
+    user: User,
+    request: UploadRequestBody | ReplacementUploadRequestBody,
+  ): UploadIntentInput {
+    const createdAt = new Date();
+    const uploadId = randomUUID();
+    const objectId = randomUUID();
+
+    return {
+      uploadId,
+      createdByUserId: user.id,
+      objectKey: `users/${user.publicId}/objects/${objectId}`,
+      contentType: request.contentType,
+      expectedSizeBytes: request.size,
+      expectedSha256: request.sha256,
+      createdAt,
+      uploadUrlExpiresAt: new Date(createdAt.getTime() + this.EXPIRES_IN_SECONDS * 1000),
+      finalizeDeadline: new Date(createdAt.getTime() + this.FINALIZE_DEADLINE_SECONDS * 1000),
+    };
+  }
+
+  private toUploadResponse(upload: UploadIntentInput, uploadUrl: string): UploadResponse {
+    return {
+      uploadId: upload.uploadId,
+      uploadUrl,
+      expiresInSeconds: this.EXPIRES_IN_SECONDS,
+      requiredHeaders: {
+        'Content-Type': upload.contentType,
+        'x-amz-checksum-sha256': sha256HexToBase64(upload.expectedSha256),
+      },
+    };
   }
 }
