@@ -32,7 +32,21 @@ export type AuditEventRecord = {
   };
 };
 
+export type GetAuditStatisticsQuery = {
+  ownerId: number;
+  from: Date;
+  to: Date;
+};
+
+export type AuditStatistics = {
+  total: number;
+  entryChanges: number;
+  downloadRequests: number;
+  sharingChanges: number;
+};
+
 export interface AuditRepository {
   record(command: RecordAuditEventCommand): Promise<void>;
   listEvents(query: ListAuditEventsQuery): Promise<AuditEventRecord[]>;
+  getStatistics(query: GetAuditStatisticsQuery): Promise<AuditStatistics>;
 }

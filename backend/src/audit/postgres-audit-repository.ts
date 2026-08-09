@@ -1,10 +1,17 @@
-import { and, desc, eq, ilike, lt, or, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '../db/db-client.js';
 import { auditEvents, entries, users } from '../db/schema.js';
-import type { RecordAuditEventCommand } from './audit-event.js';
+import {
+  downloadRequestAuditActions,
+  entryChangeAuditActions,
+  sharingChangeAuditActions,
+  type RecordAuditEventCommand,
+} from './audit-event.js';
 import type {
   AuditEventRecord,
   AuditRepository,
+  AuditStatistics,
+  GetAuditStatisticsQuery,
   ListAuditEventsQuery,
 } from './audit-repository.js';
 
@@ -74,5 +81,35 @@ export class PostgresAuditRepository implements AuditRepository {
       .where(and(...conditions))
       .orderBy(desc(auditEvents.occurredAt), desc(auditEvents.id))
       .limit(query.limit);
+  }
+
+  async getStatistics(query: GetAuditStatisticsQuery): Promise<AuditStatistics> {
+    const [statistics] = await db
+      .select({
+        total: sql<number>`count(*)::integer`,
+        entryChanges: sql<number>`count(*) filter (
+          where ${inArray(auditEvents.action, entryChangeAuditActions)}
+        )::integer`,
+        downloadRequests: sql<number>`count(*) filter (
+          where ${inArray(auditEvents.action, downloadRequestAuditActions)}
+        )::integer`,
+        sharingChanges: sql<number>`count(*) filter (
+          where ${inArray(auditEvents.action, sharingChangeAuditActions)}
+        )::integer`,
+      })
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.ownerId, query.ownerId),
+          gte(auditEvents.occurredAt, query.from),
+          lt(auditEvents.occurredAt, query.to),
+        ),
+      );
+
+    if (!statistics) {
+      throw new Error('Audit statistics query returned no result');
+    }
+
+    return statistics;
   }
 }
