@@ -16,6 +16,8 @@ import type {
   UpdateFileGrantCommand,
 } from './file-grant-repository.js';
 import type { FileGrant } from './file-grant.js';
+import type { Entry } from '../entry/entry.js';
+import { recordAuditEventInTransaction } from '../audit/record-audit-event-in-transaction.js';
 
 export class PostgresFileGrantRepository implements FileGrantRepository {
   constructor(private readonly authorizer: PostgresEntryAuthorizer) {}
@@ -81,6 +83,8 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
           throw new Error('File grant update failed');
         }
 
+        await this.recordShareGrantSubmitted(tx, file, updatedGrant, command);
+
         return updatedGrant;
       }
 
@@ -112,6 +116,8 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
       if (!savedGrant) {
         throw new Error('File grant save failed');
       }
+
+      await this.recordShareGrantSubmitted(tx, file, savedGrant, command);
 
       return savedGrant;
     });
@@ -378,5 +384,27 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
       .groupBy(entries.id, files.entryId)
       .orderBy(sortName, entries.id)
       .limit(query.limit);
+  }
+
+  private async recordShareGrantSubmitted(
+    tx: Transaction,
+    file: Entry,
+    grant: FileGrant,
+    command: SaveFileGrantCommand,
+  ): Promise<void> {
+    await recordAuditEventInTransaction(tx, {
+      ownerId: file.ownerId,
+      actorUserId: command.actorUserId,
+      entryId: file.id,
+      entryNameSnapshot: file.name,
+      action: 'file.share_submitted',
+      details: {
+        shareId: grant.publicId,
+        recipientEmail: grant.recipientEmail,
+        permission: grant.permission,
+        expiresAt: grant.expiresAt?.toISOString() ?? null,
+      },
+      occurredAt: command.submittedAt,
+    });
   }
 }
