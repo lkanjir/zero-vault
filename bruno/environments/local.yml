@@ -21,7 +21,7 @@ variables:
   - secret: true
     name: recipientAccessToken
   - name: demoRunId
-    value: ""
+    value: mp
   - name: sourceFolderId
     value: ""
   - name: targetFolderId
@@ -74,3 +74,7 @@ variables:
     value: ""
   - secret: true
     name: recipientDownloadUrl
+  - name: auditCursor
+    value: eyJ2IjoxLCJzZWFyY2giOm51bGwsIm9jY3VycmVkQXQiOiIyMDI2LTA4LTA5VDE2OjI3OjU4LjE4MloiLCJhdWRpdEV2ZW50SWQiOjIxfQ
+  - name: auditFirstPageIds
+    value: '["39cb8219-19f8-4411-a39b-b8ed167a1b06","78770a2a-ef34-4169-bea7-3ad37452d59f","7c06d560-d4f1-4b62-b177-0e3b878dfa77","19dff76b-4f96-40b9-87b3-5513b2c5b9f2","529f2141-113c-436d-a7f4-6c5903210fdc"]'

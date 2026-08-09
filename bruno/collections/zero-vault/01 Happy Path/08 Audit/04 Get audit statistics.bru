@@ -1,0 +1,26 @@
+meta {
+  name: 04 Get audit statistics
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{apiBaseUrl}}/api/audit/statistics
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ownerAccessToken}}
+}
+
+tests {
+  test('returns the rolling 30-day audit statistics', function () {
+    expect(res.status).to.equal(200);
+    expect(Date.parse(res.body.period.from)).to.be.lessThan(Date.parse(res.body.period.to));
+    expect(res.body.total).to.be.greaterThan(0);
+    expect(res.body.total).to.equal(
+      res.body.entryChanges + res.body.downloadRequests + res.body.sharingChanges,
+    );
+  });
+}

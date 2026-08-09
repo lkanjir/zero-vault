@@ -1,0 +1,40 @@
+meta {
+  name: 01 List first audit page
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{apiBaseUrl}}/api/audit/events?limit=5
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ownerAccessToken}}
+}
+
+script:post-response {
+  if (res.status === 200) {
+    bru.setGlobalEnvVar('auditCursor', res.body.page.nextCursor ?? '');
+    bru.setGlobalEnvVar(
+      'auditFirstPageIds',
+      JSON.stringify(res.body.items.map((event) => event.id)),
+    );
+  }
+}
+
+tests {
+  test('returns the first audit page and a continuation cursor', function () {
+    expect(res.status).to.equal(200);
+    expect(res.body.items).to.be.an('array').with.lengthOf(5);
+    expect(res.body.page.limit).to.equal(5);
+    expect(res.body.page.hasMore).to.equal(true);
+    expect(res.body.page.nextCursor).to.be.a('string').and.not.empty;
+  });
+
+  test('returns newest events first', function () {
+    const occurredAt = res.body.items.map((event) => Date.parse(event.occurredAt));
+    expect(occurredAt).to.deep.equal([...occurredAt].sort((left, right) => right - left));
+  });
+}

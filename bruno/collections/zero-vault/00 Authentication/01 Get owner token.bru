@@ -23,6 +23,11 @@ body:form-urlencoded {
   scope: openid
 }
 
+vars:pre-request {
+  ownerUsername: ana@zero-vault.local
+  ownerPassword: test
+}
+
 script:post-response {
   if (res.status === 200) {
     bru.setGlobalEnvVar('ownerAccessToken', res.body.access_token);
