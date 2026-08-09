@@ -15,3 +15,13 @@ export const auditActions = [
 export type AuditAction = (typeof auditActions)[number];
 
 export type AuditEventDetails = Record<string, string | number | boolean | null>;
+
+export type RecordAuditEventCommand = {
+  ownerId: number;
+  actorUserId: number;
+  entryId: number;
+  entryNameSnapshot: string;
+  action: AuditAction;
+  details?: AuditEventDetails;
+  occurredAt: Date;
+};

@@ -418,7 +418,6 @@ export const auditEvents = pgTable(
     entryNameSnapshot: text('entry_name_snapshot').notNull(),
     action: auditAction('action').notNull(),
     details: jsonb('details').$type<AuditEventDetails>().default({}).notNull(),
-    requestId: uuid('request_id').notNull(),
     occurredAt: timestamp('occurred_at', { withTimezone: true, mode: 'date' })
       .defaultNow()
       .notNull(),

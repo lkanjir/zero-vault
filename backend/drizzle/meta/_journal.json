@@ -99,6 +99,13 @@
       "when": 1786280872582,
       "tag": "0013_noisy_jack_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786281892273,
+      "tag": "0014_smooth_exiles",
+      "breakpoints": true
     }
   ]
 }

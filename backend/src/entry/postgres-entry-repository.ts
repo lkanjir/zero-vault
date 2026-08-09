@@ -20,6 +20,7 @@ import { AppError } from '../shared/errors/api/app-error.js';
 import { enqueueObjectDeletionInTransaction } from '../object-deletion/object-deletion-helpers.js';
 import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
 import type { AuthorizationAction } from '../authorization/authorization.js';
+import { recordAuditEventInTransaction } from '../audit/record-audit-event-in-transaction.js';
 
 type QueryDbRow = {
   entryId: number;
@@ -108,7 +109,23 @@ export class PostgresEntryRepository implements EntryRepository {
           parentPublicId: command.parentId,
         });
 
-        return this.insertFolder(tx, command.actorUserId, command.name, parentId);
+        const createdFolder = await this.insertFolder(
+          tx,
+          command.actorUserId,
+          command.name,
+          parentId,
+        );
+
+        await recordAuditEventInTransaction(tx, {
+          ownerId: createdFolder.ownerId,
+          actorUserId: command.actorUserId,
+          entryId: createdFolder.id,
+          entryNameSnapshot: createdFolder.name,
+          action: 'folder.created',
+          occurredAt: createdFolder.createdAt,
+        });
+
+        return createdFolder;
       });
 
       return this.toFolder(folder);

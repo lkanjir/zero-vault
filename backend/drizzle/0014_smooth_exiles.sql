@@ -1,0 +1,1 @@
+ALTER TABLE "audit_events" DROP COLUMN "request_id";
