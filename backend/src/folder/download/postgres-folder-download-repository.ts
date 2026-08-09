@@ -17,6 +17,7 @@ import {
   enqueueObjectDeletionInTransaction,
   enqueueObjectDeletionsInTransaction,
 } from '../../object-deletion/object-deletion-helpers.js';
+import { recordAuditEventInTransaction } from '../../audit/record-audit-event-in-transaction.js';
 
 type FolderArchiveManifestRow = {
   kind: 'folder' | 'file';
@@ -61,6 +62,18 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
       if (!download) {
         throw new Error('Failed to create folder download');
       }
+
+      await recordAuditEventInTransaction(tx, {
+        ownerId: command.ownerId,
+        actorUserId: command.ownerId,
+        entryId: folder.id,
+        entryNameSnapshot: folder.name,
+        action: 'folder.archive_requested',
+        details: {
+          downloadId: command.downloadId,
+        },
+        occurredAt: command.createdAt,
+      });
 
       return this.toDomain(download);
     });
