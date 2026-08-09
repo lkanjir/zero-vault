@@ -6,8 +6,10 @@ import {
   encodeAuditEventListCursor,
 } from './audit-event-list-cursor.js';
 import type { AuditEventRecord, AuditRepository } from './audit-repository.js';
-import type { AuditEventListResponse, AuditEventResponse } from './dto.js';
+import type { AuditEventListResponse, AuditEventResponse, AuditStatisticsResponse } from './dto.js';
 import type { ListAuditEventsRequest } from './validation-schemas.js';
+
+const AUDIT_STATISTICS_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
 
 export class AuditService {
   constructor(
@@ -16,11 +18,7 @@ export class AuditService {
   ) {}
 
   async listEvents(user: User, request: ListAuditEventsRequest): Promise<AuditEventListResponse> {
-    this.authzService.authorizeDriveRoot({
-      actorUserId: user.id,
-      ownerId: user.id,
-      action: 'audit:read',
-    });
+    this.authorizeRead(user);
 
     const cursor = request.cursor === null ? null : decodeAuditEventListCursor(request.cursor);
 
@@ -60,6 +58,34 @@ export class AuditService {
         nextCursor,
       },
     };
+  }
+
+  async getStatistics(user: User): Promise<AuditStatisticsResponse> {
+    this.authorizeRead(user);
+
+    const to = new Date();
+    const from = new Date(to.getTime() - AUDIT_STATISTICS_PERIOD_MS);
+
+    const statistics = await this.auditRepository.getStatistics({ ownerId: user.id, from, to });
+
+    return {
+      period: {
+        from: from.toISOString(),
+        to: to.toISOString(),
+      },
+      total: statistics.total,
+      entryChanges: statistics.entryChanges,
+      downloadRequests: statistics.downloadRequests,
+      sharingChanges: statistics.sharingChanges,
+    };
+  }
+
+  private authorizeRead(user: User): void {
+    this.authzService.authorizeDriveRoot({
+      actorUserId: user.id,
+      ownerId: user.id,
+      action: 'audit:read',
+    });
   }
 
   private toResponse(record: AuditEventRecord): AuditEventResponse {
