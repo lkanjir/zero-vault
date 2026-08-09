@@ -1,3 +1,4 @@
+import type { AuditRepository } from '../audit/audit-repository.js';
 import type { AuthorizationService } from '../authorization/authorization-service.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 import { StorageError } from '../shared/errors/storage/storage-error.js';
@@ -12,7 +13,8 @@ export class FileDownloadService {
 
   constructor(
     private readonly authzService: AuthorizationService,
-    private readonly repo: FileRepository,
+    private readonly fileRepo: FileRepository,
+    private readonly auditRepo: AuditRepository,
     private readonly storage: ObjectStorage,
   ) {}
 
@@ -23,13 +25,25 @@ export class FileDownloadService {
       action: 'file:download',
     });
 
-    const file = await this.repo.findAvailableFileByEntryId(authorization.context.resource.id);
+    const file = await this.fileRepo.findAvailableFileByEntryId(authorization.context.resource.id);
 
     if (!file) {
       throw new AppError('file_not_found');
     }
 
     const downloadUrl = await this.createPresignedDownloadUrl(file);
+
+    await this.auditRepo.record({
+      ownerId: file.ownerId,
+      actorUserId: user.id,
+      entryId: file.entryId,
+      entryNameSnapshot: file.name,
+      action: 'file.download_url_issued',
+      details: {
+        expiresInSeconds: this.EXPIRES_IN_SECONDS,
+      },
+      occurredAt: new Date(),
+    });
 
     return {
       contentType: file.contentType,
