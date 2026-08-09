@@ -23,6 +23,7 @@ export type RevokeFileGrantCommand = {
   actorUserId: number;
   filePublicId: string;
   grantPublicId: string;
+  revokedAt: Date;
 };
 
 export type UpdateFileGrantCommand = {

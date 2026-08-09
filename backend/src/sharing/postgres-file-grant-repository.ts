@@ -151,9 +151,29 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
         actions: ['share:manage'],
       });
 
-      await tx
+      const [revokedGrant] = await tx
         .delete(fileGrants)
-        .where(and(eq(fileGrants.fileId, file.id), eq(fileGrants.publicId, command.grantPublicId)));
+        .where(and(eq(fileGrants.fileId, file.id), eq(fileGrants.publicId, command.grantPublicId)))
+        .returning();
+
+      if (!revokedGrant) {
+        return;
+      }
+
+      await recordAuditEventInTransaction(tx, {
+        ownerId: file.ownerId,
+        actorUserId: command.actorUserId,
+        entryId: file.id,
+        entryNameSnapshot: file.name,
+        action: 'file.share_revoked',
+        details: {
+          shareId: revokedGrant.publicId,
+          recipientEmail: revokedGrant.recipientEmail,
+          permission: revokedGrant.permission,
+          expiresAt: revokedGrant.expiresAt?.toISOString() ?? null,
+        },
+        occurredAt: command.revokedAt,
+      });
     });
   }
 

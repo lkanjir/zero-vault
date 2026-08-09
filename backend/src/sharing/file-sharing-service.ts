@@ -141,6 +141,7 @@ export class FileSharingService {
       actorUserId: user.id,
       filePublicId,
       grantPublicId: shareId,
+      revokedAt: new Date(),
     });
   }
 
