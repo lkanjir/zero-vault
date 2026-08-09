@@ -21,7 +21,9 @@ import { enqueueObjectDeletionInTransaction } from '../object-deletion/object-de
 import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
 import type { AuthorizationAction } from '../authorization/authorization.js';
 import { recordAuditEventInTransaction } from '../audit/record-audit-event-in-transaction.js';
-import { resolveParentPublicIdInTransaction } from './resolve-parent-id-in-transaction.js';
+import {
+  resolveParentContextInTransaction,
+} from './resolve-parent-id-in-transaction.js';
 
 type QueryDbRow = {
   entryId: number;
@@ -233,13 +235,22 @@ export class PostgresEntryRepository implements EntryRepository {
         }
 
         if (command.parentId !== undefined && updatedEntry.parentId !== sourceEntry.parentId) {
-          const sourceParentPublicId =
+          const sourceParent =
             sourceEntry.parentId === null
               ? null
-              : await resolveParentPublicIdInTransaction(
+              : await resolveParentContextInTransaction(
                   tx,
                   sourceEntry.ownerId,
                   sourceEntry.parentId,
+                );
+
+          const destinationParent =
+            updatedEntry.parentId === null
+              ? null
+              : await resolveParentContextInTransaction(
+                  tx,
+                  updatedEntry.ownerId,
+                  updatedEntry.parentId,
                 );
 
           await recordAuditEventInTransaction(tx, {
@@ -249,8 +260,10 @@ export class PostgresEntryRepository implements EntryRepository {
             entryNameSnapshot: updatedEntry.name,
             action: 'entry.moved',
             details: {
-              sourceParentId: sourceParentPublicId,
-              destinationParentId: command.parentId,
+              sourceParentId: sourceParent?.publicId ?? null,
+              sourceParentName: sourceParent?.name ?? null,
+              destinationParentId: destinationParent?.publicId ?? null,
+              destinationParentName: destinationParent?.name ?? null,
             },
             occurredAt: updatedEntry.updatedAt,
           });

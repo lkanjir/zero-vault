@@ -29,9 +29,9 @@ async function lockActiveParentInTransaction(
   tx: Transaction,
   ownerId: number,
   identifierCondition: SQL,
-): Promise<{ id: number; publicId: string }> {
+): Promise<{ id: number; publicId: string; name: string }> {
   const [parent] = await tx
-    .select({ id: entries.id, publicId: entries.publicId })
+    .select({ id: entries.id, publicId: entries.publicId, name: entries.name })
     .from(entries)
     .where(
       and(
@@ -49,4 +49,17 @@ async function lockActiveParentInTransaction(
   }
 
   return parent;
+}
+
+export async function resolveParentContextInTransaction(
+  tx: Transaction,
+  ownerId: number,
+  parentId: number,
+): Promise<{ publicId: string; name: string }> {
+  const parent = await lockActiveParentInTransaction(tx, ownerId, eq(entries.id, parentId));
+
+  return {
+    publicId: parent.publicId,
+    name: parent.name,
+  };
 }
