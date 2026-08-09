@@ -26,6 +26,7 @@ import { PostgresFileGrantRepository } from './sharing/postgres-file-grant-repos
 import { FileSharingService } from './sharing/file-sharing-service.js';
 import { FileGrantMaintenanceService } from './sharing/file-grant-maintenance-service.js';
 import { PostgresAuditRepository } from './audit/postgres-audit-repository.js';
+import { AuditService } from './audit/audit-service.js';
 
 export function createCompositionRoot() {
   const authorizationContextResolver = new PostgresAuthorizationContextResolver();
@@ -40,6 +41,7 @@ export function createCompositionRoot() {
   const storage = new S3ObjectStorage();
 
   const auditRepository = new PostgresAuditRepository();
+  const auditService = new AuditService(authorizationService, auditRepository);
 
   const userRepository = new PostgresUserRepository();
   const userService = new UserService(userRepository);
@@ -96,5 +98,6 @@ export function createCompositionRoot() {
     objectDeletionProcessor,
     sharingService,
     fileGrantMaintenanceService,
+    auditService,
   };
 }
