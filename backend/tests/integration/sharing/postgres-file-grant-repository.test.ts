@@ -6,7 +6,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testconta
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Database } from '../../../src/db/db-client.js';
 import { isUniqueViolation } from '../../../src/db/postgres-error.js';
-import { entries, fileGrants, files, users } from '../../../src/db/schema.js';
+import { auditEvents, entries, fileGrants, files, users } from '../../../src/db/schema.js';
 import type { PostgresFileGrantRepository } from '../../../src/sharing/postgres-file-grant-repository.js';
 
 const ISSUER = 'https://issuer.example.test/realms/zero-vault';
@@ -61,6 +61,7 @@ describe('PostgresFileGrantRepository', () => {
   });
 
   beforeEach(async () => {
+    await database.delete(auditEvents);
     await database.delete(fileGrants);
     await database.delete(files);
     await database.delete(entries);
@@ -516,11 +517,13 @@ describe('PostgresFileGrantRepository', () => {
       actorUserId: owner.id,
       filePublicId: file.publicId,
       grantPublicId: activeGrant.publicId,
+      revokedAt: SUBMITTED_AT,
     });
     await repository.revoke({
       actorUserId: owner.id,
       filePublicId: file.publicId,
       grantPublicId: pendingGrant.publicId,
+      revokedAt: SUBMITTED_AT,
     });
 
     await expect(database.select().from(fileGrants)).resolves.toHaveLength(0);
@@ -544,11 +547,13 @@ describe('PostgresFileGrantRepository', () => {
       actorUserId: owner.id,
       filePublicId: targetFile.publicId,
       grantPublicId: otherGrant.publicId,
+      revokedAt: SUBMITTED_AT,
     });
     await repository.revoke({
       actorUserId: owner.id,
       filePublicId: targetFile.publicId,
       grantPublicId: randomUUID(),
+      revokedAt: SUBMITTED_AT,
     });
 
     const remainingGrants = await database.select().from(fileGrants);
@@ -575,6 +580,7 @@ describe('PostgresFileGrantRepository', () => {
         actorUserId: otherUser.id,
         filePublicId: file.publicId,
         grantPublicId: grant.publicId,
+        revokedAt: SUBMITTED_AT,
       }),
     ).rejects.toMatchObject({
       code: 'entry_not_found',

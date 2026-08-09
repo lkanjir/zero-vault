@@ -107,6 +107,7 @@ describe('LocalStack storage round-trip', () => {
       authorizationPolicyModule,
       authorizationServiceModule,
       entryAuthorizerModule,
+      auditRepositoryModule,
     ] = await Promise.all([
       import('../../../src/db/db-client.js'),
       import('../../../src/storage/s3-object-storage.js'),
@@ -122,6 +123,7 @@ describe('LocalStack storage round-trip', () => {
       import('../../../src/authorization/authorization-policy.js'),
       import('../../../src/authorization/authorization-service.js'),
       import('../../../src/authorization/postgres-entry-authorizer.js'),
+      import('../../../src/audit/postgres-audit-repository.js'),
     ]);
 
     database = databaseModule.db;
@@ -146,6 +148,7 @@ describe('LocalStack storage round-trip', () => {
     fileDownloadService = new fileDownloadModule.FileDownloadService(
       authorizationService,
       new fileRepositoryModule.PostgresFileRepository(),
+      new auditRepositoryModule.PostgresAuditRepository(),
       storage,
     );
     entryRepository = new entryRepositoryModule.PostgresEntryRepository(entryAuthorizer);

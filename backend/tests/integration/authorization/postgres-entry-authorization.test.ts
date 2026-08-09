@@ -4,7 +4,14 @@ import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { entries, fileGrants, files, objectDeletionJobs, users } from '../../../src/db/schema.js';
+import {
+  auditEvents,
+  entries,
+  fileGrants,
+  files,
+  objectDeletionJobs,
+  users,
+} from '../../../src/db/schema.js';
 import type { Database } from '../../../src/db/db-client.js';
 import type { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
 
@@ -57,6 +64,7 @@ describe('PostgreSQL entry authorization', () => {
   });
 
   beforeEach(async () => {
+    await database.delete(auditEvents);
     await database.delete(objectDeletionJobs);
     await database.delete(fileGrants);
     await database.delete(files);

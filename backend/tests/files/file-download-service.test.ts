@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import type {
   AuthorizationResult,
   AuthorizationService,
 } from '../../src/authorization/authorization-service.js';
+import type { AuditRepository } from '../../src/audit/audit-repository.js';
 import { FileDownloadService } from '../../src/files/file-download-service.js';
 import type { DownloadableFile } from '../../src/files/file.js';
 import type { FileRepository } from '../../src/files/file-repository.js';
@@ -15,6 +16,7 @@ import type { User } from '../../src/user/user.js';
 const DOWNLOAD_URL = 'https://storage.example.test/download';
 const FILE_PUBLIC_ID = '20000000-0000-4000-8000-000000000001';
 const FILE_ENTRY_ID = 10;
+const NOW = new Date('2026-08-09T12:00:00.000Z');
 const USER: User = {
   id: 1,
   publicId: '10000000-0000-4000-8000-000000000001',
@@ -31,15 +33,23 @@ const USER: User = {
 describe('FileDownloadService', () => {
   let authorizationService: MockProxy<AuthorizationService>;
   let repo: MockProxy<FileRepository>;
+  let auditRepository: MockProxy<AuditRepository>;
   let storage: MockProxy<ObjectStorage>;
   let service: FileDownloadService;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
     authorizationService = mock<AuthorizationService>();
     repo = mock<FileRepository>();
+    auditRepository = mock<AuditRepository>();
     storage = mock<ObjectStorage>();
     authorizationService.authorizeEntryByPublicId.mockResolvedValue(makeAuthorizationResult());
-    service = new FileDownloadService(authorizationService, repo, storage);
+    service = new FileDownloadService(authorizationService, repo, auditRepository, storage);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('creates a short-lived download URL for an authorized available file', async () => {
@@ -70,6 +80,17 @@ describe('FileDownloadService', () => {
       fileName: file.name,
       expiresInSeconds: 60,
     });
+    expect(auditRepository.record).toHaveBeenCalledExactlyOnceWith({
+      ownerId: file.ownerId,
+      actorUserId: USER.id,
+      entryId: file.entryId,
+      entryNameSnapshot: file.name,
+      action: 'file.download_url_issued',
+      details: {
+        expiresInSeconds: 60,
+      },
+      occurredAt: NOW,
+    });
   });
 
   it('does not access file metadata or storage when authorization fails', async () => {
@@ -78,6 +99,7 @@ describe('FileDownloadService', () => {
 
     await expect(service.createDownloadUrl(USER, FILE_PUBLIC_ID)).rejects.toBe(authorizationError);
     expect(repo.findAvailableFileByEntryId).not.toHaveBeenCalled();
+    expect(auditRepository.record).not.toHaveBeenCalled();
     expect(storage.createPresignedDownloadUrl).not.toHaveBeenCalled();
   });
 
@@ -87,6 +109,7 @@ describe('FileDownloadService', () => {
     await expect(service.createDownloadUrl(USER, FILE_PUBLIC_ID)).rejects.toMatchObject({
       code: 'file_not_found',
     });
+    expect(auditRepository.record).not.toHaveBeenCalled();
     expect(storage.createPresignedDownloadUrl).not.toHaveBeenCalled();
   });
 
@@ -114,6 +137,18 @@ describe('FileDownloadService', () => {
         },
       },
     });
+    expect(auditRepository.record).not.toHaveBeenCalled();
+  });
+
+  it('does not return the signed URL when recording the audit event fails', async () => {
+    const file = makeDownloadableFile();
+    const auditError = new Error('audit unavailable');
+
+    repo.findAvailableFileByEntryId.mockResolvedValue(file);
+    storage.createPresignedDownloadUrl.mockResolvedValue(DOWNLOAD_URL);
+    auditRepository.record.mockRejectedValue(auditError);
+
+    await expect(service.createDownloadUrl(USER, file.publicId)).rejects.toBe(auditError);
   });
 });
 

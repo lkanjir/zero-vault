@@ -23,7 +23,6 @@ const FILE_ACTIONS = new Set<AuthorizationAction>([
   'file:replace',
   'share:read',
   'share:manage',
-  'audit:read',
 ]);
 
 const FOLDER_ACTIONS = new Set<AuthorizationAction>([
@@ -34,7 +33,6 @@ const FOLDER_ACTIONS = new Set<AuthorizationAction>([
   'entry:move',
   'entry:delete',
   'folder:download',
-  'audit:read',
 ]);
 
 const GRANTEE_PERMISSION_CASES: ReadonlyArray<{
@@ -43,7 +41,7 @@ const GRANTEE_PERMISSION_CASES: ReadonlyArray<{
 }> = [
   {
     permission: 'viewer',
-    allowedActions: new Set<AuthorizationAction>(['entry:read', 'file:download', 'audit:read']),
+    allowedActions: new Set<AuthorizationAction>(['entry:read', 'file:download']),
   },
   {
     permission: 'editor',
@@ -52,7 +50,6 @@ const GRANTEE_PERMISSION_CASES: ReadonlyArray<{
       'entry:rename',
       'file:download',
       'file:replace',
-      'audit:read',
     ]),
   },
 ];

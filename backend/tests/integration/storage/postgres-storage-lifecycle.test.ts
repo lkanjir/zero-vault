@@ -6,6 +6,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
 import {
+  auditEvents,
   entries,
   files,
   folderDownloads,
@@ -78,6 +79,7 @@ describe('PostgreSQL storage lifecycle', () => {
   });
 
   beforeEach(async () => {
+    await database.delete(auditEvents);
     await database.delete(objectDeletionJobs);
     await database.delete(folderDownloads);
     await database.delete(uploadIntents);

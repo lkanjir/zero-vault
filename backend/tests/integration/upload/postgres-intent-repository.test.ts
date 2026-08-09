@@ -5,6 +5,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import {
+  auditEvents,
   entries,
   fileGrants,
   files,
@@ -69,6 +70,7 @@ describe('PostgresIntentRepository upload targets', () => {
   });
 
   beforeEach(async () => {
+    await database.delete(auditEvents);
     await database.delete(objectDeletionJobs);
     await database.delete(uploadIntents);
     await database.delete(fileGrants);

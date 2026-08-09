@@ -309,6 +309,7 @@ describe('FileSharingService', () => {
       actorUserId: USER.id,
       filePublicId: FILE_ID,
       grantPublicId: shareId,
+      revokedAt: NOW,
     });
   });
 
