@@ -92,6 +92,13 @@
       "when": 1786202753335,
       "tag": "0012_regular_risque",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786280872582,
+      "tag": "0013_noisy_jack_flag",
+      "breakpoints": true
     }
   ]
 }

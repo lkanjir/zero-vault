@@ -10,8 +10,11 @@ import {
   pgEnum,
   foreignKey,
   integer,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import type { AuditEventDetails } from '../audit/audit-event.js';
+import { auditActions } from '../audit/audit-event.js';
 
 export const uploadIntentStatus = pgEnum('upload_intent_status', [
   'pending',
@@ -397,5 +400,41 @@ export const fileGrants = pgTable(
       columns: [table.fileId, table.createdByUserId],
       foreignColumns: [entries.id, entries.ownerId],
     }).onDelete('restrict'),
+  ],
+);
+
+export const auditAction = pgEnum('audit_action', auditActions);
+
+export const auditEvents = pgTable(
+  'audit_events',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    publicId: uuid('public_id').defaultRandom().notNull(),
+    ownerId: bigint('owner_id', { mode: 'number' }).notNull(),
+    actorUserId: bigint('actor_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    entryId: bigint('entry_id', { mode: 'number' }).notNull(),
+    entryNameSnapshot: text('entry_name_snapshot').notNull(),
+    action: auditAction('action').notNull(),
+    details: jsonb('details').$type<AuditEventDetails>().default({}).notNull(),
+    requestId: uuid('request_id').notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true, mode: 'date' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique('audit_events_public_id_key').on(table.publicId),
+    foreignKey({
+      name: 'audit_events_entry_owner_fk',
+      columns: [table.entryId, table.ownerId],
+      foreignColumns: [entries.id, entries.ownerId],
+    }).onDelete('restrict'),
+    check(
+      'audit_events_entry_name_snapshot_not_blank_check',
+      sql`char_length(btrim(${table.entryNameSnapshot})) between 1 and 500`,
+    ),
+    index('audit_events_owner_occurred_at_id_idx').on(table.ownerId, table.occurredAt, table.id),
+    index('audit_events_entry_occurred_at_id_idx').on(table.entryId, table.occurredAt, table.id),
   ],
 );

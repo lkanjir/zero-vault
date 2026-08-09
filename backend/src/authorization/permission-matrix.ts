@@ -32,7 +32,7 @@ export const permissionMatrix = {
     'folder:download': false,
     'share:read': false,
     'share:manage': false,
-    'audit:read': true,
+    'audit:read': false,
   },
 
   viewer: {
@@ -47,6 +47,6 @@ export const permissionMatrix = {
     'folder:download': false,
     'share:read': false,
     'share:manage': false,
-    'audit:read': true,
+    'audit:read': false,
   },
 } as const satisfies PermissionMatrix;
