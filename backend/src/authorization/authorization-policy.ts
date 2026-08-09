@@ -41,7 +41,7 @@ const actionScopes = {
   'folder:download': ['folder'],
   'share:read': ['file'],
   'share:manage': ['file'],
-  'audit:read': ['drive-root', 'file', 'folder'],
+  'audit:read': ['drive-root'],
 } as const satisfies Record<AuthorizationAction, readonly AuthorizationResourceScope[]>;
 
 export class AuthorizationPolicy {
