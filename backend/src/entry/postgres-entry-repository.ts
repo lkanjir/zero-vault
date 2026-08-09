@@ -283,6 +283,15 @@ export class PostgresEntryRepository implements EntryRepository {
             reason: 'deleted_file',
           });
         }
+
+        await recordAuditEventInTransaction(tx, {
+          ownerId: entry.ownerId,
+          actorUserId: command.actorUserId,
+          entryId: entry.id,
+          entryNameSnapshot: entry.name,
+          action: 'entry.deleted',
+          occurredAt: deletedAt,
+        });
       });
     } catch (error) {
       throw mapEntryDatabaseError(error);
