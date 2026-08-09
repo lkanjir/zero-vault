@@ -17,6 +17,7 @@ import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 import { enqueueObjectDeletionsInTransaction } from '../object-deletion/object-deletion-helpers.js';
 import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
+import { recordAuditEventInTransaction } from '../audit/record-audit-event-in-transaction.js';
 
 type UploadIntentRow = typeof uploadIntents.$inferSelect;
 type EntryRow = typeof entries.$inferSelect;
@@ -178,6 +179,18 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     }
 
     await this.markIntentCompleted(tx, intent.id, file.entryId, command.completedAt);
+    await recordAuditEventInTransaction(tx, {
+      ownerId: entry.ownerId,
+      actorUserId: command.userId,
+      entryId: entry.id,
+      entryNameSnapshot: entry.name,
+      action: 'file.uploaded',
+      details: {
+        contentType: file.contentType,
+        sizeBytes: file.sizeBytes,
+      },
+      occurredAt: command.completedAt,
+    });
 
     const completedFile: CompletedUploadFile = {
       entryId: file.entryId,
@@ -238,6 +251,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         entryId: files.entryId,
         contentType: files.contentType,
         sizeBytes: files.sizeBytes,
+        contentVersion: files.contentVersion,
       });
 
     if (!updatedFile) {
@@ -263,6 +277,20 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         reason: 'replaced_file',
       },
     ]);
+    await recordAuditEventInTransaction(tx, {
+      ownerId: target.ownerId,
+      actorUserId: command.userId,
+      entryId: target.id,
+      entryNameSnapshot: updatedEntry.name,
+      action: 'file.content_replaced',
+      details: {
+        previousContentVersion: currentFile.contentVersion,
+        newContentVersion: updatedFile.contentVersion,
+        contentType: updatedFile.contentType,
+        sizeBytes: updatedFile.sizeBytes,
+      },
+      occurredAt: command.completedAt,
+    });
 
     const completedFile: CompletedUploadFile = {
       entryId: updatedFile.entryId,
