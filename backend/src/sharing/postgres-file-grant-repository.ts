@@ -199,6 +199,8 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
         throw new Error('File grant update failed');
       }
 
+      await this.recordShareUpdated(tx, file, grant, updatedGrant, command);
+
       return updatedGrant;
     });
   }
@@ -405,6 +407,38 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
         expiresAt: grant.expiresAt?.toISOString() ?? null,
       },
       occurredAt: command.submittedAt,
+    });
+  }
+
+  private async recordShareUpdated(
+    tx: Transaction,
+    file: Entry,
+    previousGrant: FileGrant,
+    updatedGrant: FileGrant,
+    command: UpdateFileGrantCommand,
+  ): Promise<void> {
+    const permissionChanged = previousGrant.permission !== updatedGrant.permission;
+    const expiryChanged = previousGrant.expiresAt?.getTime() !== updatedGrant.expiresAt?.getTime();
+
+    if (!permissionChanged && !expiryChanged) {
+      return;
+    }
+
+    await recordAuditEventInTransaction(tx, {
+      ownerId: file.ownerId,
+      actorUserId: command.actorUserId,
+      entryId: file.id,
+      entryNameSnapshot: file.name,
+      action: 'file.share_updated',
+      details: {
+        shareId: updatedGrant.publicId,
+        recipientEmail: updatedGrant.recipientEmail,
+        previousPermission: previousGrant.permission,
+        newPermission: updatedGrant.permission,
+        previousExpiresAt: previousGrant.expiresAt?.toISOString() ?? null,
+        newExpiresAt: updatedGrant.expiresAt?.toISOString() ?? null,
+      },
+      occurredAt: command.updatedAt,
     });
   }
 }
