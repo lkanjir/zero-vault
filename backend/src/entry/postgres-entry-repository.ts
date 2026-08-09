@@ -21,6 +21,7 @@ import { enqueueObjectDeletionInTransaction } from '../object-deletion/object-de
 import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
 import type { AuthorizationAction } from '../authorization/authorization.js';
 import { recordAuditEventInTransaction } from '../audit/record-audit-event-in-transaction.js';
+import { resolveParentPublicIdInTransaction } from './resolve-parent-id-in-transaction.js';
 
 type QueryDbRow = {
   entryId: number;
@@ -215,6 +216,44 @@ export class PostgresEntryRepository implements EntryRepository {
 
         if (!updatedEntry) {
           throw new Error('Greška kod ažuriranja datoteke / direktorija');
+        }
+
+        if (command.name !== undefined && updatedEntry.name !== sourceEntry.name) {
+          await recordAuditEventInTransaction(tx, {
+            ownerId: updatedEntry.ownerId,
+            actorUserId: command.actorUserId,
+            entryId: updatedEntry.id,
+            entryNameSnapshot: updatedEntry.name,
+            action: 'entry.renamed',
+            details: {
+              previousName: sourceEntry.name,
+            },
+            occurredAt: updatedEntry.updatedAt,
+          });
+        }
+
+        if (command.parentId !== undefined && updatedEntry.parentId !== sourceEntry.parentId) {
+          const sourceParentPublicId =
+            sourceEntry.parentId === null
+              ? null
+              : await resolveParentPublicIdInTransaction(
+                  tx,
+                  sourceEntry.ownerId,
+                  sourceEntry.parentId,
+                );
+
+          await recordAuditEventInTransaction(tx, {
+            ownerId: updatedEntry.ownerId,
+            actorUserId: command.actorUserId,
+            entryId: updatedEntry.id,
+            entryNameSnapshot: updatedEntry.name,
+            action: 'entry.moved',
+            details: {
+              sourceParentId: sourceParentPublicId,
+              destinationParentId: command.parentId,
+            },
+            occurredAt: updatedEntry.updatedAt,
+          });
         }
 
         return this.toListedEntryInTransaction(tx, updatedEntry);
