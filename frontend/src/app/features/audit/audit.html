@@ -1,11 +1,8 @@
 <section class="mx-auto flex h-full min-h-0 w-full flex-col md:w-4/5 lg:w-[70%]">
   <header class="mb-4 flex shrink-0 items-center justify-between gap-4 px-4">
-    <div>
-      <h1 class="text-xl font-semibold">Aktivnosti</h1>
-      <p class="mt-1 text-sm text-foreground-muted">Pregled aktivnosti nad vašim zapisima.</p>
-    </div>
+    <h1 class="text-xl font-semibold">Aktivnosti</h1>
 
-    <div class="flex h-10 w-full max-w-sm items-center gap-2 rounded-md bg-surface px-3">
+    <div class="flex h-10 w-full max-w-xl items-center gap-2 rounded-md bg-surface px-3">
       <app-icon [name]="'search'" [size]="16" [stroke]="3" class="text-foreground-muted" />
 
       <input
@@ -18,7 +15,7 @@
     </div>
   </header>
 
-  <section class="mb-5 min-h-16 shrink-0 px-4">
+  <section class="mb-5 min-h-16 shrink-0">
     @if (store.statisticsLoading()) {
       <div
         class="flex h-16 items-center justify-center border-y border-border text-sm text-foreground-muted"
@@ -47,7 +44,7 @@
 
         <div class="flex flex-col justify-center px-4">
           <span class="text-xl font-semibold">{{ statistics.downloadRequests }}</span>
-          <span class="text-xs text-foreground-muted">Zahtjevi preuzimanja</span>
+          <span class="text-xs text-foreground-muted">Preuzimanja</span>
         </div>
 
         <div class="flex flex-col justify-center px-4">
@@ -80,15 +77,13 @@
       >
         <div class="flex min-w-0 items-center gap-3 px-4 py-2">
           <app-icon [name]="event.entry.kind === 'folder' ? 'folder' : 'file-text'" />
-
           <span class="truncate text-lg">{{ event.entry.name }}</span>
-
           @if (event.entry.deleted) {
             <span class="shrink-0 text-xs text-foreground-muted">Obrisano</span>
           }
         </div>
 
-        <div class="truncate px-4 py-2">
+        <div class="truncate px-4 py-2 text-lg">
           {{ auditActionLabels[event.action] }}
         </div>
 
