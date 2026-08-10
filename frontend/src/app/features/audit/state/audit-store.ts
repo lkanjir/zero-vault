@@ -23,6 +23,8 @@ export class AuditStore {
 
   private readonly _nextCursor = signal<string | null>(null);
   private readonly _hasMore = signal(false);
+  private readonly _loadingMore = signal(false);
+  private readonly _loadMoreError = signal<string | null>(null);
 
   readonly events = this._events.asReadonly();
   readonly statistics = this._statistics.asReadonly();
@@ -35,9 +37,12 @@ export class AuditStore {
 
   readonly nextCursor = this._nextCursor.asReadonly();
   readonly hasMore = this._hasMore.asReadonly();
+  readonly loadingMore = this._loadingMore.asReadonly();
+  readonly loadMoreError = this._loadMoreError.asReadonly();
 
   private eventsSubscription?: Subscription;
   private statisticsSubscription?: Subscription;
+  private loadMoreSubscription?: Subscription;
 
   load(): void {
     this.loadEvents();
@@ -65,6 +70,7 @@ export class AuditStore {
 
   private loadEvents(): void {
     this.eventsSubscription?.unsubscribe();
+    this.loadMoreSubscription?.unsubscribe();
 
     const search = this._search();
 
@@ -72,6 +78,8 @@ export class AuditStore {
     this._nextCursor.set(null);
     this._hasMore.set(false);
     this._eventsError.set(null);
+    this._loadingMore.set(false);
+    this._loadMoreError.set(null);
     this._eventsLoading.set(true);
 
     this.eventsSubscription = this.auditApi
@@ -121,5 +129,68 @@ export class AuditStore {
           );
         },
       });
+  }
+
+  loadMore(): void {
+    if (
+      this._eventsLoading() ||
+      this._loadingMore() ||
+      !this._hasMore() ||
+      this._loadMoreError() !== null
+    ) {
+      return;
+    }
+
+    const cursor = this._nextCursor();
+
+    if (cursor === null) {
+      return;
+    }
+
+    this._loadingMore.set(true);
+
+    this.loadMoreSubscription = this.auditApi
+      .getEvents({
+        cursor,
+        limit: AUDIT_PAGE_SIZE,
+        search: this._search(),
+      })
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this._loadingMore.set(false)),
+      )
+      .subscribe({
+        next: (response) => {
+          this._events.update((current) => {
+            const existingIds = new Set(current.map((event) => event.id));
+            const newEvents = response.items.filter((event) => {
+              if (existingIds.has(event.id)) {
+                return false;
+              }
+
+              existingIds.add(event.id);
+              return true;
+            });
+
+            return [...current, ...newEvents];
+          });
+
+          this._nextCursor.set(response.page.nextCursor);
+          this._hasMore.set(response.page.hasMore);
+        },
+        error: (error) => {
+          this._loadMoreError.set(
+            apiErrorMessage(
+              toApiError(error),
+              'Ostali revizijski zapisi trenutno se ne mogu učitati',
+            ),
+          );
+        },
+      });
+  }
+
+  retryLoadMore(): void {
+    this._loadMoreError.set(null);
+    this.loadMore();
   }
 }
