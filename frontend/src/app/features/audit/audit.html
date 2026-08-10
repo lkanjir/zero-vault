@@ -1,1 +1,142 @@
-<p>audit works!</p>
+<section class="mx-auto flex h-full min-h-0 w-full flex-col md:w-4/5 lg:w-[70%]">
+  <header class="mb-4 flex shrink-0 items-center justify-between gap-4 px-4">
+    <div>
+      <h1 class="text-xl font-semibold">Aktivnosti</h1>
+      <p class="mt-1 text-sm text-foreground-muted">Pregled aktivnosti nad vašim zapisima.</p>
+    </div>
+
+    <div class="flex h-10 w-full max-w-sm items-center gap-2 rounded-md bg-surface px-3">
+      <app-icon [name]="'search'" [size]="16" [stroke]="3" class="text-foreground-muted" />
+
+      <input
+        #search
+        type="text"
+        placeholder="Pretraži po nazivu"
+        (input)="onSearchInput(search.value)"
+        class="min-w-0 flex-1 text-sm font-semibold text-foreground placeholder-foreground-muted"
+      />
+    </div>
+  </header>
+
+  <section class="mb-5 min-h-16 shrink-0 px-4">
+    @if (store.statisticsLoading()) {
+      <div
+        class="flex h-16 items-center justify-center border-y border-border text-sm text-foreground-muted"
+      >
+        Učitavanje statistike
+      </div>
+    } @else if (store.statisticsError()) {
+      <div class="flex h-16 items-center justify-between gap-4 border-y border-border px-4 text-sm">
+        <p class="text-danger">{{ store.statisticsError() }}</p>
+
+        <button type="button" (click)="retryStatistics()" class="text-primary">
+          Pokušaj ponovno
+        </button>
+      </div>
+    } @else if (store.statistics(); as statistics) {
+      <div class="grid h-16 grid-cols-4 divide-x divide-border border-y border-border">
+        <div class="flex flex-col justify-center px-4">
+          <span class="text-xl font-semibold">{{ statistics.total }}</span>
+          <span class="text-xs text-foreground-muted">Ukupno aktivnosti</span>
+        </div>
+
+        <div class="flex flex-col justify-center px-4">
+          <span class="text-xl font-semibold">{{ statistics.entryChanges }}</span>
+          <span class="text-xs text-foreground-muted">Promjene zapisa</span>
+        </div>
+
+        <div class="flex flex-col justify-center px-4">
+          <span class="text-xl font-semibold">{{ statistics.downloadRequests }}</span>
+          <span class="text-xs text-foreground-muted">Zahtjevi preuzimanja</span>
+        </div>
+
+        <div class="flex flex-col justify-center px-4">
+          <span class="text-xl font-semibold">{{ statistics.sharingChanges }}</span>
+          <span class="text-xs text-foreground-muted">Promjene dijeljenja</span>
+        </div>
+      </div>
+    }
+  </section>
+
+  <div
+    class="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_13rem_14rem_11rem] items-center border-b border-border text-sm text-foreground-muted"
+  >
+    <div class="px-4 font-medium">Naziv</div>
+    <div class="px-4 font-medium">Aktivnost</div>
+    <div class="px-4 font-medium">Izvršitelj</div>
+    <div class="px-4 text-right font-medium whitespace-nowrap">Vrijeme</div>
+  </div>
+
+  <div class="relative min-h-0 flex-1">
+    <cdk-virtual-scroll-viewport
+      [itemSize]="48"
+      [minBufferPx]="240"
+      [maxBufferPx]="480"
+      class="h-full w-full"
+    >
+      <div
+        *cdkVirtualFor="let event of store.events(); trackBy: trackEvent"
+        class="grid h-12 grid-cols-[minmax(0,1fr)_13rem_14rem_11rem] items-center hover:bg-surface-hover"
+      >
+        <div class="flex min-w-0 items-center gap-3 px-4 py-2">
+          <app-icon [name]="event.entry.kind === 'folder' ? 'folder' : 'file-text'" />
+
+          <span class="truncate text-lg">{{ event.entry.name }}</span>
+
+          @if (event.entry.deleted) {
+            <span class="shrink-0 text-xs text-foreground-muted">Obrisano</span>
+          }
+        </div>
+
+        <div class="truncate px-4 py-2">
+          {{ auditActionLabels[event.action] }}
+        </div>
+
+        <div class="min-w-0 px-4 py-1">
+          <div class="truncate">{{ event.actor.firstName }} {{ event.actor.lastName }}</div>
+          <div class="truncate text-xs text-foreground-muted">
+            {{ event.actor.email }}
+          </div>
+        </div>
+
+        <div class="px-4 py-2 text-right text-lg whitespace-nowrap">
+          {{ event.occurredAt | date: 'dd.MM.yyyy HH:mm' }}
+        </div>
+      </div>
+    </cdk-virtual-scroll-viewport>
+
+    @if (store.events().length === 0) {
+      <div
+        class="absolute inset-0 flex items-center justify-center bg-background px-4 text-center text-foreground-muted"
+      >
+        @if (store.eventsLoading()) {
+          <span>Učitavanje</span>
+        } @else if (store.eventsError()) {
+          <div>
+            <p class="text-danger">{{ store.eventsError() }}</p>
+
+            <button type="button" (click)="retryEvents()" class="mt-3 text-primary">
+              Pokušaj ponovno
+            </button>
+          </div>
+        } @else {
+          {{ emptyMessage() }}
+        }
+      </div>
+    }
+  </div>
+
+  @if (store.loadingMore()) {
+    <p class="px-4 py-4 text-center text-sm text-foreground-muted">
+      Učitavanje dodatnih aktivnosti…
+    </p>
+  } @else if (store.loadMoreError()) {
+    <div class="px-4 py-4 text-center text-sm">
+      <p class="text-danger">{{ store.loadMoreError() }}</p>
+
+      <button type="button" (click)="retryLoadMore()" class="mt-2 text-primary">
+        Pokušaj ponovno
+      </button>
+    </div>
+  }
+</section>

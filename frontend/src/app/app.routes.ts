@@ -19,6 +19,11 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'audit',
+        loadChildren: () =>
+          import('./features/audit/audit.routes').then((module) => module.AuditRoutes),
+      },
+      {
         path: '',
         pathMatch: 'full',
         redirectTo: 'drive',

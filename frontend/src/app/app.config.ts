@@ -17,6 +17,7 @@ import {
   LucideFolder,
   LucideFolderOpen,
   LucideFolderUp,
+  LucideGalleryVerticalEnd,
   LucideLogOut,
   LucideMove,
   LucidePanelLeft,
@@ -63,6 +64,7 @@ export const appConfig: ApplicationConfig = {
       LucideTrash2,
       LucideLogOut,
       LucideChevronDown,
+      LucideGalleryVerticalEnd,
     ),
   ],
 };

@@ -20,6 +20,7 @@ export const appIconNames = [
   'trash-2',
   'log-out',
   'chevron-down',
+  'gallery-vertical-end',
 ] as const;
 
 export type AppIconName = (typeof appIconNames)[number];
