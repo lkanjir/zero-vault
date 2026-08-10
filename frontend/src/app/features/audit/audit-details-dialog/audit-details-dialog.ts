@@ -9,9 +9,9 @@ export type AuditDetailsDialogData = {
 };
 
 @Component({
-  selector: 'app-audit-details-dialog.ts',
+  selector: 'app-audit-details-dialog',
   imports: [DatePipe],
-  templateUrl: './audit-details-dialog.ts.html',
+  templateUrl: './audit-details-dialog.html',
 })
 export class AuditDetailsDialog {
   private readonly dialogRef = inject(DialogRef);
