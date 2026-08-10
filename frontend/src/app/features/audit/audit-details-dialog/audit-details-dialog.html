@@ -1,1 +1,66 @@
-<p>audit-details-dialog.ts works!</p>
+@let event = data.event;
+
+<div class="w-full rounded-lg bg-background p-6 shadow-xl">
+  <h2 class="mb-1 text-lg font-bold">{{ actionLabel }}</h2>
+
+  <div class="mt-1 mb-5 flex min-w-0 items-center gap-2">
+    @if (event.entry.deleted) {
+      <app-icon [name]="'trash-2'" [size]="18" class="text-foreground-muted" />
+    }
+
+    <p class="min-w-0 truncate text-sm text-foreground-muted">
+      {{ event.entry.kind === 'file' ? 'Datoteka' : 'Direktorij' }}
+      „{{ event.entry.name }}”
+    </p>
+  </div>
+
+  <div class="rounded-md border border-border">
+    <div
+      class="grid min-h-12 grid-cols-[8rem_minmax(0,1fr)] items-center gap-4 border-b border-border px-4 py-2 last:border-b-0"
+    >
+      <span class="text-sm text-foreground-muted">Izvršitelj</span>
+
+      <div class="min-w-0">
+        <div class="truncate font-medium">
+          {{ event.actor.firstName }} {{ event.actor.lastName }}
+        </div>
+
+        <div class="truncate text-xs text-foreground-muted">
+          {{ event.actor.email }}
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="grid min-h-12 grid-cols-[8rem_minmax(0,1fr)] items-center gap-4 border-b border-border px-4 py-2 last:border-b-0"
+    >
+      <span class="text-sm text-foreground-muted">Vrijeme</span>
+
+      <span>{{ event.occurredAt | date: 'dd.MM.yyyy HH:mm' }}</span>
+    </div>
+
+    @for (detail of detailRows; track detail.label) {
+      <div
+        class="grid min-h-12 grid-cols-[8rem_minmax(0,1fr)] items-center gap-4 border-b border-border px-4 py-2 last:border-b-0"
+      >
+        <span class="text-sm text-foreground-muted">
+          {{ detail.label }}
+        </span>
+
+        <span class="min-w-0 wrap-break-word">
+          {{ detail.value }}
+        </span>
+      </div>
+    }
+  </div>
+
+  <div class="mt-6 flex justify-end">
+    <button
+      type="button"
+      (click)="closeDialog()"
+      class="h-10 cursor-pointer rounded-md border border-border bg-background px-3 font-semibold hover:bg-surface-hover"
+    >
+      Zatvori
+    </button>
+  </div>
+</div>

@@ -16,6 +16,8 @@ import { AuditStore } from './state/audit-store';
 import { AuditEvent } from '../../data-access/audit/audit-model';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AUDIT_ACTION_LABELS } from './audit-action-labels';
+import { Dialog } from '@angular/cdk/dialog';
+import { AuditDetailsDialog } from './audit-details-dialog/audit-details-dialog';
 
 const LOAD_MORE_THRESHOLD = 10;
 
@@ -30,6 +32,7 @@ const LOAD_MORE_THRESHOLD = 10;
 export class Audit implements OnInit, AfterViewInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly searchInput = new Subject<string>();
+  private readonly dialog = inject(Dialog);
 
   readonly store = inject(AuditStore);
   readonly viewport = viewChild(CdkVirtualScrollViewport);
@@ -91,5 +94,13 @@ export class Audit implements OnInit, AfterViewInit {
 
   retryLoadMore(): void {
     this.store.retryLoadMore();
+  }
+
+  openDetails(event: AuditEvent): void {
+    this.dialog.open(AuditDetailsDialog, {
+      data: { event },
+      width: 'calc(100vw - 2rem)',
+      maxWidth: '28rem',
+    });
   }
 }

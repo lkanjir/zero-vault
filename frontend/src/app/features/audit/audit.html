@@ -73,7 +73,8 @@
     >
       <div
         *cdkVirtualFor="let event of store.events(); trackBy: trackEvent"
-        class="grid h-12 grid-cols-[minmax(0,1fr)_13rem_14rem_11rem] items-center hover:bg-surface-hover"
+        (click)="openDetails(event)"
+        class="grid h-12 cursor-pointer grid-cols-[minmax(0,1fr)_13rem_14rem_11rem] items-center hover:bg-surface-hover"
       >
         <div class="flex min-w-0 items-center gap-3 px-4 py-2">
           <app-icon [name]="event.entry.kind === 'folder' ? 'folder' : 'file-text'" />
