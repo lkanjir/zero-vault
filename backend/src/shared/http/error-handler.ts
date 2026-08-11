@@ -12,6 +12,18 @@ export const errorHandler: ErrorRequestHandler = (error: unknown, req, res, next
   const appError = normalizeError(error);
   const definition = getErrorDefinition(appError.code);
 
+  if (definition.status >= 500) {
+    console.error('HTTP request failed', {
+      requestId: req.id,
+      method: req.method,
+      path: req.path,
+      status: definition.status,
+      code: appError.code,
+      context: appError.options.context,
+      error: appError.options.cause ?? error,
+    });
+  }
+
   for (const [name, value] of Object.entries(definition.headers ?? {})) {
     res.setHeader(name, value);
   }
