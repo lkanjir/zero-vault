@@ -1,7 +1,7 @@
 import * as z from 'zod';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
 
-const SINGLE_PART_MAX_BYTES = 50 * 1024 * 1024;
+const SINGLE_PART_MAX_BYTES = 100 * 1024 * 1024;
 const sha256Schema = z
   .string()
   .trim()

@@ -12,6 +12,7 @@ import {
   UploadContentRequest,
   UploadIntentResponse,
 } from '../../../data-access/uploads/upload-models';
+import { MAX_SINGLE_PART_UPLOAD_SIZE_BYTES } from '../../../data-access/uploads/upload-constraints';
 
 type FailureContext = 'preparing' | 'presigning' | 'uploading' | 'finalizing';
 
@@ -95,6 +96,24 @@ export class TransferStore {
     let failureContext: FailureContext = 'preparing';
 
     try {
+      if (file.size > MAX_SINGLE_PART_UPLOAD_SIZE_BYTES) {
+        const failure: TransferFailure = {
+          status: -1,
+          code: 'file_too_large',
+          message: 'Datoteka ne može biti veća od 100 MB.',
+        };
+
+        this.patch(transferId, {
+          phase: 'failed',
+          error: failure,
+        });
+
+        return {
+          ok: false,
+          error: failure,
+        };
+      }
+
       const sha256 = await calcualteSha256(file);
 
       failureContext = 'presigning';

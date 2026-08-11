@@ -3,8 +3,7 @@ import { FileEntry } from '../../../data-access/entries/entry-models';
 import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
 import { FileSizePipe } from '../../../shared/pipes/file-size-pipe';
 import { fileExtension } from '../../../shared/util/file-extension';
-
-const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
+import { MAX_SINGLE_PART_UPLOAD_SIZE_BYTES } from '../../../data-access/uploads/upload-constraints';
 
 export type ReplaceContentDialogData = {
   targetFile: FileEntry;
@@ -48,8 +47,8 @@ export class ReplaceContentDialog {
       return;
     }
 
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      this.selectionError.set('Datoteka ne može biti veća od 50 MB.');
+    if (file.size > MAX_SINGLE_PART_UPLOAD_SIZE_BYTES) {
+      this.selectionError.set('Datoteka ne može biti veća od 100 MB.');
       return;
     }
 
