@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream';
 import { S3ServiceException } from '@aws-sdk/client-s3';
 import type * as S3ClientModule from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { StorageObjectNotFoundError } from '../../src/shared/errors/storage/storage-object-not-found-error.js';
 import { StorageUnavailableError } from '../../src/shared/errors/storage/storage-unavailable-error.js';
@@ -27,6 +28,8 @@ vi.mock('@aws-sdk/client-s3', async (importOriginal) => {
 vi.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: mocks.getSignedUrl,
 }));
+
+const getSignedUrlMock = vi.mocked(getSignedUrl);
 
 vi.mock('@aws-sdk/lib-storage', () => ({
   Upload: class {
@@ -95,7 +98,7 @@ describe('S3ObjectStorage errors', () => {
 
   it('uses create_download_url context for download presign failures', async () => {
     const providerError = new Error('Presign unavailable');
-    mocks.getSignedUrl.mockRejectedValueOnce(providerError);
+    getSignedUrlMock.mockRejectedValueOnce(providerError);
 
     await expect(
       storage.createPresignedDownloadUrl({
@@ -111,6 +114,37 @@ describe('S3ObjectStorage errors', () => {
         operation: 'create_download_url',
         objectKey: 'object-key',
       },
+    });
+  });
+
+  it('presigns the exact single-part upload length', async () => {
+    getSignedUrlMock.mockResolvedValueOnce('https://storage.example.test/upload');
+
+    await expect(
+      storage.createPresignedUploadUrl({
+        objectKey: 'object-key',
+        contentType: 'text/plain',
+        sizeBytes: 12,
+        expiresInSeconds: 60,
+        sha256Hex: 'a'.repeat(64),
+      }),
+    ).resolves.toBe('https://storage.example.test/upload');
+
+    expect(getSignedUrlMock).toHaveBeenCalledOnce();
+    const [, command, options] = getSignedUrlMock.mock.lastCall!;
+
+    expect(command.input).toMatchObject({
+      Bucket: process.env['S3_BUCKET'],
+      Key: 'object-key',
+      ContentType: 'text/plain',
+      ContentLength: 12,
+      ChecksumSHA256: Buffer.from('a'.repeat(64), 'hex').toString('base64'),
+      ChecksumAlgorithm: 'SHA256',
+    });
+    expect(options).toStrictEqual({
+      expiresIn: 60,
+      signableHeaders: new Set(['content-length']),
+      unhoistableHeaders: new Set(['x-amz-checksum-sha256']),
     });
   });
 

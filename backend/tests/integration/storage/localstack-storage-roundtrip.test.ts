@@ -55,6 +55,7 @@ describe('LocalStack storage round-trip', () => {
         .withEnvironment({
           SERVICES: 's3',
           AWS_DEFAULT_REGION: REGION,
+          S3_SKIP_SIGNATURE_VALIDATION: '0',
         })
         .withExposedPorts(4566)
         .withWaitStrategy(Wait.forHttp('/_localstack/health', 4566).forStatusCode(200))
@@ -183,7 +184,7 @@ describe('LocalStack storage round-trip', () => {
       headers: presign.requiredHeaders,
       body: content,
     });
-    expect(putResponse.status).toBe(200);
+    expect(putResponse.status, await putResponse.text()).toBe(200);
 
     const file = await completeUpload.execute(user, presign.uploadId);
     expect(file).toMatchObject({
@@ -262,6 +263,44 @@ describe('LocalStack storage round-trip', () => {
     });
     expect(job?.completedAt).not.toBeNull();
     await expect(storage.getObjectStream(intent.objectKey)).rejects.toBeInstanceOf(
+      StorageObjectNotFoundError,
+    );
+  });
+
+  it('rejects a presigned PUT whose body length differs from the upload intent', async () => {
+    const user = await createUser('content-length-owner');
+    const content = Buffer.from('LocalStack exact content length');
+    const sha256 = createHash('sha256').update(content).digest('hex');
+
+    const presign = await uploadService.createUpload(user, {
+      parentFolderId: null,
+      fileName: 'wrong-length.txt',
+      contentType: 'text/plain',
+      size: content.length + 1,
+      sha256,
+    });
+
+    expect(new URL(presign.uploadUrl).searchParams.get('X-Amz-SignedHeaders')).toContain(
+      'content-length',
+    );
+
+    const putResponse = await fetch(presign.uploadUrl, {
+      method: 'PUT',
+      headers: presign.requiredHeaders,
+      body: content,
+    });
+
+    expect(putResponse.status).toBe(403);
+
+    const [intent] = await database
+      .select({ objectKey: uploadIntents.objectKey })
+      .from(uploadIntents)
+      .where(eq(uploadIntents.uploadId, presign.uploadId));
+    if (!intent) {
+      throw new Error('Pending upload intent is missing');
+    }
+
+    await expect(storage.headObject(intent.objectKey)).rejects.toBeInstanceOf(
       StorageObjectNotFoundError,
     );
   });

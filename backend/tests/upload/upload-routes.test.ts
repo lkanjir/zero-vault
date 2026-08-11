@@ -17,6 +17,7 @@ import type { UploadService } from '../../src/upload/upload-service.js';
 
 const UPLOAD_ID = '00000000-0000-4000-8000-000000000001';
 const EXPECTED_SHA256 = 'a'.repeat(64);
+const MAX_SINGLE_PART_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
 
 const COMPLETED_FILE: FileResponse = {
   kind: 'file',
@@ -159,6 +160,64 @@ describe('upload routes contract', () => {
       size: 12,
       sha256: EXPECTED_SHA256,
     });
+  });
+
+  it('accepts the maximum single-part upload size', async () => {
+    uploadService.createUpload.mockResolvedValue({
+      uploadId: UPLOAD_ID,
+      uploadUrl: 'https://storage.example.test/upload',
+      expiresInSeconds: 60,
+      requiredHeaders: {
+        'Content-Type': 'application/octet-stream',
+        'x-amz-checksum-sha256': Buffer.from(EXPECTED_SHA256, 'hex').toString('base64'),
+      },
+    });
+
+    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+      .post('/uploads/presign')
+      .send({
+        parentFolderId: null,
+        fileName: 'maximum.bin',
+        contentType: 'application/octet-stream',
+        size: MAX_SINGLE_PART_UPLOAD_SIZE_BYTES,
+        sha256: EXPECTED_SHA256,
+      });
+
+    expect(response.status).toBe(201);
+    expect(uploadService.createUpload).toHaveBeenCalledExactlyOnceWith(USER, {
+      parentFolderId: null,
+      fileName: 'maximum.bin',
+      contentType: 'application/octet-stream',
+      size: MAX_SINGLE_PART_UPLOAD_SIZE_BYTES,
+      sha256: EXPECTED_SHA256,
+    });
+  });
+
+  it('rejects an upload larger than the single-part limit', async () => {
+    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+      .post('/uploads/presign')
+      .send({
+        parentFolderId: null,
+        fileName: 'too-large.bin',
+        contentType: 'application/octet-stream',
+        size: MAX_SINGLE_PART_UPLOAD_SIZE_BYTES + 1,
+        sha256: EXPECTED_SHA256,
+      });
+
+    const body = response.body as ErrorResponse;
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({
+      code: 'invalid_request_body',
+      message: errorCatalog.invalid_request_body.message,
+    });
+    expect(body.details?.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'too_big',
+        path: ['size'],
+      }),
+    );
+    expect(userService.resolveUser).not.toHaveBeenCalled();
+    expect(uploadService.createUpload).not.toHaveBeenCalled();
   });
 
   it.each([

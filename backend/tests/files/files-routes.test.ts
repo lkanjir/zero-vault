@@ -197,6 +197,11 @@ describe('files routes', () => {
     ],
     ['an invalid size', `/files/${FILE_ID}/replacements`, validReplacementBody({ size: 0 })],
     [
+      'an oversized replacement',
+      `/files/${FILE_ID}/replacements`,
+      validReplacementBody({ size: 100 * 1024 * 1024 + 1 }),
+    ],
+    [
       'an invalid checksum',
       `/files/${FILE_ID}/replacements`,
       validReplacementBody({ sha256: 'invalid' }),

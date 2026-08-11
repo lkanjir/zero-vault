@@ -1,6 +1,6 @@
 import express from 'express';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import z from 'zod';
 import { AppError } from '../../src/shared/errors/api/app-error.js';
 import { errorCatalog, type ErrorCode } from '../../src/shared/errors/api/error-catalog.js';
@@ -10,7 +10,18 @@ import { requestContext } from '../../src/shared/http/request-context.js';
 import { routeNotFound } from '../../src/shared/http/route-not-found.js';
 import { validateRequest } from '../../src/shared/validation/validate-request.js';
 
+const UNEXPECTED_ERROR = new Error('Sensitive database failure');
+const PROVIDER_ERROR = new Error('Sensitive provider failure');
+
 describe('HTTP error contract', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('serializes AppError and applies catalog headers', async () => {
     const response = await request(createTestApp()).get('/invalid-token');
 
@@ -25,6 +36,7 @@ describe('HTTP error contract', () => {
       .send('{"name":');
 
     expectErrorResponse(response, 'invalid_json');
+    expect(console.error).not.toHaveBeenCalled();
   });
 
   it('returns request_body_too_large when the JSON limit is exceeded', async () => {
@@ -50,10 +62,45 @@ describe('HTTP error contract', () => {
   });
 
   it('normalizes unexpected errors without leaking their message', async () => {
-    const response = await request(createTestApp()).get('/unexpected-error');
+    const response = await request(createTestApp())
+      .get('/unexpected-error?search=sensitive-file-name')
+      .set('Authorization', 'Bearer sensitive-access-token');
 
     expectErrorResponse(response, 'internal_server_error');
     expect(JSON.stringify(response.body)).not.toContain('Sensitive database failure');
+    expect(console.error).toHaveBeenCalledExactlyOnceWith(
+      'HTTP request failed',
+      expect.objectContaining({
+        requestId: response.headers['x-request-id'],
+        method: 'GET',
+        path: '/unexpected-error',
+        status: 500,
+        code: 'internal_server_error',
+        error: UNEXPECTED_ERROR,
+      }),
+    );
+
+    const serializedLog = JSON.stringify(vi.mocked(console.error).mock.calls);
+    expect(serializedLog).not.toContain('sensitive-file-name');
+    expect(serializedLog).not.toContain('sensitive-access-token');
+  });
+
+  it('logs safe AppError context and the internal cause for infrastructure failures', async () => {
+    const response = await request(createTestApp()).get('/provider-unavailable');
+
+    expectErrorResponse(response, 'authentication_service_unavailable');
+    expect(console.error).toHaveBeenCalledExactlyOnceWith('HTTP request failed', {
+      requestId: response.headers['x-request-id'],
+      method: 'GET',
+      path: '/provider-unavailable',
+      status: 503,
+      code: 'authentication_service_unavailable',
+      context: {
+        providerOperation: 'fetch_jwks',
+      },
+      error: PROVIDER_ERROR,
+    });
+    expect(JSON.stringify(response.body)).not.toContain('Sensitive provider failure');
   });
 
   it('returns the JSON contract for an unknown route', async () => {
@@ -79,7 +126,15 @@ function createTestApp() {
     throw new AppError('invalid_access_token');
   });
   app.get('/unexpected-error', () => {
-    throw new Error('Sensitive database failure');
+    throw UNEXPECTED_ERROR;
+  });
+  app.get('/provider-unavailable', () => {
+    throw new AppError('authentication_service_unavailable', {
+      cause: PROVIDER_ERROR,
+      context: {
+        providerOperation: 'fetch_jwks',
+      },
+    });
   });
   app.use(routeNotFound);
   app.use(errorHandler);

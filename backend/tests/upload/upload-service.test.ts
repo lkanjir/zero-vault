@@ -73,6 +73,7 @@ describe('UploadService', () => {
     expect(signedRequest).toStrictEqual({
       objectKey: signedRequest.objectKey,
       contentType: 'text/plain',
+      sizeBytes: 12,
       expiresInSeconds: 60,
       sha256Hex: EXPECTED_SHA256,
     });
@@ -148,6 +149,7 @@ describe('UploadService', () => {
     expect(storage.createPresignedUploadUrl).toHaveBeenCalledOnce();
     expect(storage.createPresignedUploadUrl.mock.lastCall![0]).toMatchObject({
       contentType: 'application/pdf',
+      sizeBytes: 24,
       expiresInSeconds: 60,
       sha256Hex: EXPECTED_SHA256,
     });
