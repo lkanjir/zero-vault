@@ -16,6 +16,7 @@ const envSchema = z.object({
   DATABASE_URL: z.url().trim(),
   OIDC_ISSUER: z.url().transform((v) => v.replace(/\/+$/, '')),
   OIDC_AUDIENCE: requiredTrimmedString,
+  HSTS_ENABLED: z.stringbool().default(false),
 });
 
 const result = envSchema.safeParse(process.env);
@@ -43,5 +44,8 @@ export const config = {
   oidc: {
     issuer: env.OIDC_ISSUER,
     audience: env.OIDC_AUDIENCE,
+  },
+  http: {
+    hstsEnabled: env.HSTS_ENABLED,
   },
 } as const;
