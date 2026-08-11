@@ -114,6 +114,24 @@ export class TransferStore {
         };
       }
 
+      if (file.size === 0) {
+        const failure: TransferFailure = {
+          status: -1,
+          code: 'empty_file',
+          message: 'Nije moguće prenijeti praznu datoteku.',
+        };
+
+        this.patch(transferId, {
+          phase: 'failed',
+          error: failure,
+        });
+
+        return {
+          ok: false,
+          error: failure,
+        };
+      }
+
       const sha256 = await calcualteSha256(file);
 
       failureContext = 'presigning';
