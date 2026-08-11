@@ -54,7 +54,7 @@
   }
 
   <div
-    class="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_7rem_11rem] items-center border-b border-border text-sm text-foreground-muted"
+    class="grid h-8 shrink-0 grid-cols-[minmax(10rem,1fr)_minmax(0,7rem)] items-center border-b border-border text-sm text-foreground-muted sm:grid-cols-[minmax(10rem,1fr)_7rem_11rem]"
   >
     <button
       type="button"
@@ -77,9 +77,9 @@
     <button
       type="button"
       (click)="sortByUpdatedAt()"
-      class="flex h-full items-center justify-end gap-2 px-4 font-medium whitespace-nowrap hover:text-foreground"
+      class="hidden h-full min-w-0 items-center justify-end gap-2 overflow-hidden px-4 font-medium hover:text-foreground sm:flex"
     >
-      <span>Datum promjene</span>
+      <span class="min-w-0 truncate">Datum promjene</span>
 
       @if (store.sort() === 'updated-asc' || store.sort() === 'updated-desc') {
         <app-icon
@@ -104,23 +104,23 @@
         *cdkVirtualFor="let entry of store.entries(); trackBy: trackEntry"
         [cdkContextMenuTriggerFor]="entryMenu"
         (cdkContextMenuOpened)="contextMenuEntry.set(entry)"
-        class="grid h-12 grid-cols-[minmax(0,1fr)_7rem_11rem] items-center hover:bg-surface-hover"
+        class="grid h-12 grid-cols-[minmax(10rem,1fr)_minmax(0,7rem)] items-center hover:bg-surface-hover sm:grid-cols-[minmax(10rem,1fr)_7rem_11rem]"
       >
         <div class="min-w-0 px-4 py-2">
           @if (entry.kind === 'folder') {
             <a [routerLink]="['/drive', entry.id]" class="flex min-w-0 items-center gap-3">
               <app-icon [name]="'folder'" />
-              <span class="truncate text-lg">{{ entry.name }}</span>
+              <span class="min-w-0 flex-1 truncate text-lg">{{ entry.name }}</span>
             </a>
           } @else {
             <div class="flex min-w-0 items-center gap-3">
               <app-icon [name]="'file-text'" />
-              <span class="truncate text-lg">{{ entry.name }}</span>
+              <span class="min-w-0 flex-1 truncate text-lg">{{ entry.name }}</span>
             </div>
           }
         </div>
 
-        <div class="px-4 py-2 text-lg whitespace-nowrap">
+        <div class="min-w-0 truncate px-4 py-2 text-lg">
           @if (entry.kind === 'file') {
             {{ entry.sizeBytes | fileSize }}
           } @else {
@@ -128,7 +128,7 @@
           }
         </div>
 
-        <div class="px-4 py-2 text-right text-lg whitespace-nowrap">
+        <div class="hidden px-4 py-2 text-right text-lg whitespace-nowrap sm:block">
           {{ entry.updatedAt | date: 'dd.MM.yyyy HH:mm' }}
         </div>
       </div>

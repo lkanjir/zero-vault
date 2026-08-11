@@ -1,10 +1,12 @@
-<div id="topbar" class="flex h-16 items-center justify-center gap-3">
-  <div class="flex w-[70%] justify-center gap-3">
-    <div class="relative shrink-0">
+<div id="topbar" class="flex min-h-16 items-center justify-center">
+  <div
+    class="flex w-full min-w-0 flex-wrap justify-center gap-2 px-4 py-2 sm:gap-3 md:w-4/5 lg:w-[70%]"
+  >
+    <div class="relative min-w-0 flex-1 sm:flex-none">
       <select
         #kindFilter
         (change)="onKindChanged(kindFilter.value)"
-        class="h-10 shrink-0 cursor-pointer appearance-none rounded-md bg-surface py-0 pr-9 pl-3 text-sm font-semibold text-foreground"
+        class="h-10 w-full cursor-pointer appearance-none rounded-md bg-surface py-0 pr-9 pl-3 text-sm font-semibold text-foreground sm:w-auto"
       >
         <option value="">Sve</option>
         <option value="file">Datoteke</option>
@@ -20,22 +22,24 @@
 
     <div
       id="search-bar"
-      class="flex h-10 min-w-0 flex-1 cursor-pointer gap-2 rounded-md bg-surface px-2"
+      class="order-last flex h-10 w-full flex-none cursor-pointer gap-2 rounded-md bg-surface px-2 sm:order-none sm:w-auto sm:min-w-0 sm:flex-1"
     >
-      <app-icon [name]="'search'" [size]="16" [stroke]="3" class="gap-2 text-foreground-muted" />
+      <span class="hidden items-center text-foreground-muted sm:inline-flex">
+        <app-icon [name]="'search'" [size]="16" [stroke]="3" />
+      </span>
       <input
         #search
         id="search"
         type="text"
         placeholder="Pretraži po nazivu"
         (input)="onSearchInput(search.value)"
-        class="w-full text-sm font-semibold text-foreground-muted placeholder-foreground-muted"
+        class="min-w-0 flex-1 text-sm font-semibold text-foreground-muted placeholder-foreground-muted"
       />
     </div>
     <button
       [cdkMenuTriggerFor]="upload"
       type="button"
-      class="flex h-10 cursor-pointer items-center justify-center gap-1 rounded-md bg-surface px-2 text-sm font-semibold"
+      class="flex h-10 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-md bg-surface px-2 text-sm font-semibold"
     >
       <app-icon [name]="'plus'" [size]="16" [stroke]="3" />
       Novo
