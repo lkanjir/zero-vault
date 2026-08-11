@@ -145,6 +145,36 @@ describe('PostgreSQL entry authorization', () => {
     expect(stored?.updatedAt.getTime()).toBeGreaterThan(file.updatedAt.getTime());
   });
 
+  it('maps a duplicate destination name and rolls back the move', async () => {
+    const owner = await createUser('owner');
+    const source = await createFolder(owner.id, 'Source');
+    const destination = await createFolder(owner.id, 'Destination');
+    const movedFile = await createFile(owner.id, 'duplicate.txt', source.id);
+    await createFile(owner.id, 'duplicate.txt', destination.id);
+
+    await expect(
+      entryRepository.updateEntry({
+        actorUserId: owner.id,
+        entryId: movedFile.publicId,
+        parentId: destination.publicId,
+      }),
+    ).rejects.toMatchObject({
+      code: 'duplicate_entry_name',
+    });
+
+    const [stored] = await database.select().from(entries).where(eq(entries.id, movedFile.id));
+    expect(stored).toMatchObject({
+      parentId: source.id,
+      updatedAt: movedFile.updatedAt,
+    });
+
+    const recordedEvents = await database
+      .select()
+      .from(auditEvents)
+      .where(eq(auditEvents.entryId, movedFile.id));
+    expect(recordedEvents).toHaveLength(0);
+  });
+
   it('authorizes the owner drive root when moving an entry out of a folder', async () => {
     const owner = await createUser('owner');
     const sourceFolder = await createFolder(owner.id, 'Source');
