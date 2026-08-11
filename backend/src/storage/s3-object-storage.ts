@@ -89,6 +89,7 @@ export class S3ObjectStorage implements ObjectStorage {
       return getSignedUrl(this.client, command, {
         expiresIn: params.expiresInSeconds,
         signableHeaders: new Set(['content-length']),
+        unhoistableHeaders: new Set(['x-amz-checksum-sha256']),
       });
     });
   }
