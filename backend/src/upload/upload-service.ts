@@ -69,6 +69,7 @@ export class UploadService {
       return await this.storage.createPresignedUploadUrl({
         objectKey: upload.objectKey,
         contentType: upload.contentType,
+        sizeBytes: upload.expectedSizeBytes,
         expiresInSeconds: this.EXPIRES_IN_SECONDS,
         sha256Hex: upload.expectedSha256,
       });

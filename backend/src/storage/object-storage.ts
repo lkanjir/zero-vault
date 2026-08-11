@@ -3,6 +3,7 @@ import type { Readable } from 'node:stream';
 export type SignedUploadUrlParams = {
   objectKey: string;
   contentType: string;
+  sizeBytes: number;
   expiresInSeconds: number;
   sha256Hex: string;
 };

@@ -81,11 +81,15 @@ export class S3ObjectStorage implements ObjectStorage {
         Bucket: config.s3.bucket,
         Key: params.objectKey,
         ContentType: params.contentType,
+        ContentLength: params.sizeBytes,
         ChecksumSHA256: hashBase64,
         ChecksumAlgorithm: 'SHA256',
       });
 
-      return getSignedUrl(this.client, command, { expiresIn: params.expiresInSeconds });
+      return getSignedUrl(this.client, command, {
+        expiresIn: params.expiresInSeconds,
+        signableHeaders: new Set(['content-length']),
+      });
     });
   }
 
