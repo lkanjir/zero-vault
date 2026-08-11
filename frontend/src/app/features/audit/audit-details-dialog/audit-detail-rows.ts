@@ -27,7 +27,7 @@ const DETAIL_FIELDS = new Map<string, DetailField>([
   ['destinationParentName', ['U direktorij', formatFolder]],
   ['previousContentVersion', ['Prethodna verzija', formatVersion]],
   ['newContentVersion', ['Nova verzija', formatVersion]],
-  ['expiresInSeconds', ['Vrijednost poveznice', formatDuration]],
+  ['expiresInSeconds', ['Trajanje poveznice', formatDuration]],
   ['recipientEmail', ['Primatelj', formatText]],
   ['permission', ['Pristup', formatPermission]],
   ['expiresAt', ['Vrijeme isteka', formatExpiry]],

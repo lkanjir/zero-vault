@@ -9,7 +9,7 @@ export const AUDIT_ACTION_LABELS = {
   'file.content_replaced': 'Zamijenjen sadržaj',
   'file.download_url_issued': 'Zatraženo preuzimanje',
   'folder.archive_requested': 'Zatražena ZIP arhiva',
-  'file.share_submitted': 'Dijeljenje poslano',
+  'file.share_submitted': 'Datoteka podijeljena',
   'file.share_updated': 'Dijeljenje ažurirano',
   'file.share_revoked': 'Dijeljenje opozvano',
 } as const satisfies Record<AuditAction, string>;
