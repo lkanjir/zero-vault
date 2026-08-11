@@ -1,8 +1,10 @@
-<section class="mx-auto flex h-full min-h-0 w-full flex-col md:w-4/5 lg:w-[70%]">
-  <header class="mb-4 flex shrink-0 items-center justify-between gap-4 px-4">
+<section class="mx-auto flex h-full min-h-0 w-full flex-col md:w-4/5 xl:w-[70%]">
+  <header
+    class="mb-4 flex shrink-0 flex-col items-stretch gap-3 px-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+  >
     <h1 class="text-xl font-semibold">Aktivnosti</h1>
 
-    <div class="flex h-10 w-full max-w-xl items-center gap-2 rounded-md bg-surface px-3">
+    <div class="flex h-10 w-full items-center gap-2 rounded-md bg-surface px-3 sm:max-w-xl">
       <app-icon [name]="'search'" [size]="16" [stroke]="3" class="text-foreground-muted" />
 
       <input
@@ -56,12 +58,12 @@
   </section>
 
   <div
-    class="grid h-8 shrink-0 grid-cols-[minmax(10rem,1fr)_13rem_14rem_11rem] items-center border-b border-border text-sm text-foreground-muted"
+    class="grid h-8 shrink-0 grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)] items-center border-b border-border text-sm text-foreground-muted sm:grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)_minmax(0,10rem)] lg:grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)_10rem]"
   >
-    <div class="px-4 font-medium">Naziv</div>
-    <div class="px-4 font-medium">Aktivnost</div>
-    <div class="px-4 font-medium">Izvršitelj</div>
-    <div class="px-4 text-right font-medium whitespace-nowrap">Vrijeme</div>
+    <div class="min-w-0 truncate px-4 font-medium">Naziv</div>
+    <div class="min-w-0 truncate px-4 font-medium">Aktivnost</div>
+    <div class="min-w-0 truncate px-4 font-medium">Izvršitelj</div>
+    <div class="hidden min-w-0 truncate px-4 text-right font-medium sm:block">Vrijeme</div>
   </div>
 
   <div class="relative min-h-0 flex-1">
@@ -74,14 +76,11 @@
       <div
         *cdkVirtualFor="let event of store.events(); trackBy: trackEvent"
         (click)="openDetails(event)"
-        class="grid h-12 cursor-pointer grid-cols-[minmax(0,1fr)_13rem_14rem_11rem] items-center hover:bg-surface-hover"
+        class="grid h-12 cursor-pointer grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)] items-center hover:bg-surface-hover sm:grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)_minmax(0,10rem)] lg:grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)_10rem]"
       >
         <div class="flex min-w-0 items-center gap-3 px-4 py-2">
           <app-icon [name]="event.entry.kind === 'folder' ? 'folder' : 'file-text'" />
-          <span class="truncate text-lg">{{ event.entry.name }}</span>
-          @if (event.entry.deleted) {
-            <span class="shrink-0 text-xs text-foreground-muted">Obrisano</span>
-          }
+          <span class="min-w-0 flex-1 truncate text-lg">{{ event.entry.name }}</span>
         </div>
 
         <div class="truncate px-4 py-2 text-lg">
@@ -95,7 +94,7 @@
           </div>
         </div>
 
-        <div class="px-4 py-2 text-right text-lg whitespace-nowrap">
+        <div class="hidden min-w-0 truncate px-4 py-2 text-right text-lg sm:block">
           {{ event.occurredAt | date: 'dd.MM.yyyy HH:mm' }}
         </div>
       </div>
