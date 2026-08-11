@@ -9,6 +9,7 @@ import { requestContext } from './shared/http/request-context.js';
 import { errorHandler } from './shared/http/error-handler.js';
 import { routeNotFound } from './shared/http/route-not-found.js';
 import { createAuditRouter } from './audit/audit-routes.js';
+import { createFrontendRouter } from './frontend/frontend-routes.js';
 
 export const app = express();
 const composition = createCompositionRoot();
@@ -21,6 +22,10 @@ app.use('/api/entries', requireAuth, createEntryRouter(composition));
 app.use('/api/files', requireAuth, createFilesRouter(composition));
 app.use('/api/folders', requireAuth, createFolderRouter(composition));
 app.use('/api/audit', requireAuth, createAuditRouter(composition));
+
+app.use('/api', routeNotFound);
+
+app.use(createFrontendRouter());
 
 app.use(routeNotFound);
 app.use(errorHandler);
