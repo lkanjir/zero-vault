@@ -65,16 +65,6 @@
           <app-icon [size]="16" [name]="'file-text'" />
           <span>Prenesi datoteku</span>
         </button>
-
-        <button
-          cdkMenuItem
-          type="button"
-          class="flex h-10 w-full items-center gap-2 px-3 text-sm hover:bg-surface-hover"
-          (cdkMenuItemTriggered)="uploadFolderRequested.emit()"
-        >
-          <app-icon [size]="16" [name]="'folder-up'" />
-          <span>Prenesi mapu</span>
-        </button>
       </div>
     </ng-template>
   </div>
