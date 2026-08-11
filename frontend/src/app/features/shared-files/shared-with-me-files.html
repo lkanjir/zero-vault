@@ -1,4 +1,4 @@
-<section class="mx-auto flex h-full min-h-0 w-full flex-col md:w-4/5 lg:w-[70%]">
+<section class="mx-auto flex h-full min-h-0 w-full flex-col md:w-4/5 xl:w-[70%]">
   @if (downloadError()) {
     <p class="mb-4 px-4 text-sm text-danger">{{ downloadError() }}</p>
   }
@@ -7,13 +7,13 @@
   }
 
   <div
-    class="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_14rem_10rem_7rem_11rem] items-center border-b border-border text-sm text-foreground-muted"
+    class="grid h-8 shrink-0 grid-cols-[minmax(10rem,1fr)_10rem] items-center border-b border-border text-sm text-foreground-muted sm:grid-cols-[minmax(10rem,1fr)_minmax(0,12rem)_10rem] md:grid-cols-[minmax(10rem,1fr)_12rem_10rem] lg:grid-cols-[minmax(10rem,1fr)_12rem_10rem_11rem] xl:grid-cols-[minmax(10rem,1fr)_12rem_10rem_7rem_11rem]"
   >
-    <div class="px-4 font-medium">Naziv</div>
-    <div class="px-4 font-medium">Vlasnik</div>
-    <div class="px-4 font-medium">Pristup</div>
-    <div class="px-4 font-medium whitespace-nowrap">Veličina</div>
-    <div class="px-4 text-right font-medium whitespace-nowrap">Datum promjene</div>
+    <div class="min-w-0 truncate px-4 font-medium">Naziv</div>
+    <div class="hidden min-w-0 truncate px-4 font-medium sm:block">Vlasnik</div>
+    <div class="min-w-0 truncate px-4 font-medium">Pristup</div>
+    <div class="hidden px-4 font-medium whitespace-nowrap xl:block">Veličina</div>
+    <div class="hidden px-4 text-right font-medium whitespace-nowrap lg:block">Datum promjene</div>
   </div>
 
   <div class="relative min-h-0 flex-1">
@@ -25,16 +25,16 @@
     >
       <div
         *cdkVirtualFor="let file of store.files(); trackBy: trackFile"
-        class="grid h-12 grid-cols-[minmax(0,1fr)_14rem_10rem_7rem_11rem] items-center hover:bg-surface-hover"
+        class="grid h-12 grid-cols-[minmax(10rem,1fr)_10rem] items-center hover:bg-surface-hover sm:grid-cols-[minmax(10rem,1fr)_minmax(0,12rem)_10rem] md:grid-cols-[minmax(10rem,1fr)_12rem_10rem] lg:grid-cols-[minmax(10rem,1fr)_12rem_10rem_11rem] xl:grid-cols-[minmax(10rem,1fr)_12rem_10rem_7rem_11rem]"
         [cdkContextMenuTriggerFor]="fileMenu"
         (cdkContextMenuOpened)="contextMenuFile.set(file)"
       >
         <div class="flex min-w-0 items-center gap-3 px-4 py-2">
           <app-icon [name]="'file-text'" />
-          <span class="truncate text-lg">{{ file.name }}</span>
+          <span class="min-w-0 flex-1 truncate text-lg">{{ file.name }}</span>
         </div>
 
-        <div class="min-w-0 px-4 py-1">
+        <div class="hidden min-w-0 px-4 py-1 sm:block">
           <div class="truncate">{{ file.owner.firstName }} {{ file.owner.lastName }}</div>
           <div class="truncate text-xs text-foreground-muted">
             {{ file.owner.email }}
@@ -65,11 +65,11 @@
           </div>
         </div>
 
-        <div class="px-4 py-2 text-lg whitespace-nowrap">
+        <div class="hidden px-4 py-2 text-lg whitespace-nowrap xl:block">
           {{ file.sizeBytes | fileSize }}
         </div>
 
-        <div class="px-4 py-2 text-right text-lg whitespace-nowrap">
+        <div class="hidden px-4 py-2 text-right text-lg whitespace-nowrap lg:block">
           {{ file.updatedAt | date: 'dd.MM.yyyy HH:mm' }}
         </div>
       </div>

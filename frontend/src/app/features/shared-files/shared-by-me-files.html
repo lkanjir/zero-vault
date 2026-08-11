@@ -1,11 +1,11 @@
-<section class="mx-auto flex h-full min-h-0 w-full flex-col md:w-4/5 lg:w-[70%]">
+<section class="mx-auto flex h-full min-h-0 w-full flex-col md:w-4/5 2xl:w-[70%]">
   <div
-    class="grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_8rem_7rem_11rem_8rem] items-center border-b border-border text-sm text-foreground-muted"
+    class="grid h-8 shrink-0 grid-cols-[minmax(10rem,1fr)_8rem] items-center border-b border-border text-sm text-foreground-muted sm:grid-cols-[minmax(10rem,1fr)_minmax(0,8rem)_minmax(0,7rem)_8rem] md:grid-cols-[minmax(10rem,1fr)_8rem_7rem_8rem] lg:grid-cols-[minmax(10rem,1fr)_8rem_7rem_11rem_8rem]"
   >
-    <div class="px-4 font-medium">Naziv</div>
-    <div class="px-4 font-medium">Dijeljenja</div>
-    <div class="px-4 font-medium whitespace-nowrap">Veličina</div>
-    <div class="px-4 text-right font-medium whitespace-nowrap">Datum promjene</div>
+    <div class="min-w-0 truncate px-4 font-medium">Naziv</div>
+    <div class="hidden min-w-0 truncate px-4 font-medium sm:block">Dijeljenja</div>
+    <div class="hidden min-w-0 truncate px-4 font-medium sm:block">Veličina</div>
+    <div class="hidden px-4 text-right font-medium whitespace-nowrap lg:block">Datum promjene</div>
     <div class="px-4 text-center font-medium">Upravljanje</div>
   </div>
 
@@ -19,22 +19,22 @@
       <div
         (click)="manageShares(file)"
         *cdkVirtualFor="let file of store.files(); trackBy: trackFile"
-        class="grid h-12 cursor-pointer grid-cols-[minmax(0,1fr)_8rem_7rem_11rem_8rem] items-center hover:bg-surface-hover"
+        class="grid h-12 cursor-pointer grid-cols-[minmax(10rem,1fr)_8rem] items-center hover:bg-surface-hover sm:grid-cols-[minmax(10rem,1fr)_minmax(0,8rem)_minmax(0,7rem)_8rem] md:grid-cols-[minmax(10rem,1fr)_8rem_7rem_8rem] lg:grid-cols-[minmax(10rem,1fr)_8rem_7rem_11rem_8rem]"
       >
         <div class="flex min-w-0 items-center gap-3 px-4 py-2">
           <app-icon [name]="'file-text'" />
-          <span class="truncate text-lg">{{ file.name }}</span>
+          <span class="min-w-0 flex-1 truncate text-lg">{{ file.name }}</span>
         </div>
 
-        <div class="px-4 py-2 text-lg">
+        <div class="hidden min-w-0 truncate px-4 py-2 text-lg sm:block">
           {{ file.shareCount }}
         </div>
 
-        <div class="px-4 py-2 text-lg whitespace-nowrap">
+        <div class="hidden min-w-0 truncate px-4 py-2 text-lg sm:block">
           {{ file.sizeBytes | fileSize }}
         </div>
 
-        <div class="px-4 py-2 text-right text-lg whitespace-nowrap">
+        <div class="hidden px-4 py-2 text-right text-lg whitespace-nowrap lg:block">
           {{ file.updatedAt | date: 'dd.MM.yyyy HH:mm' }}
         </div>
 
