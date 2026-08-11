@@ -9,6 +9,9 @@ ENV KC_METRICS_ENABLED=true
 WORKDIR /opt/keycloak
 
 COPY --chown=keycloak:keycloak themes/zero-vault /opt/keycloak/themes/zero-vault
+COPY --chown=keycloak:keycloak \
+  realm/zero-vault-realm.json \
+  /opt/keycloak/data/import/zero-vault-realm.json
 
 RUN /opt/keycloak/bin/kc.sh build
 
