@@ -14,7 +14,7 @@ import {
 import { CdkContextMenuTrigger, CdkMenu, CdkMenuItem } from '@angular/cdk/menu';
 import { Icon } from '../../shared/icon/icon';
 import { DriveStore } from './state/drive-store';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { apiErrorMessage } from '../../shared/api-error';
@@ -35,6 +35,7 @@ import { DeleteEntryDialog } from './delete-entry-dialog/delete-entry-dialog';
 import { ShareFileDialog } from '../shared-files/share-file-dialog/share-file-dialog';
 import { TransferStore } from '../transfers/state/transfer-store';
 import { ReplaceContentDialog } from '../transfers/replace-content-dialog/replace-content-dialog';
+import { FolderBreadcrumbs } from './folder-breadcrumbs/folder-breadcrumbs';
 
 const LOAD_MORE_THRESHOLD = 10;
 
@@ -49,6 +50,7 @@ const LOAD_MORE_THRESHOLD = 10;
     DatePipe,
     FileSizePipe,
     ScrollingModule,
+    FolderBreadcrumbs,
   ],
   templateUrl: './drive.html',
 })
@@ -62,6 +64,7 @@ export class Drive implements OnInit, AfterViewInit {
   readonly document = inject(DOCUMENT);
   readonly dialog = inject(Dialog);
 
+  private readonly router = inject(Router);
   private readonly _downloadEntryIds = signal<ReadonlySet<string>>(new Set());
   private readonly _downloadError = signal<string | null>(null);
 
@@ -280,5 +283,11 @@ export class Drive implements OnInit, AfterViewInit {
     if (result.ok) {
       this.store.reloadIfCurrent(parentId);
     }
+  }
+
+  navigateToFolder(folderId: string | null): void {
+    const commands = folderId === null ? ['/drive'] : ['/drive', folderId];
+
+    this.router.navigate(commands);
   }
 }

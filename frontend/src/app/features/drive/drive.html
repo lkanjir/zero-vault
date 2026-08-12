@@ -1,40 +1,10 @@
 <section class="mx-auto flex h-full min-h-0 w-full flex-col md:w-4/5 lg:w-[70%]">
-  @let path = store.path();
-
-  <nav class="mb-4 px-4">
-    <ol class="flex min-w-0 items-center gap-2 text-sm text-foreground-muted">
-      <li class="shrink-0">
-        @if (path.length !== 0) {
-          <a
-            routerLink="/drive"
-            class="flex justify-self-center rounded-md p-2 font-medium text-foreground hover:bg-surface-hover"
-            >Moj disk</a
-          >
-        }
-      </li>
-
-      @for (folder of path; track folder.id; let isLast = $last) {
-        <li class="shrink-0">
-          <app-icon [name]="'chevron-right'" [size]="16" />
-        </li>
-
-        <li class="min-w-0">
-          @if (isLast) {
-            <span class="block truncate font-medium text-foreground">
-              {{ folder.name }}
-            </span>
-          } @else {
-            <a
-              [routerLink]="['/drive', folder.id]"
-              class="flex justify-self-center rounded-md p-2 font-medium text-foreground hover:bg-surface-hover"
-            >
-              {{ folder.name }}
-            </a>
-          }
-        </li>
-      }
-    </ol>
-  </nav>
+  <app-folder-breadcrumbs
+    class="mb-4 px-4"
+    [path]="store.path()"
+    [atRoot]="store.parentId() === null"
+    (folderSelected)="navigateToFolder($event)"
+  />
 
   @if (downloadError()) {
     <p class="mb-4 px-4 text-sm text-danger">
