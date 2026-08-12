@@ -8,6 +8,10 @@ const requiredTrimmedString = z.string().trim().min(1);
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().max(65_535).default(3000),
   S3_ENDPOINT: z.url().trim(),
+  S3_PUBLIC_ORIGIN: z
+    .url()
+    .trim()
+    .transform((value) => new URL(value).origin),
   S3_REGION: requiredTrimmedString,
   S3_FORCE_PATH_STYLE: z.stringbool().default(false),
   S3_ACCESS_KEY_ID: requiredTrimmedString,
@@ -32,6 +36,7 @@ export const config = {
   port: env.PORT,
   s3: {
     endpoint: env.S3_ENDPOINT,
+    publicOrigin: env.S3_PUBLIC_ORIGIN,
     region: env.S3_REGION,
     forcePathStyle: env.S3_FORCE_PATH_STYLE,
     accessKeyId: env.S3_ACCESS_KEY_ID,
