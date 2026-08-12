@@ -1,0 +1,61 @@
+<nav>
+  <ol class="flex w-full min-w-0 items-center text-sm text-foreground-muted">
+    <li class="shrink-0">
+      <button
+        type="button"
+        class="flex h-9 items-center rounded-md px-2 font-medium text-foreground enabled:hover:bg-surface-hover disabled:cursor-default"
+        [disabled]="atRoot()"
+        (click)="folderSelected.emit(null)"
+      >
+        Moj disk
+      </button>
+    </li>
+
+    @if (ancestorFolders().length > 0) {
+      <li class="shrink-0">
+        <app-icon [name]="'chevron-right'" [size]="16" />
+      </li>
+
+      <li class="shrink-0">
+        <button
+          type="button"
+          class="flex h-9 items-center rounded-md px-2 font-medium text-foreground hover:bg-surface-hover"
+          [cdkMenuTriggerFor]="ancestorMenu"
+        >
+          ...
+        </button>
+      </li>
+    }
+
+    @if (currentFolder(); as current) {
+      <li class="shrink-0">
+        <app-icon [name]="'chevron-right'" [size]="16" />
+      </li>
+
+      <li class="min-w-0 flex-1">
+        <span class="block truncate px-2 font-medium text-foreground">
+          {{ current.name }}
+        </span>
+      </li>
+    }
+  </ol>
+</nav>
+
+<ng-template #ancestorMenu>
+  <div
+    cdkMenu
+    class="max-h-72 min-w-48 overflow-y-auto rounded-md border border-border bg-surface p-1 shadow-xl"
+  >
+    @for (folder of ancestorFolders(); track folder.id) {
+      <button
+        cdkMenuItem
+        type="button"
+        class="flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm hover:bg-surface-hover"
+        (cdkMenuItemTriggered)="folderSelected.emit(folder.id)"
+      >
+        <app-icon [name]="'folder'" [size]="16" />
+        <span class="max-w-64 truncate">{{ folder.name }}</span>
+      </button>
+    }
+  </div>
+</ng-template>

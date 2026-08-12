@@ -13,11 +13,11 @@ import {
 import { EntryResponse, FolderEntry } from '../../../data-access/entries/entry-models';
 import { MoveStore } from './move-store';
 import { Icon } from '../../../shared/icon/icon';
-import { CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
 import { ApiError, apiErrorMessage } from '../../../shared/api-error';
 import { EntryActions } from '../actions/entry-actions';
 import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { FolderBreadcrumbs } from '../folder-breadcrumbs/folder-breadcrumbs';
 
 export type MoveEntryDialogData = {
   entry: EntryResponse;
@@ -28,7 +28,7 @@ const LOAD_MORE_THRESHOLD = 10;
 
 @Component({
   selector: 'app-move-entry-dialog',
-  imports: [Icon, CdkMenu, CdkMenuTrigger, CdkMenuItem, ScrollingModule],
+  imports: [Icon, ScrollingModule, FolderBreadcrumbs],
   providers: [MoveStore],
   templateUrl: './move-entry-dialog.html',
 })
@@ -41,11 +41,6 @@ export class MoveEntryDialog implements OnInit, AfterViewInit {
   readonly store = inject(MoveStore);
   readonly viewport = viewChild.required(CdkVirtualScrollViewport);
 
-  readonly ancestorFolders = computed(() => {
-    const path = this.store.path();
-    return path.length > 1 ? path.slice(0, -1) : [];
-  });
-  readonly currentFolder = computed(() => this.store.path().at(-1) ?? null);
   readonly submitting = signal(false);
   readonly moveError = signal<string | null>(null);
   readonly canMove = computed(
