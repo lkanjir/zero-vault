@@ -9,6 +9,9 @@ import {
   folderDownloadIdParamsSchema,
 } from './download/validation-schemas.js';
 import type { FolderDownloadService } from './download/folder-download-service.js';
+import {
+  folderDownloadRateLimiter,
+} from '../shared/http/api-rate-limiters.js';
 
 export type FolderRouterDeps = {
   userService: UserService;
@@ -35,6 +38,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
 
   router.post(
     '/:folderId/downloads',
+    folderDownloadRateLimiter,
     validateRequest({ params: createFolderDownloadParamsSchema }, async (req, res, validated) => {
       const principal = requirePrincipal(req);
       const user = await deps.userService.resolveUser(principal);

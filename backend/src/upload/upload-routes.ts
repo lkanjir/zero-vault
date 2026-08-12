@@ -5,6 +5,10 @@ import type { UserService } from '../user/user-service.js';
 import type { UploadService } from './upload-service.js';
 import type { CompleteUploadUseCase } from './complete-upload-use-case.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
+import {
+  uploadCompletionRateLimiter,
+  uploadIntentRateLimiter,
+} from '../shared/http/api-rate-limiters.js';
 
 export type UploadRouterDeps = {
   userService: UserService;
@@ -17,6 +21,7 @@ export function createUploadRouter(deps: UploadRouterDeps): Router {
 
   router.post(
     '/presign',
+    uploadIntentRateLimiter,
     validateRequest({ body: uploadRequestSchema }, async (req, res, validated) => {
       const principal = requirePrincipal(req);
       const authenticatedUser = await deps.userService.resolveUser(principal);
@@ -28,6 +33,7 @@ export function createUploadRouter(deps: UploadRouterDeps): Router {
 
   router.post(
     '/:uploadId/complete',
+    uploadCompletionRateLimiter,
     validateRequest({ params: completeUploadSchema }, async (req, res, validated) => {
       const principal = requirePrincipal(req);
       const authenticatedUser = await deps.userService.resolveUser(principal);

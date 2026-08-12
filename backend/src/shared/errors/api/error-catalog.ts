@@ -171,6 +171,11 @@ export const errorCatalog = {
     message: 'Tražena ruta ne postoji.',
   },
 
+  rate_limit_exceeded: {
+    status: 429,
+    message: 'Poslali ste previše zahtjeva. Pokušajte ponovno kasnije.',
+  },
+
   internal_server_error: {
     status: 500,
     message: 'Dogodila se neočekivana pogreška.',

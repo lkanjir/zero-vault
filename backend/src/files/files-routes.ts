@@ -16,6 +16,11 @@ import type { FileSharingService } from '../sharing/file-sharing-service.js';
 import type { ShareFileAcceptedResponse } from './dto.js';
 import { replacementUploadRequestSchema } from '../upload/validation-schemas.js';
 import type { UploadService } from '../upload/upload-service.js';
+import {
+  fileDownloadRateLimiter,
+  sharingMutationRateLimiter,
+  uploadIntentRateLimiter,
+} from '../shared/http/api-rate-limiters.js';
 
 export type FileRouterDeps = {
   userService: UserService;
@@ -29,6 +34,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
   router.post(
     '/:fileId/download-url',
+    fileDownloadRateLimiter,
     validateRequest({ params: fileIdParamsSchema }, async (req, res, validated) => {
       const principal = requirePrincipal(req);
       const authenticatedUser = await deps.userService.resolveUser(principal);
@@ -44,6 +50,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
   router.post(
     '/:fileId/shares',
+    sharingMutationRateLimiter,
     validateRequest(
       { params: fileIdParamsSchema, body: shareFileBodySchema },
       async (req, res, validated) => {
@@ -78,6 +85,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
   router.delete(
     '/:fileId/shares/:shareId',
+    sharingMutationRateLimiter,
     validateRequest({ params: fileShareParamsSchema }, async (req, res, validated) => {
       const principal = requirePrincipal(req);
       const user = await deps.userService.resolveUser(principal);
@@ -94,6 +102,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
   router.patch(
     '/:fileId/shares/:shareId',
+    sharingMutationRateLimiter,
     validateRequest(
       { params: fileShareParamsSchema, body: updateFileShareBodySchema },
       async (req, res, validated) => {
@@ -144,6 +153,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
   router.post(
     '/:fileId/replacements',
+    uploadIntentRateLimiter,
     validateRequest(
       { params: fileIdParamsSchema, body: replacementUploadRequestSchema },
       async (req, res, validated) => {
