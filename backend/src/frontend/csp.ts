@@ -24,7 +24,7 @@ export function getCspNonce(response: ServerResponse): string {
 
 export const frontendCsp = helmet.contentSecurityPolicy({
   useDefaults: false,
-  reportOnly: true,
+  reportOnly: false,
   directives: {
     defaultSrc: ["'self'"],
     scriptSrc: ["'self'", (_req, res) => `'nonce-${getCspNonce(res)}'`],
@@ -47,7 +47,7 @@ export const frontendCsp = helmet.contentSecurityPolicy({
     baseUri: ["'self'"],
     frameAncestors: ["'none'"],
     formAction: ["'self'"],
-    trustedTypes: ['angular', 'angular#builder'],
+    trustedTypes: ['angular', 'angular#bundler'],
     requireTrustedTypesFor: ["'script'"],
   },
 });
