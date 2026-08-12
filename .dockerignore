@@ -25,4 +25,4 @@ zavrsni
 *.md
 *.pdf
 *.tex
-compose.yaml
+compose*.yaml

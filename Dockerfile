@@ -42,6 +42,9 @@ COPY --from=backend-dependencies --chown=node:node \
 COPY --from=backend-build --chown=node:node \
     /app/backend/dist ./backend/dist
 
+COPY --from=backend-build --chown=node:node \
+    /app/backend/drizzle ./backend/drizzle
+
 COPY --from=frontend-build --chown=node:node \
     /app/frontend/dist ./frontend/dist
 

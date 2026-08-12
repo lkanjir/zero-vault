@@ -1,0 +1,135 @@
+x-zero-vault-runtime: &zero-vault-runtime
+  build:
+    context: .
+    dockerfile: Dockerfile
+
+  image: zero-vault-app:${ZERO_VAULT_IMAGE_TAG:-latest}
+  init: true
+  restart: unless-stopped
+
+  environment:
+    PORT: "3000"
+
+    DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+
+    S3_ENDPOINT: ${S3_ENDPOINT:?S3_ENDPOINT is required}
+    S3_PUBLIC_ORIGIN: ${S3_PUBLIC_ORIGIN:?S3_PUBLIC_ORIGIN is required}
+    S3_REGION: ${S3_REGION:?S3_REGION is required}
+    S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+    S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID is required}
+    S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY is required}
+    S3_BUCKET: ${S3_BUCKET:?S3_BUCKET is required}
+
+    OIDC_ISSUER: ${OIDC_ISSUER:?OIDC_ISSUER is required}
+    OIDC_AUDIENCE: ${OIDC_AUDIENCE:?OIDC_AUDIENCE is required}
+
+    HSTS_ENABLED: ${HSTS_ENABLED:-false}
+
+  networks:
+    - default
+    - zero-vault-internal
+
+  stop_grace_period: 30s
+
+services:
+  app-db:
+    image: postgres:18
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${METADATA_DB_NAME:-zerovault}
+      POSTGRES_USER: ${METADATA_DB_USER:-api}
+      POSTGRES_PASSWORD: ${METADATA_DB_PASSWORD:?METADATA_DB_PASSWORD is required}
+
+    networks:
+      - zero-vault-internal
+
+    volumes:
+      - app_db_data:/var/lib/postgresql
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  migrate:
+    <<: *zero-vault-runtime
+    restart: "no"
+    command: ["node", "backend/dist/db/migrate.js"]
+
+    depends_on:
+      app-db:
+        condition: service_healthy
+
+  app:
+    <<: *zero-vault-runtime
+    command: ["node", "backend/dist/server.js"]
+
+    expose:
+      - "3000"
+
+    depends_on:
+      app-db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() =>
+          process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  maintenance-worker:
+    <<: *zero-vault-runtime
+    command: ["node", "backend/dist/workers/maintenance-worker.js"]
+
+    depends_on:
+      app-db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  folder-download-worker:
+    <<: *zero-vault-runtime
+    command: ["node", "backend/dist/workers/folder-download-worker.js"]
+
+    depends_on:
+      app-db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  object-deletion-worker:
+    <<: *zero-vault-runtime
+    command: ["node", "backend/dist/workers/object-deletion-worker.js"]
+
+    depends_on:
+      app-db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  app_db_data:
+    external: true
+    name: ${METADATA_DB_VOLUME_NAME:?METADATA_DB_VOLUME_NAME is required}
+
+networks:
+  zero-vault-internal:
+    driver: bridge
+    internal: true
