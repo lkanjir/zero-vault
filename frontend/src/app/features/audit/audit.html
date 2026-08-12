@@ -58,12 +58,12 @@
   </section>
 
   <div
-    class="grid h-8 shrink-0 grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)] items-center border-b border-border text-sm text-foreground-muted sm:grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)_minmax(0,10rem)] lg:grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)_10rem]"
+    class="grid h-8 shrink-0 grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)] items-center border-b border-border text-sm text-foreground-muted sm:grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)_12rem]"
   >
     <div class="min-w-0 truncate px-4 font-medium">Naziv</div>
     <div class="min-w-0 truncate px-4 font-medium">Aktivnost</div>
     <div class="min-w-0 truncate px-4 font-medium">Izvršitelj</div>
-    <div class="hidden min-w-0 truncate px-4 text-right font-medium sm:block">Vrijeme</div>
+    <div class="hidden px-4 text-right font-medium whitespace-nowrap sm:block">Vrijeme</div>
   </div>
 
   <div class="relative min-h-0 flex-1">
@@ -76,7 +76,7 @@
       <div
         *cdkVirtualFor="let event of store.events(); trackBy: trackEvent"
         (click)="openDetails(event)"
-        class="grid h-12 cursor-pointer grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)] items-center hover:bg-surface-hover sm:grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)_minmax(0,10rem)] lg:grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)_10rem]"
+        class="grid h-12 cursor-pointer grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)] items-center hover:bg-surface-hover sm:grid-cols-[minmax(8rem,1.5fr)_minmax(6rem,1fr)_minmax(7rem,1fr)_12rem]"
       >
         <div class="flex min-w-0 items-center gap-3 px-4 py-2">
           <app-icon [name]="event.entry.kind === 'folder' ? 'folder' : 'file-text'" />
@@ -94,7 +94,7 @@
           </div>
         </div>
 
-        <div class="hidden min-w-0 truncate px-4 py-2 text-right text-lg sm:block">
+        <div class="hidden px-4 py-2 text-right text-lg whitespace-nowrap sm:block">
           {{ event.occurredAt | date: 'dd.MM.yyyy HH:mm' }}
         </div>
       </div>
