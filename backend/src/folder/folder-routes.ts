@@ -9,9 +9,7 @@ import {
   folderDownloadIdParamsSchema,
 } from './download/validation-schemas.js';
 import type { FolderDownloadService } from './download/folder-download-service.js';
-import {
-  folderDownloadRateLimiter,
-} from '../shared/http/api-rate-limiters.js';
+import { folderDownloadRateLimiter } from '../shared/http/api-rate-limiters.js';
 
 export type FolderRouterDeps = {
   userService: UserService;

@@ -153,6 +153,9 @@ describe('upload routes contract', () => {
       });
 
     expect(response.status).toBe(201);
+    expect(response.headers['ratelimit-policy']).toContain('"upload-intent"');
+    expect(response.headers['ratelimit-policy']).toContain('q=120');
+    expect(response.headers['ratelimit-policy']).toContain('w=60');
     expect(uploadService.createUpload).toHaveBeenCalledExactlyOnceWith(USER, {
       parentFolderId: null,
       fileName: 'document.txt',
@@ -247,6 +250,9 @@ describe('upload routes contract', () => {
       .send();
 
     expect(response.status).toBe(200);
+    expect(response.headers['ratelimit-policy']).toContain('"upload-completion"');
+    expect(response.headers['ratelimit-policy']).toContain('q=120');
+    expect(response.headers['ratelimit-policy']).toContain('w=60');
     expect(response.body).toStrictEqual(COMPLETED_FILE);
     expect(completeUploadUseCase.execute).toHaveBeenCalledExactlyOnceWith(USER, UPLOAD_ID);
   });

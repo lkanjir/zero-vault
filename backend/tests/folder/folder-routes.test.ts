@@ -82,6 +82,9 @@ describe('folder routes', () => {
     ).post(`/folders/${FOLDER_ID}/downloads`);
 
     expect(response.status).toBe(202);
+    expect(response.headers['ratelimit-policy']).toContain('"folder-download"');
+    expect(response.headers['ratelimit-policy']).toContain('q=10');
+    expect(response.headers['ratelimit-policy']).toContain('w=600');
     expect(response.headers['location']).toBe(`/api/folders/downloads/${DOWNLOAD_ID}`);
     expect(response.headers['retry-after']).toBe('2');
     expect(response.body).toStrictEqual({
@@ -90,6 +93,29 @@ describe('folder routes', () => {
       status: 'queued',
     });
     expect(folderDownloadService.createDownload).toHaveBeenCalledExactlyOnceWith(USER, FOLDER_ID);
+  });
+
+  it('rate limits folder download creation per authenticated principal', async () => {
+    const app = createTestApp(userService, folderService, folderDownloadService, {
+      ...PRINCIPAL,
+      subject: 'folder-download-rate-limit-user',
+    });
+
+    for (let index = 0; index < 10; index += 1) {
+      const response = await request(app).post(`/folders/${FOLDER_ID}/downloads`);
+      expect(response.status).toBe(202);
+    }
+
+    const blocked = await request(app).post(`/folders/${FOLDER_ID}/downloads`);
+
+    expect(blocked.status).toBe(429);
+    expect(blocked.body).toMatchObject({
+      code: 'rate_limit_exceeded',
+      requestId: blocked.headers['x-request-id'],
+    });
+    expect(blocked.headers['retry-after']).toBeDefined();
+    expect(blocked.headers['ratelimit-policy']).toContain('folder-download');
+    expect(folderDownloadService.createDownload).toHaveBeenCalledTimes(10);
   });
 
   it.each(['queued', 'processing'] as const)(
@@ -132,6 +158,29 @@ describe('folder routes', () => {
     expect(response.headers['retry-after']).toBeUndefined();
   });
 
+  it('does not apply the folder download creation limit to status polling', async () => {
+    folderDownloadService.getStatus.mockResolvedValue({
+      downloadId: DOWNLOAD_ID,
+      fileName: 'Documents.zip',
+      status: 'ready',
+      sizeBytes: 12,
+      downloadUrl: 'https://storage.example.test/download',
+      expiresAt: '2026-01-01T00:05:00.000Z',
+      expiresInSeconds: 60,
+    });
+    const app = createTestApp(userService, folderService, folderDownloadService, {
+      ...PRINCIPAL,
+      subject: 'folder-download-polling-user',
+    });
+
+    for (let index = 0; index < 11; index += 1) {
+      const response = await request(app).get(`/folders/downloads/${DOWNLOAD_ID}`);
+      expect(response.status).toBe(200);
+    }
+
+    expect(folderDownloadService.getStatus).toHaveBeenCalledTimes(11);
+  });
+
   it('rejects invalid folder and download identifiers before service calls', async () => {
     const app = createTestApp(userService, folderService, folderDownloadService);
 
@@ -151,13 +200,14 @@ function createTestApp(
   userService: UserService,
   folderService: FolderService,
   folderDownloadService: FolderDownloadService,
+  principal: AuthenticatedPrincipal = PRINCIPAL,
 ) {
   const app = express();
 
   app.use(requestContext);
   app.use(express.json());
   app.use((req, _res, next) => {
-    req.principal = PRINCIPAL;
+    req.principal = principal;
     next();
   });
   app.use('/folders', createFolderRouter({ userService, folderService, folderDownloadService }));

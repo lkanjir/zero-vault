@@ -133,6 +133,9 @@ describe('files routes', () => {
     ).post(`/files/${FILE_ID}/download-url`);
 
     expect(response.status).toBe(200);
+    expect(response.headers['ratelimit-policy']).toContain('"file-download"');
+    expect(response.headers['ratelimit-policy']).toContain('q=60');
+    expect(response.headers['ratelimit-policy']).toContain('w=60');
     expect(response.body).toStrictEqual({
       fileId: FILE_ID,
       fileName: 'document.txt',
@@ -172,6 +175,9 @@ describe('files routes', () => {
       });
 
     expect(response.status).toBe(201);
+    expect(response.headers['ratelimit-policy']).toContain('"upload-intent"');
+    expect(response.headers['ratelimit-policy']).toContain('q=120');
+    expect(response.headers['ratelimit-policy']).toContain('w=60');
     expect(response.body).toStrictEqual({
       uploadId: '40000000-0000-4000-8000-000000000001',
       uploadUrl: 'https://storage.example.test/upload',
@@ -239,6 +245,9 @@ describe('files routes', () => {
       });
 
     expect(response.status).toBe(202);
+    expect(response.headers['ratelimit-policy']).toContain('"sharing-mutation"');
+    expect(response.headers['ratelimit-policy']).toContain('q=30');
+    expect(response.headers['ratelimit-policy']).toContain('w=60');
     expect(response.body).toStrictEqual({ status: 'accepted' });
     expect(sharingService.shareFile).toHaveBeenCalledExactlyOnceWith(USER, FILE_ID, {
       recipientEmail: 'recipient@example.com',
@@ -376,6 +385,7 @@ describe('files routes', () => {
     ).delete(`/files/${FILE_ID}/shares/${SHARE_ID}`);
 
     expect(response.status).toBe(204);
+    expect(response.headers['ratelimit-policy']).toContain('"sharing-mutation"');
     expect(response.text).toBe('');
     expect(sharingService.revokeFileShare).toHaveBeenCalledExactlyOnceWith(USER, FILE_ID, SHARE_ID);
   });
@@ -411,6 +421,7 @@ describe('files routes', () => {
       .send({ permission: 'editor' });
 
     expect(response.status).toBe(200);
+    expect(response.headers['ratelimit-policy']).toContain('"sharing-mutation"');
     expect(response.body).toStrictEqual({
       shareId: SHARE_ID,
       recipientEmail: 'recipient@example.com',
