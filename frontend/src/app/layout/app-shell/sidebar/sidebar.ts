@@ -18,6 +18,7 @@ export class Sidebar {
   readonly open = signal<boolean>(false);
   readonly userProfile = input<UserProfile | null>(null);
   readonly failedTransferCount = input<number>(0);
+  readonly accountUrl = input<string>('');
   readonly transfersRequested = output<void>();
   readonly logoutRequested = output<void>();
 

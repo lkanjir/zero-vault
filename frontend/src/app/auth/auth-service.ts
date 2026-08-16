@@ -16,6 +16,7 @@ export class AuthService {
 
   readonly authenitcated = signal(false);
   readonly userProfile = this._userProfile.asReadonly();
+  readonly accountUrl = signal<string>('');
 
   async initialize(): Promise<void> {
     const authenitcated = await this.keycloak.init({
@@ -23,6 +24,7 @@ export class AuthService {
       pkceMethod: 'S256',
     });
 
+    this.accountUrl.set(this.keycloak.createAccountUrl());
     this.authenitcated.set(authenitcated);
     if (this.authenitcated()) {
       this._userProfile.set(this.readUserProfile());

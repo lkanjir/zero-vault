@@ -1,6 +1,7 @@
 <aside class="flex h-full w-full flex-col">
   <div class="grid h-16 shrink-0 grid-cols-[minmax(0,1fr)_4rem] items-center">
-    <div
+    <a
+      [href]="accountUrl()"
       class="grid min-w-0 grid-cols-[4rem_minmax(0,1fr)] items-center overflow-hidden transition-opacity duration-150"
       [class.opacity-0]="!open()"
       [class.opacity-100]="open()"
@@ -14,7 +15,7 @@
           >{{ profile.firstName }} {{ profile.lastName }}</span
         >
       }
-    </div>
+    </a>
 
     <button
       type="button"

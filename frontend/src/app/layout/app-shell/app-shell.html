@@ -3,6 +3,7 @@
     (transfersRequested)="toggleTransfers()"
     [failedTransferCount]="transferStore.failedCount()"
     [userProfile]="authService.userProfile()"
+    [accountUrl]="authService.accountUrl()"
     (logoutRequested)="logout()"
   />
 
