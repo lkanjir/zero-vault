@@ -9,9 +9,11 @@ import { createEntryRouter } from './entry/entry-routes.js';
 import { createFolderRouter } from './folder/folder-routes.js';
 import { requestContext } from './shared/http/request-context.js';
 import { errorHandler } from './shared/http/error-handler.js';
+import { createHealthRouter } from './shared/http/health-routes.js';
 import { routeNotFound } from './shared/http/route-not-found.js';
 import { createAuditRouter } from './audit/audit-routes.js';
 import { createFrontendRouter } from './frontend/frontend-routes.js';
+import { checkDatabaseConnection } from './db/db-client.js';
 import { config } from './config.js';
 
 const HSTS_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
@@ -30,7 +32,13 @@ app.use(
 );
 
 app.use(requestContext);
+app.use(createHealthRouter(checkDatabaseConnection));
 app.use(express.json({ limit: '16kb' }));
+
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 
 const resolveUser = createResolveUserMiddleware(composition.userService);
 

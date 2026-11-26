@@ -161,7 +161,7 @@ describe('FolderDownloadService', () => {
     expect(storage.createPresignedDownloadUrl).not.toHaveBeenCalled();
   });
 
-  it('maps archive presign failures to storage_unavailable', async () => {
+  it('propagates archive presign failures to the HTTP error handler', async () => {
     const download = makeDownload({
       status: 'ready',
       archiveSizeBytes: 321,
@@ -174,17 +174,7 @@ describe('FolderDownloadService', () => {
     repository.findByOwnerAndDownloadId.mockResolvedValue(download);
     storage.createPresignedDownloadUrl.mockRejectedValue(storageError);
 
-    await expect(service.getStatus(USER, download.downloadId)).rejects.toMatchObject({
-      code: 'storage_unavailable',
-      options: {
-        cause: storageError,
-        context: {
-          downloadId: download.downloadId,
-          objectKey: download.archiveObjectKey,
-          storageOperation: 'create_download_url',
-        },
-      },
-    });
+    await expect(service.getStatus(USER, download.downloadId)).rejects.toBe(storageError);
   });
 
   it('does not disclose a download that is not owned by the user', async () => {

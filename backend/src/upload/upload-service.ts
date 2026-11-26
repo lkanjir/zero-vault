@@ -18,7 +18,6 @@ import {
 } from './metadata-assertions.js';
 import { sha256HexToBase64 } from '../shared/utils/sha256-convert.js';
 import { AppError } from '../shared/errors/api/app-error.js';
-import { StorageError } from '../shared/errors/storage/storage-error.js';
 import { StorageObjectNotFoundError } from '../shared/errors/storage/storage-object-not-found-error.js';
 
 export class UploadService {
@@ -65,28 +64,13 @@ export class UploadService {
   }
 
   private async createPresignedUploadUrl(upload: UploadIntentInput): Promise<string> {
-    try {
-      return await this.storage.createPresignedUploadUrl({
-        objectKey: upload.objectKey,
-        contentType: upload.contentType,
-        sizeBytes: upload.expectedSizeBytes,
-        expiresInSeconds: this.EXPIRES_IN_SECONDS,
-        sha256Hex: upload.expectedSha256,
-      });
-    } catch (error) {
-      if (error instanceof StorageError) {
-        throw new AppError('storage_unavailable', {
-          cause: error,
-          context: {
-            uploadId: upload.uploadId,
-            objectKey: upload.objectKey,
-            storageOperation: error.context.operation,
-          },
-        });
-      }
-
-      throw error;
-    }
+    return this.storage.createPresignedUploadUrl({
+      objectKey: upload.objectKey,
+      contentType: upload.contentType,
+      sizeBytes: upload.expectedSizeBytes,
+      expiresInSeconds: this.EXPIRES_IN_SECONDS,
+      sha256Hex: upload.expectedSha256,
+    });
   }
 
   async completeUpload(user: User, uploadId: string): Promise<CompletedUploadFile> {
@@ -112,17 +96,6 @@ export class UploadService {
     } catch (error) {
       if (error instanceof StorageObjectNotFoundError) {
         throw new AppError('upload_object_missing', {
-          cause: error,
-          context: {
-            uploadId: intent.uploadId,
-            objectKey: intent.objectKey,
-            storageOperation: error.context.operation,
-          },
-        });
-      }
-
-      if (error instanceof StorageError) {
-        throw new AppError('storage_unavailable', {
           cause: error,
           context: {
             uploadId: intent.uploadId,

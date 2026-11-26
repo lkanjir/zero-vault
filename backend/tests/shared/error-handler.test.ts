@@ -5,6 +5,7 @@ import z from 'zod';
 import { AppError } from '../../src/shared/errors/api/app-error.js';
 import { errorCatalog, type ErrorCode } from '../../src/shared/errors/api/error-catalog.js';
 import type { ErrorResponse } from '../../src/shared/errors/api/error-response.js';
+import { StorageUnavailableError } from '../../src/shared/errors/storage/storage-unavailable-error.js';
 import { errorHandler } from '../../src/shared/http/error-handler.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
 import { routeNotFound } from '../../src/shared/http/route-not-found.js';
@@ -103,6 +104,27 @@ describe('HTTP error contract', () => {
     expect(JSON.stringify(response.body)).not.toContain('Sensitive provider failure');
   });
 
+  it('maps StorageError failures centrally to storage_unavailable without leaking details', async () => {
+    const response = await request(createTestApp()).get('/storage-unavailable');
+
+    expectErrorResponse(response, 'storage_unavailable');
+    expect(console.error).toHaveBeenCalledExactlyOnceWith(
+      'HTTP request failed',
+      expect.objectContaining({
+        requestId: response.headers['x-request-id'],
+        method: 'GET',
+        path: '/storage-unavailable',
+        status: 503,
+        code: 'storage_unavailable',
+        context: {
+          objectKey: 'users/u1/objects/obj-1',
+          storageOperation: 'create_download_url',
+        },
+      }),
+    );
+    expect(JSON.stringify(response.body)).not.toContain('Sensitive storage failure');
+  });
+
   it('returns the JSON contract for an unknown route', async () => {
     const response = await request(createTestApp()).get('/does-not-exist');
 
@@ -135,6 +157,15 @@ function createTestApp() {
         providerOperation: 'fetch_jwks',
       },
     });
+  });
+  app.get('/storage-unavailable', () => {
+    throw new StorageUnavailableError(
+      {
+        operation: 'create_download_url',
+        objectKey: 'users/u1/objects/obj-1',
+      },
+      { cause: new Error('Sensitive storage failure') },
+    );
   });
   app.use(routeNotFound);
   app.use(errorHandler);

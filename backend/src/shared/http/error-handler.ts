@@ -2,6 +2,7 @@ import type { ErrorRequestHandler } from 'express';
 import { AppError } from '../errors/api/app-error.js';
 import { getErrorDefinition } from '../errors/api/error-catalog.js';
 import type { ErrorResponse } from '../errors/api/error-response.js';
+import { StorageError } from '../errors/storage/storage-error.js';
 
 export const errorHandler: ErrorRequestHandler = (error: unknown, req, res, next) => {
   if (res.headersSent) {
@@ -49,6 +50,16 @@ function normalizeError(error: unknown): AppError {
 
   if (error instanceof AppError) {
     return error;
+  }
+
+  if (error instanceof StorageError) {
+    return new AppError('storage_unavailable', {
+      cause: error,
+      context: {
+        storageOperation: error.context.operation,
+        ...(error.context.objectKey !== undefined ? { objectKey: error.context.objectKey } : {}),
+      },
+    });
   }
 
   return new AppError('internal_server_error', { cause: error });

@@ -35,7 +35,7 @@ describe('frontend routes', () => {
     const policy = first.headers['content-security-policy'];
 
     expect(firstNonce).not.toBe(secondNonce);
-    expect(first.text.match(new RegExp(firstNonce, 'g'))).toHaveLength(2);
+    expect(first.text.split(firstNonce)).toHaveLength(3);
     expect(policy).toContain(`script-src 'self' 'nonce-${firstNonce}'`);
     expect(policy).toContain(`style-src 'self' https://fonts.googleapis.com 'nonce-${firstNonce}'`);
     expect(policy).toContain('connect-src');

@@ -113,7 +113,7 @@ describe('FileDownloadService', () => {
     expect(storage.createPresignedDownloadUrl).not.toHaveBeenCalled();
   });
 
-  it('maps a download presign storage failure to storage_unavailable', async () => {
+  it('propagates a download presign storage failure without recording audit', async () => {
     const file = makeDownloadableFile();
     const storageError = new StorageUnavailableError(
       {
@@ -126,17 +126,7 @@ describe('FileDownloadService', () => {
     repo.findAvailableFileByEntryId.mockResolvedValue(file);
     storage.createPresignedDownloadUrl.mockRejectedValue(storageError);
 
-    await expect(service.createDownloadUrl(USER, file.publicId)).rejects.toMatchObject({
-      code: 'storage_unavailable',
-      options: {
-        cause: storageError,
-        context: {
-          fileId: file.publicId,
-          objectKey: file.objectKey,
-          storageOperation: 'create_download_url',
-        },
-      },
-    });
+    await expect(service.createDownloadUrl(USER, file.publicId)).rejects.toBe(storageError);
     expect(auditRepository.record).not.toHaveBeenCalled();
   });
 

@@ -318,35 +318,22 @@ describe('UploadService', () => {
     expect(repo.completeVerifiedUpload).not.toHaveBeenCalled();
   });
 
-  it('maps upload presign storage failure to storage_unavailable and does not save intent', async () => {
+  it('propagates upload presign storage failure and does not save intent', async () => {
     const storageError = new StorageUnavailableError(
       { operation: 'create_upload_url', objectKey: 'object-key' },
       { cause: new Error('S3 unavailable') },
     );
     storage.createPresignedUploadUrl.mockRejectedValue(storageError);
 
-    const promise = service.createUpload(USER, {
-      fileName: 'document.txt',
-      contentType: 'text/plain',
-      size: 12,
-      sha256: EXPECTED_SHA256,
-    });
-    const error: unknown = await promise.catch((caught: unknown) => caught);
+    await expect(
+      service.createUpload(USER, {
+        fileName: 'document.txt',
+        contentType: 'text/plain',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+      }),
+    ).rejects.toBe(storageError);
 
-    expect(error).toBeInstanceOf(AppError);
-    if (!(error instanceof AppError)) return;
-
-    expect(error).toMatchObject({
-      code: 'storage_unavailable',
-      options: {
-        cause: storageError,
-        context: {
-          storageOperation: 'create_upload_url',
-        },
-      },
-    });
-    expect(typeof error.options.context?.['uploadId']).toBe('string');
-    expect(typeof error.options.context?.['objectKey']).toBe('string');
     expect(repo.save).not.toHaveBeenCalled();
   });
 
@@ -373,7 +360,7 @@ describe('UploadService', () => {
     expect(repo.completeVerifiedUpload).not.toHaveBeenCalled();
   });
 
-  it('maps a head request storage failure to storage_unavailable', async () => {
+  it('propagates a head request storage failure without completing the upload', async () => {
     const intent = makePendingIntent();
     const storageError = new StorageUnavailableError(
       { operation: 'head_object', objectKey: intent.objectKey },
@@ -382,17 +369,7 @@ describe('UploadService', () => {
     repo.findByUserAndUploadId.mockResolvedValue(intent);
     storage.headObject.mockRejectedValue(storageError);
 
-    await expect(service.completeUpload(USER, intent.uploadId)).rejects.toMatchObject({
-      code: 'storage_unavailable',
-      options: {
-        cause: storageError,
-        context: {
-          uploadId: intent.uploadId,
-          objectKey: intent.objectKey,
-          storageOperation: 'head_object',
-        },
-      },
-    });
+    await expect(service.completeUpload(USER, intent.uploadId)).rejects.toBe(storageError);
     expect(repo.completeVerifiedUpload).not.toHaveBeenCalled();
   });
 

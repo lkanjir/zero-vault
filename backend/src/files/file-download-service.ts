@@ -1,7 +1,6 @@
 import type { AuditRepository } from '../audit/audit-repository.js';
 import type { AuthorizationService } from '../authorization/authorization-service.js';
 import { AppError } from '../shared/errors/api/app-error.js';
-import { StorageError } from '../shared/errors/storage/storage-error.js';
 import type { ObjectStorage } from '../storage/object-storage.js';
 import type { User } from '../user/user.js';
 import type { FileDownloadResponse } from './dto.js';
@@ -55,27 +54,12 @@ export class FileDownloadService {
     };
   }
 
-  private async createPresignedDownloadUrl(file: DownloadableFile): Promise<string> {
-    try {
-      return await this.storage.createPresignedDownloadUrl({
-        objectKey: file.objectKey,
-        contentType: file.contentType,
-        expiresInSeconds: this.EXPIRES_IN_SECONDS,
-        fileName: file.name,
-      });
-    } catch (error) {
-      if (error instanceof StorageError) {
-        throw new AppError('storage_unavailable', {
-          cause: error,
-          context: {
-            fileId: file.publicId,
-            objectKey: file.objectKey,
-            storageOperation: error.context.operation,
-          },
-        });
-      }
-
-      throw error;
-    }
+  private createPresignedDownloadUrl(file: DownloadableFile): Promise<string> {
+    return this.storage.createPresignedDownloadUrl({
+      objectKey: file.objectKey,
+      contentType: file.contentType,
+      expiresInSeconds: this.EXPIRES_IN_SECONDS,
+      fileName: file.name,
+    });
   }
 }

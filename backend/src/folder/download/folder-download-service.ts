@@ -8,7 +8,6 @@ import type {
 import type { FolderDownloadRepository } from './folder-download-repository.js';
 import { AppError } from '../../shared/errors/api/app-error.js';
 import type { ObjectStorage } from '../../storage/object-storage.js';
-import { StorageError } from '../../shared/errors/storage/storage-error.js';
 import type { AuthorizationService } from '../../authorization/authorization-service.js';
 
 const DOWNLOAD_URL_EXPIRES_IN_SECONDS = 60;
@@ -80,27 +79,12 @@ export class FolderDownloadService {
           };
         }
 
-        try {
-          downloadUrl = await this.storage.createPresignedDownloadUrl({
-            objectKey: download.archiveObjectKey,
-            fileName: `${download.folderName}.zip`,
-            contentType: 'application/zip',
-            expiresInSeconds: DOWNLOAD_URL_EXPIRES_IN_SECONDS,
-          });
-        } catch (error) {
-          if (error instanceof StorageError) {
-            throw new AppError('storage_unavailable', {
-              cause: error,
-              context: {
-                downloadId: download.downloadId,
-                objectKey: download.archiveObjectKey,
-                storageOperation: error.context.operation,
-              },
-            });
-          }
-
-          throw error;
-        }
+        downloadUrl = await this.storage.createPresignedDownloadUrl({
+          objectKey: download.archiveObjectKey,
+          fileName: `${download.folderName}.zip`,
+          contentType: 'application/zip',
+          expiresInSeconds: DOWNLOAD_URL_EXPIRES_IN_SECONDS,
+        });
 
         return {
           ...base,
