@@ -1,7 +1,7 @@
 import express, { Router, type RequestHandler } from 'express';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assignCspNonce, frontendCsp, getCspNonce } from './csp.js';
+import { assignCspNonce, createFrontendCsp, getCspNonce, type FrontendCspOrigins } from './csp.js';
 import { readFile } from 'node:fs/promises';
 
 const frontendRoot = fileURLToPath(
@@ -30,11 +30,11 @@ const sendFrontend: RequestHandler = async (_req, res) => {
   res.type('html').send(document);
 };
 
-export function createFrontendRouter(): Router {
+export function createFrontendRouter(origins: FrontendCspOrigins): Router {
   const router = Router();
 
   router.use(assignCspNonce);
-  router.use(frontendCsp);
+  router.use(createFrontendCsp(origins));
 
   router.get(['/', '/index.html'], sendFrontend);
   router.use(express.static(frontendRoot, { index: false, redirect: false }));

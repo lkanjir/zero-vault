@@ -133,7 +133,15 @@ describe('LocalStack storage round-trip', () => {
       migrationsFolder: path.resolve(process.cwd(), 'drizzle'),
     });
 
-    storage = new storageModule.S3ObjectStorage();
+    storage = new storageModule.S3ObjectStorage({
+      endpoint,
+      publicOrigin: endpoint,
+      region: REGION,
+      forcePathStyle: true,
+      accessKeyId: ACCESS_KEY,
+      secretAccessKey: SECRET_KEY,
+      bucket: BUCKET,
+    });
     const authorizationContextResolver =
       new authorizationContextResolverModule.PostgresAuthorizationContextResolver();
     const authorizationPolicy = new authorizationPolicyModule.AuthorizationPolicy();

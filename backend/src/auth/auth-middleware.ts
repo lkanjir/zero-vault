@@ -1,17 +1,21 @@
 import type { RequestHandler } from 'express';
-import { verifyAccessToken } from './access-token-verifier.js';
+import type { AccessTokenVerifier } from './access-token-verifier.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 
-export const requireAuth: RequestHandler = async (req, _res, next) => {
-  const token = extractJWT(req.get('Authorization'));
+export function createRequireAuthMiddleware(
+  verifyAccessToken: AccessTokenVerifier,
+): RequestHandler {
+  return async (req, _res, next) => {
+    const token = extractJWT(req.get('Authorization'));
 
-  if (!token) {
-    throw new AppError('authentication_required');
-  }
+    if (!token) {
+      throw new AppError('authentication_required');
+    }
 
-  req.principal = await verifyAccessToken(token);
-  next();
-};
+    req.principal = await verifyAccessToken(token);
+    next();
+  };
+}
 
 function extractJWT(bearer: string | undefined) {
   if (!bearer) return null;

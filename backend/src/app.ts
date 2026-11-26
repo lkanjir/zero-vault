@@ -1,6 +1,7 @@
 import express from 'express';
 import helmet from 'helmet';
-import { requireAuth } from './auth/auth-middleware.js';
+import { createAccessTokenVerifier } from './auth/access-token-verifier.js';
+import { createRequireAuthMiddleware } from './auth/auth-middleware.js';
 import { createResolveUserMiddleware } from './auth/resolve-user-middleware.js';
 import { createCompositionRoot } from './composition-root.js';
 import { createUploadRouter } from './upload/upload-routes.js';
@@ -14,18 +15,20 @@ import { routeNotFound } from './shared/http/route-not-found.js';
 import { createAuditRouter } from './audit/audit-routes.js';
 import { createFrontendRouter } from './frontend/frontend-routes.js';
 import { checkDatabaseConnection } from './db/db-client.js';
-import { config } from './config.js';
+import { loadApiConfig } from './config.js';
 
 const HSTS_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 
+const apiConfig = loadApiConfig();
 export const app = express();
-const composition = createCompositionRoot();
+const composition = createCompositionRoot(apiConfig.s3);
+const requireAuth = createRequireAuthMiddleware(createAccessTokenVerifier(apiConfig.oidc));
 
 app.disable('x-powered-by');
 app.use(
   helmet({
     contentSecurityPolicy: false,
-    strictTransportSecurity: config.http.hstsEnabled
+    strictTransportSecurity: apiConfig.http.hstsEnabled
       ? { maxAge: HSTS_MAX_AGE_SECONDS, includeSubDomains: false, preload: false }
       : false,
   }),
@@ -50,7 +53,12 @@ app.use('/api/audit', requireAuth, resolveUser, createAuditRouter(composition));
 
 app.use('/api', routeNotFound);
 
-app.use(createFrontendRouter());
+app.use(
+  createFrontendRouter({
+    oidcOrigin: new URL(apiConfig.oidc.issuer).origin,
+    storageOrigin: apiConfig.s3.publicOrigin,
+  }),
+);
 
 app.use(routeNotFound);
 app.use(errorHandler);

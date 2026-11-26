@@ -1,6 +1,6 @@
 import * as jose from 'jose';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { verifyAccessToken } from '../../src/auth/access-token-verifier.js';
+import { createAccessTokenVerifier } from '../../src/auth/access-token-verifier.js';
 import {
   JOSEError,
   JWKInvalid,
@@ -20,6 +20,10 @@ vi.mock('jose', () => ({
 }));
 
 const jwtVerifyMock = vi.mocked(jose.jwtVerify);
+const verifyAccessToken = createAccessTokenVerifier({
+  issuer: process.env['OIDC_ISSUER']!,
+  audience: process.env['OIDC_AUDIENCE']!,
+});
 
 const validToken = {
   protectedHeader: { alg: 'RS256' },

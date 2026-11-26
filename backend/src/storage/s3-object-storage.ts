@@ -8,7 +8,7 @@ import {
   type HeadObjectCommandOutput,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { config } from '../config.js';
+import type { S3Config } from '../config.js';
 import type {
   ObjectMetadata,
   ObjectStorage,
@@ -29,16 +29,22 @@ const MULTIPART_PART_SIZE_BYTES = 32 * 1024 * 1024;
 const MULTIPART_QUEUE_SIZE = 2;
 
 export class S3ObjectStorage implements ObjectStorage {
-  private readonly client = new S3Client({
-    region: config.s3.region,
-    endpoint: config.s3.endpoint,
-    forcePathStyle: config.s3.forcePathStyle,
-    credentials: {
-      accessKeyId: config.s3.accessKeyId,
-      secretAccessKey: config.s3.secretAccessKey,
-    },
-    requestChecksumCalculation: 'WHEN_REQUIRED',
-  });
+  private readonly client: S3Client;
+  private readonly bucket: string;
+
+  constructor(s3Config: S3Config) {
+    this.bucket = s3Config.bucket;
+    this.client = new S3Client({
+      region: s3Config.region,
+      endpoint: s3Config.endpoint,
+      forcePathStyle: s3Config.forcePathStyle,
+      credentials: {
+        accessKeyId: s3Config.accessKeyId,
+        secretAccessKey: s3Config.secretAccessKey,
+      },
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+    });
+  }
 
   private async executeStorageOperation<T>(
     context: StorageErrorContext,
@@ -78,7 +84,7 @@ export class S3ObjectStorage implements ObjectStorage {
     return this.executeStorageOperation(context, async () => {
       const hashBase64 = sha256HexToBase64(params.sha256Hex);
       const command = new PutObjectCommand({
-        Bucket: config.s3.bucket,
+        Bucket: this.bucket,
         Key: params.objectKey,
         ContentType: params.contentType,
         ContentLength: params.sizeBytes,
@@ -101,7 +107,7 @@ export class S3ObjectStorage implements ObjectStorage {
     } as const satisfies StorageErrorContext;
 
     const command = new HeadObjectCommand({
-      Bucket: config.s3.bucket,
+      Bucket: this.bucket,
       Key: objectKey,
       ChecksumMode: 'ENABLED',
     });
@@ -119,7 +125,7 @@ export class S3ObjectStorage implements ObjectStorage {
     } as const satisfies StorageErrorContext;
 
     await this.executeStorageOperation(context, async () => {
-      const command = new DeleteObjectCommand({ Bucket: config.s3.bucket, Key: objectKey });
+      const command = new DeleteObjectCommand({ Bucket: this.bucket, Key: objectKey });
       await this.client.send(command);
     });
   }
@@ -134,7 +140,7 @@ export class S3ObjectStorage implements ObjectStorage {
 
     return this.executeStorageOperation(context, async () => {
       const command = new GetObjectCommand({
-        Bucket: config.s3.bucket,
+        Bucket: this.bucket,
         Key: params.objectKey,
         ResponseContentType: params.contentType,
         ResponseContentDisposition: contentDisposition,
@@ -181,7 +187,7 @@ export class S3ObjectStorage implements ObjectStorage {
     return this.executeStorageOperation(context, async () => {
       const response = await this.client.send(
         new GetObjectCommand({
-          Bucket: config.s3.bucket,
+          Bucket: this.bucket,
           Key: objectKey,
         }),
       );
@@ -206,7 +212,7 @@ export class S3ObjectStorage implements ObjectStorage {
       const upload = new Upload({
         client: this.client,
         params: {
-          Bucket: config.s3.bucket,
+          Bucket: this.bucket,
           Key: params.objectKey,
           Body: params.body,
           ContentType: params.contentType,

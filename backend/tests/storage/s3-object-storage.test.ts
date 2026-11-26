@@ -6,6 +6,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { StorageObjectNotFoundError } from '../../src/shared/errors/storage/storage-object-not-found-error.js';
 import { StorageUnavailableError } from '../../src/shared/errors/storage/storage-unavailable-error.js';
 import { S3ObjectStorage } from '../../src/storage/s3-object-storage.js';
+import type { S3Config } from '../../src/config.js';
+
+const TEST_S3_CONFIG: S3Config = {
+  endpoint: 'http://localhost:4566',
+  publicOrigin: 'http://localhost:4566',
+  region: 'eu-central-1',
+  forcePathStyle: true,
+  accessKeyId: 'test',
+  secretAccessKey: 'test',
+  bucket: 'test-live',
+};
 
 const mocks = vi.hoisted(() => ({
   send: vi.fn(),
@@ -45,7 +56,7 @@ describe('S3ObjectStorage errors', () => {
   let storage: S3ObjectStorage;
 
   beforeEach(() => {
-    storage = new S3ObjectStorage();
+    storage = new S3ObjectStorage(TEST_S3_CONFIG);
     mocks.uploadOptions.length = 0;
   });
 

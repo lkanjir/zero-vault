@@ -27,8 +27,9 @@ import { FileSharingService } from './sharing/file-sharing-service.js';
 import { FileGrantMaintenanceService } from './sharing/file-grant-maintenance-service.js';
 import { PostgresAuditRepository } from './audit/postgres-audit-repository.js';
 import { AuditService } from './audit/audit-service.js';
+import { loadS3Config, type S3Config } from './config.js';
 
-export function createCompositionRoot() {
+export function createCompositionRoot(s3Config: S3Config = loadS3Config()) {
   const authorizationContextResolver = new PostgresAuthorizationContextResolver();
   const authorizationPolicy = new AuthorizationPolicy();
   const authorizationService = new AuthorizationService(
@@ -38,7 +39,7 @@ export function createCompositionRoot() {
   const authzMapper = new EntryAccessMapper(authorizationPolicy);
   const authorizer = new PostgresEntryAuthorizer(authorizationService);
 
-  const storage = new S3ObjectStorage();
+  const storage = new S3ObjectStorage(s3Config);
 
   const auditRepository = new PostgresAuditRepository();
   const auditService = new AuditService(authorizationService, auditRepository);

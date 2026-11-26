@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
-import { requireAuth } from '../../src/auth/auth-middleware.js';
-import { verifyAccessToken } from '../../src/auth/access-token-verifier.js';
+import { createRequireAuthMiddleware } from '../../src/auth/auth-middleware.js';
+import type { AccessTokenVerifier } from '../../src/auth/access-token-verifier.js';
 import { errorHandler } from '../../src/shared/http/error-handler.js';
 import type { AuthenticatedPrincipal } from '../../src/auth/authenticated-principal.js';
 import request from 'supertest';
@@ -9,14 +9,12 @@ import { AppError } from '../../src/shared/errors/api/app-error.js';
 import type { ErrorResponse } from '../../src/shared/errors/api/error-response.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
 
-vi.mock('../../src/auth/access-token-verifier.js', () => ({ verifyAccessToken: vi.fn() }));
-
-const verifyAccessTokenMock = vi.mocked(verifyAccessToken);
+const verifyAccessTokenMock = vi.fn<AccessTokenVerifier>();
 
 function createTestApp() {
   const app = express();
   app.use(requestContext);
-  app.get('/protected', requireAuth, (req, res) => {
+  app.get('/protected', createRequireAuthMiddleware(verifyAccessTokenMock), (req, res) => {
     res.status(200).json({
       principal: req.principal,
     });

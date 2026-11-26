@@ -19,7 +19,12 @@ import { createFrontendRouter } from '../../src/frontend/frontend-routes.js';
 describe('frontend routes', () => {
   it('serves HTML with an enforced nonce-based CSP and a fresh nonce per response', async () => {
     const app = express();
-    app.use(createFrontendRouter());
+    app.use(
+      createFrontendRouter({
+        oidcOrigin: 'http://localhost:8080',
+        storageOrigin: 'http://localhost:4566',
+      }),
+    );
 
     const first = await request(app).get('/').set('Accept', 'text/html');
     const second = await request(app).get('/drive/folder').set('Accept', 'text/html');

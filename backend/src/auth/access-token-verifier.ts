@@ -1,5 +1,5 @@
 import * as jose from 'jose';
-import { config } from '../config.js';
+import type { OidcConfig } from '../config.js';
 import type { AuthenticatedPrincipal } from './authenticated-principal.js';
 import { JOSEError, JWKInvalid, JWKSInvalid, JWKSTimeout } from 'jose/errors';
 import type { JWTPayload } from 'jose';
@@ -7,6 +7,10 @@ import { AppError } from '../shared/errors/api/app-error.js';
 import { AuthProviderUnavailableError } from '../shared/errors/auth/auth-provider-unavailable-error.js';
 import { normalizedEmailSchema } from '../shared/validation/normalized-email-schema.js';
 import z from 'zod';
+
+export type AccessTokenVerifier = (token: string) => Promise<AuthenticatedPrincipal>;
+
+const profileNameSchema = z.string().trim().min(1).max(255);
 
 const fetchJwks: jose.FetchImplementation = async (url, options) => {
   try {
@@ -18,68 +22,67 @@ const fetchJwks: jose.FetchImplementation = async (url, options) => {
   }
 };
 
-const jwks = jose.createRemoteJWKSet(
-  new URL(`${config.oidc.issuer}/protocol/openid-connect/certs`),
-  { [jose.customFetch]: fetchJwks },
-);
+export function createAccessTokenVerifier(oidcConfig: OidcConfig): AccessTokenVerifier {
+  const jwks = jose.createRemoteJWKSet(
+    new URL(`${oidcConfig.issuer}/protocol/openid-connect/certs`),
+    { [jose.customFetch]: fetchJwks },
+  );
 
-export async function verifyAccessToken(token: string): Promise<AuthenticatedPrincipal> {
-  const payload = await verifyJwt(token);
+  async function verifyJwt(token: string): Promise<JWTPayload> {
+    try {
+      const { payload } = await jose.jwtVerify(token, jwks, {
+        issuer: oidcConfig.issuer,
+        audience: oidcConfig.audience,
+        algorithms: ['RS256'],
+        clockTolerance: 1,
+        requiredClaims: ['sub', 'iat', 'exp'],
+      });
 
-  if (typeof payload.iss !== 'string' || typeof payload.sub !== 'string') {
-    throw new AppError('invalid_access_token', {
-      context: {
-        hasIssuer: typeof payload.iss === 'string',
-        hasSubject: typeof payload.sub === 'string',
-      },
-    });
+      return payload;
+    } catch (error) {
+      throw mapToError(error);
+    }
   }
 
-  const emailVerified = payload['email_verified'];
-  const emailParseResult = normalizedEmailSchema.safeParse(payload['email']);
+  return async function verifyAccessToken(token: string): Promise<AuthenticatedPrincipal> {
+    const payload = await verifyJwt(token);
 
-  if (emailVerified !== true || !emailParseResult.success) {
-    throw new AppError('verified_email_required');
-  }
+    if (typeof payload.iss !== 'string' || typeof payload.sub !== 'string') {
+      throw new AppError('invalid_access_token', {
+        context: {
+          hasIssuer: typeof payload.iss === 'string',
+          hasSubject: typeof payload.sub === 'string',
+        },
+      });
+    }
 
-  const profileNameSchema = z.string().trim().min(1).max(255);
-  const firstNameParseResult = profileNameSchema.safeParse(payload['given_name']);
-  const lastNameParseResult = profileNameSchema.safeParse(payload['family_name']);
+    const emailVerified = payload['email_verified'];
+    const emailParseResult = normalizedEmailSchema.safeParse(payload['email']);
 
-  if (!firstNameParseResult.success || !lastNameParseResult.success) {
-    throw new AppError('invalid_access_token', {
-      context: {
-        validGivenName: firstNameParseResult.success,
-        validFamilyName: lastNameParseResult.success,
-      },
-    });
-  }
+    if (emailVerified !== true || !emailParseResult.success) {
+      throw new AppError('verified_email_required');
+    }
 
-  const principal: AuthenticatedPrincipal = {
-    issuer: payload.iss,
-    subject: payload.sub,
-    email: emailParseResult.data,
-    firstName: firstNameParseResult.data,
-    lastName: lastNameParseResult.data,
+    const firstNameParseResult = profileNameSchema.safeParse(payload['given_name']);
+    const lastNameParseResult = profileNameSchema.safeParse(payload['family_name']);
+
+    if (!firstNameParseResult.success || !lastNameParseResult.success) {
+      throw new AppError('invalid_access_token', {
+        context: {
+          validGivenName: firstNameParseResult.success,
+          validFamilyName: lastNameParseResult.success,
+        },
+      });
+    }
+
+    return {
+      issuer: payload.iss,
+      subject: payload.sub,
+      email: emailParseResult.data,
+      firstName: firstNameParseResult.data,
+      lastName: lastNameParseResult.data,
+    };
   };
-
-  return principal;
-}
-
-async function verifyJwt(token: string): Promise<JWTPayload> {
-  try {
-    const { payload } = await jose.jwtVerify(token, jwks, {
-      issuer: config.oidc.issuer,
-      audience: config.oidc.audience,
-      algorithms: ['RS256'],
-      clockTolerance: 1,
-      requiredClaims: ['sub', 'iat', 'exp'],
-    });
-
-    return payload;
-  } catch (error) {
-    throw mapToError(error);
-  }
 }
 
 function mapToError(error: unknown): Error {
