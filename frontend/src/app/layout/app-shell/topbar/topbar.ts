@@ -1,7 +1,7 @@
-import { Component, output } from '@angular/core';
+import { Component, input, output } from '@angular/core';
 import { Icon } from '../../../shared/icon/icon';
 import { CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
-import { debounceTime, distinctUntilChanged, map, Subject } from 'rxjs';
+import { debounceTime, map, Subject } from 'rxjs';
 import { outputFromObservable } from '@angular/core/rxjs-interop';
 import { EntryKindFilter } from '../../../data-access/entries/entry-models';
 
@@ -13,6 +13,9 @@ import { EntryKindFilter } from '../../../data-access/entries/entry-models';
 export class Topbar {
   private readonly searchInput = new Subject<string>();
 
+  readonly search = input<string>('');
+  readonly kind = input<EntryKindFilter>(null);
+
   readonly createFolderRequested = output<void>();
   readonly uploadFileRequested = output<void>();
 
@@ -20,7 +23,6 @@ export class Topbar {
     this.searchInput.pipe(
       map((value) => value.trim()),
       debounceTime(300),
-      distinctUntilChanged(),
     ),
   );
 

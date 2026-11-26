@@ -97,6 +97,7 @@ export class Drive implements OnInit, AfterViewInit {
   constructor() {
     this.destroyRef.onDestroy(() => {
       this.downloadAbortController.abort();
+      this.store.reset();
     });
 
     afterRenderEffect({
@@ -213,7 +214,7 @@ export class Drive implements OnInit, AfterViewInit {
       restoreFocus: true,
     });
 
-    dialogRef.closed.subscribe((updatedEntry) => {
+    dialogRef.closed.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((updatedEntry) => {
       if (updatedEntry !== undefined) {
         this.store.reloadIfCurrent(sourceParentId);
       }
@@ -274,7 +275,7 @@ export class Drive implements OnInit, AfterViewInit {
       restoreFocus: true,
     });
 
-    dialogRef.closed.subscribe((replacementFile) => {
+    dialogRef.closed.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((replacementFile) => {
       if (replacementFile === undefined) {
         return;
       }

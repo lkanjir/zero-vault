@@ -10,6 +10,8 @@
   <div class="flex min-w-0 flex-1 flex-col">
     <header class="shrink-0" [class.hidden]="!isDriveRoute()">
       <app-topbar
+        [search]="driveStore.search() ?? ''"
+        [kind]="driveStore.kind()"
         (createFolderRequested)="openCreateFolderDialog()"
         (uploadFileRequested)="fileInput.click()"
         (searchChanged)="onSearchChanged($event)"

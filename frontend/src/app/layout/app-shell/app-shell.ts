@@ -19,9 +19,9 @@ import { filter, map } from 'rxjs';
 })
 export class AppShell {
   private readonly dialog = inject(Dialog);
-  private readonly driveStore = inject(DriveStore);
   private readonly router = inject(Router);
 
+  readonly driveStore = inject(DriveStore);
   readonly transferStore = inject(TransferStore);
   readonly authService = inject(AuthService);
 

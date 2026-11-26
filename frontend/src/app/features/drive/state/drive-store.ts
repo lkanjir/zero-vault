@@ -41,12 +41,14 @@ export class DriveStore {
   readonly kind = this._kind.asReadonly();
   readonly sort = this._sort.asReadonly();
 
+  private active = false;
   private loadSubscription?: Subscription;
   private loadMoreSubscription?: Subscription;
 
   loadFolder(parentId: string | null): void {
     this.loadSubscription?.unsubscribe();
     this.loadMoreSubscription?.unsubscribe();
+    this.active = true;
 
     const folderChanged = this._parentId() !== parentId;
 
@@ -86,13 +88,35 @@ export class DriveStore {
   }
 
   reload(): void {
+    if (!this.active) {
+      return;
+    }
+
     this.loadFolder(this._parentId());
   }
 
   reloadIfCurrent(parentId: string | null): void {
-    if (this._parentId() === parentId) {
+    if (this.active && this._parentId() === parentId) {
       this.reload();
     }
+  }
+
+  reset(): void {
+    this.active = false;
+    this.loadSubscription?.unsubscribe();
+    this.loadMoreSubscription?.unsubscribe();
+    this.loadSubscription = undefined;
+    this.loadMoreSubscription = undefined;
+
+    this._path.set([]);
+    this._parentId.set(null);
+    this._entries.set([]);
+    this._loading.set(false);
+    this._error.set(null);
+    this._search.set(null);
+    this._kind.set(null);
+    this._sort.set('name-asc');
+    this.resetPagination();
   }
 
   loadMore(): void {
@@ -157,7 +181,7 @@ export class DriveStore {
   }
 
   removeIfCurrent(parentId: string | null, entryId: string): void {
-    if (this._parentId() !== parentId) {
+    if (!this.active || this._parentId() !== parentId) {
       return;
     }
 
@@ -171,7 +195,9 @@ export class DriveStore {
     }
 
     this._search.set(search);
-    this.reloadForQueryChange();
+    if (this.active) {
+      this.reloadForQueryChange();
+    }
   }
 
   setKind(kind: EntryKindFilter): void {
@@ -180,7 +206,9 @@ export class DriveStore {
     }
 
     this._kind.set(kind);
-    this.reloadForQueryChange();
+    if (this.active) {
+      this.reloadForQueryChange();
+    }
   }
 
   setSort(sort: EntryListSort): void {
@@ -189,7 +217,9 @@ export class DriveStore {
     }
 
     this._sort.set(sort);
-    this.reloadForQueryChange();
+    if (this.active) {
+      this.reloadForQueryChange();
+    }
   }
 
   private reloadForQueryChange(): void {
