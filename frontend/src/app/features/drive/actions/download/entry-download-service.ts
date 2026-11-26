@@ -1,5 +1,19 @@
 import { inject, Injectable } from '@angular/core';
-import { Observable, take } from 'rxjs';
+import {
+  catchError,
+  EMPTY,
+  expand,
+  filter,
+  firstValueFrom,
+  fromEvent,
+  map,
+  Observable,
+  of,
+  race,
+  switchMap,
+  take,
+  timer,
+} from 'rxjs';
 import { FileApi } from '../../../../data-access/files/file-api';
 import { FolderApi } from '../../../../data-access/folders/folder-api';
 import { EntryResponse } from '../../../../data-access/entries/entry-models';
@@ -16,12 +30,9 @@ export type PrepareDownloadOptions = {
   readonly timeoutMs?: number;
 };
 
-class DownloadCancelledError extends Error {
-  constructor() {
-    super('Preuzimanje je otkazano.');
-    this.name = 'DownloadCancelledError';
-  }
-}
+type PollStep =
+  | { readonly done: true; readonly result: Result<string, ApiError> }
+  | { readonly done: false; readonly delayMs: number };
 
 export function parseRetryAfterMs(
   headerValue: string | null,
@@ -53,210 +64,158 @@ function clampPollInterval(ms: number): number {
   return Math.min(Math.max(ms, MIN_DOWNLOAD_POLL_INTERVAL_MS), MAX_DOWNLOAD_POLL_INTERVAL_MS);
 }
 
+function cancelledResult(): Result<string, ApiError> {
+  return {
+    ok: false,
+    error: {
+      status: -1,
+      code: 'download_cancelled',
+    },
+  };
+}
+
+function timeoutResult(): Result<string, ApiError> {
+  return {
+    ok: false,
+    error: {
+      status: -1,
+      code: 'folder_download_timeout',
+      message: 'Priprema arhive je predugo trajala. Pokušaj ponovno.',
+    },
+  };
+}
+
+function withAbortSignal(
+  source$: Observable<Result<string, ApiError>>,
+  signal?: AbortSignal,
+): Observable<Result<string, ApiError>> {
+  if (!signal) {
+    return source$;
+  }
+
+  if (signal.aborted) {
+    return of(cancelledResult());
+  }
+
+  return race(
+    source$,
+    fromEvent(signal, 'abort').pipe(
+      take(1),
+      map(() => cancelledResult()),
+    ),
+  );
+}
+
 @Injectable({ providedIn: 'root' })
 export class EntryDownloadService {
   private readonly fileApi = inject(FileApi);
   private readonly folderApi = inject(FolderApi);
 
-  async prepareDownload(
+  prepareDownload(
     entry: EntryResponse,
     options: PrepareDownloadOptions = {},
   ): Promise<Result<string, ApiError>> {
-    if (options.signal?.aborted) {
-      return this.cancelledResult();
-    }
+    const source$ =
+      entry.kind === 'file'
+        ? this.getFileDownloadUrl$(entry.id)
+        : this.getFolderDownloadUrl$(entry.id, options.timeoutMs ?? DOWNLOAD_POLL_TIMEOUT_MS);
 
-    switch (entry.kind) {
-      case 'file':
-        return this.getFileDownloadUrl(entry.id, options.signal);
-      case 'folder':
-        return this.getFolderDownloadUrl(
-          entry.id,
-          options.signal,
-          options.timeoutMs ?? DOWNLOAD_POLL_TIMEOUT_MS,
-        );
-    }
+    return firstValueFrom(withAbortSignal(source$, options.signal));
   }
 
-  private async getFileDownloadUrl(
-    fileId: string,
-    signal?: AbortSignal,
-  ): Promise<Result<string, ApiError>> {
-    try {
-      const response = await this.firstValueWithSignal(this.fileApi.getDownloadUrl(fileId), signal);
-      return { ok: true, value: response.downloadUrl };
-    } catch (error) {
-      if (error instanceof DownloadCancelledError) {
-        return this.cancelledResult();
-      }
-
-      return { ok: false, error: toApiError(error) };
-    }
+  private getFileDownloadUrl$(fileId: string): Observable<Result<string, ApiError>> {
+    return this.fileApi.getDownloadUrl(fileId).pipe(
+      map((response): Result<string, ApiError> => ({
+        ok: true,
+        value: response.downloadUrl,
+      })),
+      catchError((error) => of<Result<string, ApiError>>({ ok: false, error: toApiError(error) })),
+    );
   }
 
-  private async getFolderDownloadUrl(
+  private getFolderDownloadUrl$(
     folderId: string,
-    signal: AbortSignal | undefined,
     timeoutMs: number,
-  ): Promise<Result<string, ApiError>> {
+  ): Observable<Result<string, ApiError>> {
     const deadlineMs = Date.now() + timeoutMs;
 
-    try {
-      const createResponse = await this.firstValueWithSignal(
-        this.folderApi.createDownload(folderId),
-        signal,
-      );
-      const downloadId = createResponse.body?.downloadId;
-
-      if (!downloadId) {
-        return {
-          ok: false,
-          error: { status: -1, code: 'unexpected_error' },
-        };
-      }
-
-      let nextDelayMs = parseRetryAfterMs(createResponse.headers.get('Retry-After')) ?? 0;
-
-      while (true) {
-        if (nextDelayMs > 0) {
-          const remainingMs = deadlineMs - Date.now();
-          if (remainingMs <= 0) {
-            return this.timeoutResult();
-          }
-
-          await this.sleepWithSignal(Math.min(nextDelayMs, remainingMs), signal);
-        }
-
-        if (Date.now() >= deadlineMs) {
-          return this.timeoutResult();
-        }
-
-        const statusResponse = await this.firstValueWithSignal(
-          this.folderApi.getDownloadStatus(downloadId),
-          signal,
-        );
-        const status = statusResponse.body;
-
-        if (!status) {
-          return {
+    return this.folderApi.createDownload(folderId).pipe(
+      switchMap((createResponse) => {
+        const downloadId = createResponse.body?.downloadId;
+        if (!downloadId) {
+          return of<Result<string, ApiError>>({
             ok: false,
             error: { status: -1, code: 'unexpected_error' },
-          };
+          });
         }
 
-        if (status.status === 'ready') {
-          return { ok: true, value: status.downloadUrl };
-        }
+        const initialDelayMs = parseRetryAfterMs(createResponse.headers.get('Retry-After')) ?? 0;
+        return this.pollFolderDownload$(downloadId, initialDelayMs, deadlineMs);
+      }),
+      catchError((error) => of<Result<string, ApiError>>({ ok: false, error: toApiError(error) })),
+    );
+  }
 
-        if (status.status === 'failed' || status.status === 'expired') {
-          return {
-            ok: false,
-            error: {
-              status: -1,
-              code: `folder_download_${status.status}`,
-            },
-          };
-        }
-
-        nextDelayMs =
-          parseRetryAfterMs(statusResponse.headers.get('Retry-After')) ??
-          DEFAULT_DOWNLOAD_POLL_INTERVAL_MS;
-      }
-    } catch (error) {
-      if (error instanceof DownloadCancelledError) {
-        return this.cancelledResult();
+  private pollFolderDownload$(
+    downloadId: string,
+    initialDelayMs: number,
+    deadlineMs: number,
+  ): Observable<Result<string, ApiError>> {
+    const pollOnce = (delayMs: number): Observable<PollStep> => {
+      const remainingMs = deadlineMs - Date.now();
+      if (remainingMs <= 0) {
+        return of({ done: true, result: timeoutResult() });
       }
 
-      return { ok: false, error: toApiError(error) };
-    }
-  }
+      const wait$ = delayMs > 0 ? timer(Math.min(delayMs, remainingMs)) : of(0);
 
-  private firstValueWithSignal<T>(source$: Observable<T>, signal?: AbortSignal): Promise<T> {
-    if (signal?.aborted) {
-      return Promise.reject(new DownloadCancelledError());
-    }
-
-    return new Promise<T>((resolve, reject) => {
-      let settled = false;
-
-      const onAbort = () => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        subscription.unsubscribe();
-        reject(new DownloadCancelledError());
-      };
-
-      signal?.addEventListener('abort', onAbort, { once: true });
-
-      const subscription = source$.pipe(take(1)).subscribe({
-        next: (value) => {
-          if (settled) {
-            return;
+      return wait$.pipe(
+        switchMap(() => {
+          if (Date.now() >= deadlineMs) {
+            return of<PollStep>({ done: true, result: timeoutResult() });
           }
-          settled = true;
-          signal?.removeEventListener('abort', onAbort);
-          resolve(value);
-        },
-        error: (error: unknown) => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          signal?.removeEventListener('abort', onAbort);
-          reject(error);
-        },
-        complete: () => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          signal?.removeEventListener('abort', onAbort);
-          reject(new Error('Zahtjev preuzimanja završen je bez odgovora.'));
-        },
-      });
-    });
-  }
 
-  private sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted) {
-      return Promise.reject(new DownloadCancelledError());
-    }
+          return this.folderApi.getDownloadStatus(downloadId).pipe(
+            map((response): PollStep => {
+              const status = response.body;
+              if (!status) {
+                return {
+                  done: true,
+                  result: { ok: false, error: { status: -1, code: 'unexpected_error' } },
+                };
+              }
 
-    return new Promise<void>((resolve, reject) => {
-      const onAbort = () => {
-        clearTimeout(timer);
-        reject(new DownloadCancelledError());
-      };
+              if (status.status === 'ready') {
+                return { done: true, result: { ok: true, value: status.downloadUrl } };
+              }
 
-      const timer = setTimeout(() => {
-        signal?.removeEventListener('abort', onAbort);
-        resolve();
-      }, ms);
+              if (status.status === 'failed' || status.status === 'expired') {
+                return {
+                  done: true,
+                  result: {
+                    ok: false,
+                    error: { status: -1, code: `folder_download_${status.status}` },
+                  },
+                };
+              }
 
-      signal?.addEventListener('abort', onAbort, { once: true });
-    });
-  }
-
-  private cancelledResult(): Result<string, ApiError> {
-    return {
-      ok: false,
-      error: {
-        status: -1,
-        code: 'download_cancelled',
-      },
+              return {
+                done: false,
+                delayMs:
+                  parseRetryAfterMs(response.headers.get('Retry-After')) ??
+                  DEFAULT_DOWNLOAD_POLL_INTERVAL_MS,
+              };
+            }),
+          );
+        }),
+      );
     };
-  }
 
-  private timeoutResult(): Result<string, ApiError> {
-    return {
-      ok: false,
-      error: {
-        status: -1,
-        code: 'folder_download_timeout',
-        message: 'Priprema arhive je predugo trajala. Pokušaj ponovno.',
-      },
-    };
+    return pollOnce(initialDelayMs).pipe(
+      expand((step) => (step.done ? EMPTY : pollOnce(step.delayMs))),
+      filter((step): step is Extract<PollStep, { done: true }> => step.done),
+      take(1),
+      map((step) => step.result),
+    );
   }
 }
