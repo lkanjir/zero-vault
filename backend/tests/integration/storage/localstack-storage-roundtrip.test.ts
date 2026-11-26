@@ -16,10 +16,12 @@ import {
 import { PostgresAuditRepository } from '../../../src/audit/postgres-audit-repository.js';
 import { AuthorizationPolicy } from '../../../src/authorization/authorization-policy.js';
 import { AuthorizationService } from '../../../src/authorization/authorization-service.js';
+import { EntryAccessMapper } from '../../../src/authorization/entry-access-mapper.js';
 import { PostgresAuthorizationContextResolver } from '../../../src/authorization/postgres-authorization-context-resolver.js';
 import { PostgresEntryAuthorizer } from '../../../src/authorization/postgres-entry-authorizer.js';
 import { createDatabase, type Database } from '../../../src/db/db-client.js';
 import { DrizzleUnitOfWork } from '../../../src/db/unit-of-work.js';
+import { EntryService } from '../../../src/entry/entry-service.js';
 import { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
 import { FileDownloadService } from '../../../src/files/file-download-service.js';
 import { PostgresFileRepository } from '../../../src/files/postgres-file-repository.js';
@@ -46,7 +48,7 @@ describe('LocalStack storage round-trip', () => {
   let uploadService: UploadService;
   let completeUpload: CompleteUploadUseCase;
   let fileDownloadService: FileDownloadService;
-  let entryRepository: PostgresEntryRepository;
+  let entryService: EntryService;
   let deletionRepository: PostgresObjectDeletionRepository;
   let deletionProcessor: ObjectDeletionProcessor;
   let storage: S3ObjectStorage;
@@ -115,6 +117,7 @@ describe('LocalStack storage round-trip', () => {
     );
     const unitOfWork = new DrizzleUnitOfWork(database);
     const entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
+    const auditRepository = new PostgresAuditRepository(database);
     const intentRepository = new PostgresIntentRepository(database, entryAuthorizer);
     uploadService = new UploadService(storage, intentRepository);
     completeUpload = new CompleteUploadUseCase(uploadService);
@@ -122,10 +125,16 @@ describe('LocalStack storage round-trip', () => {
       unitOfWork,
       entryAuthorizer,
       new PostgresFileRepository(database),
-      new PostgresAuditRepository(database),
+      auditRepository,
       storage,
     );
-    entryRepository = new PostgresEntryRepository(database, entryAuthorizer);
+    entryService = new EntryService(
+      unitOfWork,
+      entryAuthorizer,
+      new PostgresEntryRepository(database),
+      auditRepository,
+      new EntryAccessMapper(authorizationPolicy),
+    );
     deletionRepository = new PostgresObjectDeletionRepository(database);
     deletionProcessor = new ObjectDeletionProcessor(deletionRepository, storage);
   });
@@ -216,10 +225,7 @@ describe('LocalStack storage round-trip', () => {
       throw new Error('Completed upload intent is missing');
     }
 
-    await entryRepository.deleteEntry({
-      actorUserId: user.id,
-      entryId: file.id,
-    });
+    await entryService.deleteEntry(user, file.id);
     await expect(deletionProcessor.processNext()).resolves.toBe(true);
 
     const [job] = await database

@@ -4,6 +4,8 @@ import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { AuditRepository } from '../../../src/audit/audit-repository.js';
+import { PostgresAuditRepository } from '../../../src/audit/postgres-audit-repository.js';
 import {
   auditEvents,
   entries,
@@ -14,19 +16,27 @@ import {
 } from '../../../src/db/schema.js';
 import { AuthorizationPolicy } from '../../../src/authorization/authorization-policy.js';
 import { AuthorizationService } from '../../../src/authorization/authorization-service.js';
+import { EntryAccessMapper } from '../../../src/authorization/entry-access-mapper.js';
 import { PostgresAuthorizationContextResolver } from '../../../src/authorization/postgres-authorization-context-resolver.js';
 import { PostgresEntryAuthorizer } from '../../../src/authorization/postgres-entry-authorizer.js';
 import { createDatabase, type Database } from '../../../src/db/db-client.js';
+import { DrizzleUnitOfWork } from '../../../src/db/unit-of-work.js';
+import { EntryService } from '../../../src/entry/entry-service.js';
 import { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
 
 const ISSUER = 'https://issuer.example.test/realms/zero-vault';
 const SHA256 = 'a'.repeat(64);
 
-describe('PostgreSQL entry authorization', () => {
+describe('PostgreSQL entry authorization and transactions', () => {
   let container: StartedPostgreSqlContainer;
   let database: Database;
   let closeDatabase: () => Promise<void>;
+  let unitOfWork: DrizzleUnitOfWork;
+  let entryAuthorizer: PostgresEntryAuthorizer;
   let entryRepository: PostgresEntryRepository;
+  let auditRepository: PostgresAuditRepository;
+  let accessMapper: EntryAccessMapper;
+  let entryService: EntryService;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:18-alpine')
@@ -42,12 +52,23 @@ describe('PostgreSQL entry authorization', () => {
       migrationsFolder: path.resolve(process.cwd(), 'drizzle'),
     });
 
+    const policy = new AuthorizationPolicy();
     const authorizationService = new AuthorizationService(
       new PostgresAuthorizationContextResolver(database),
-      new AuthorizationPolicy(),
+      policy,
     );
-    const entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
-    entryRepository = new PostgresEntryRepository(database, entryAuthorizer);
+    unitOfWork = new DrizzleUnitOfWork(database);
+    entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
+    entryRepository = new PostgresEntryRepository(database);
+    auditRepository = new PostgresAuditRepository(database);
+    accessMapper = new EntryAccessMapper(policy);
+    entryService = new EntryService(
+      unitOfWork,
+      entryAuthorizer,
+      entryRepository,
+      auditRepository,
+      accessMapper,
+    );
   });
 
   beforeEach(async () => {
@@ -64,21 +85,30 @@ describe('PostgreSQL entry authorization', () => {
     await container.stop();
   });
 
-  it('allows an editor to rename a shared file', async () => {
+  it('allows an editor to rename a shared file and returns editor access capabilities', async () => {
     const owner = await createUser('owner');
     const editor = await createUser('editor');
     const file = await createFile(owner.id, 'original.txt');
     await createGrant(file.id, owner.id, editor, 'editor');
 
     await expect(
-      entryRepository.updateEntry({
-        actorUserId: editor.id,
-        entryId: file.publicId,
+      entryService.updateEntry(editor, file.publicId, {
         name: 'renamed.txt',
       }),
     ).resolves.toMatchObject({
       id: file.publicId,
       name: 'renamed.txt',
+      access: {
+        accessLevel: 'editor',
+        capabilities: {
+          download: true,
+          rename: true,
+          replaceContent: true,
+          move: false,
+          delete: false,
+          manageSharing: false,
+        },
+      },
     });
   });
 
@@ -90,9 +120,7 @@ describe('PostgreSQL entry authorization', () => {
     await createGrant(file.id, owner.id, editor, 'editor');
 
     await expect(
-      entryRepository.updateEntry({
-        actorUserId: editor.id,
-        entryId: file.publicId,
+      entryService.updateEntry(editor, file.publicId, {
         name: 'renamed.txt',
         parentId: destination.publicId,
       }),
@@ -107,21 +135,30 @@ describe('PostgreSQL entry authorization', () => {
     });
   });
 
-  it('allows the owner to rename and move an entry atomically', async () => {
+  it('allows the owner to rename and move an entry atomically with owner access capabilities', async () => {
     const owner = await createUser('owner');
     const file = await createFile(owner.id, 'original.txt');
     const destination = await createFolder(owner.id, 'Destination');
 
     await expect(
-      entryRepository.updateEntry({
-        actorUserId: owner.id,
-        entryId: file.publicId,
+      entryService.updateEntry(owner, file.publicId, {
         name: 'renamed.txt',
         parentId: destination.publicId,
       }),
     ).resolves.toMatchObject({
       id: file.publicId,
       name: 'renamed.txt',
+      access: {
+        accessLevel: 'owner',
+        capabilities: {
+          download: true,
+          rename: true,
+          replaceContent: true,
+          move: true,
+          delete: true,
+          manageSharing: true,
+        },
+      },
     });
 
     const [stored] = await database.select().from(entries).where(eq(entries.id, file.id));
@@ -130,6 +167,43 @@ describe('PostgreSQL entry authorization', () => {
       parentId: destination.id,
     });
     expect(stored?.updatedAt.getTime()).toBeGreaterThan(file.updatedAt.getTime());
+
+    const recordedEvents = await database
+      .select()
+      .from(auditEvents)
+      .where(eq(auditEvents.entryId, file.id));
+    expect(recordedEvents.map((event) => event.action).sort()).toStrictEqual([
+      'entry.moved',
+      'entry.renamed',
+    ]);
+  });
+
+  it('rolls back an entry rename when audit recording fails', async () => {
+    const owner = await createUser('owner');
+    const file = await createFile(owner.id, 'original.txt');
+    const failingAuditRepo: AuditRepository = {
+      record: () => Promise.reject(new Error('audit write failed')),
+      listEvents: () => Promise.resolve([]),
+      getStatistics: () =>
+        Promise.resolve({ total: 0, entryChanges: 0, downloadRequests: 0, sharingChanges: 0 }),
+    };
+    const serviceWithFailingAudit = new EntryService(
+      unitOfWork,
+      entryAuthorizer,
+      entryRepository,
+      failingAuditRepo,
+      accessMapper,
+    );
+
+    await expect(
+      serviceWithFailingAudit.updateEntry(owner, file.publicId, { name: 'renamed.txt' }),
+    ).rejects.toThrow('audit write failed');
+
+    const [stored] = await database.select().from(entries).where(eq(entries.id, file.id));
+    expect(stored).toMatchObject({
+      name: 'original.txt',
+      updatedAt: file.updatedAt,
+    });
   });
 
   it('maps a duplicate destination name and rolls back the move', async () => {
@@ -140,9 +214,7 @@ describe('PostgreSQL entry authorization', () => {
     await createFile(owner.id, 'duplicate.txt', destination.id);
 
     await expect(
-      entryRepository.updateEntry({
-        actorUserId: owner.id,
-        entryId: movedFile.publicId,
+      entryService.updateEntry(owner, movedFile.publicId, {
         parentId: destination.publicId,
       }),
     ).rejects.toMatchObject({
@@ -167,9 +239,7 @@ describe('PostgreSQL entry authorization', () => {
     const sourceFolder = await createFolder(owner.id, 'Source');
     const file = await createFile(owner.id, 'nested.txt', sourceFolder.id);
 
-    await entryRepository.updateEntry({
-      actorUserId: owner.id,
-      entryId: file.publicId,
+    await entryService.updateEntry(owner, file.publicId, {
       parentId: null,
     });
 
@@ -183,12 +253,7 @@ describe('PostgreSQL entry authorization', () => {
     const file = await createFile(owner.id, 'original.txt');
     await createGrant(file.id, owner.id, editor, 'editor');
 
-    await expect(
-      entryRepository.deleteEntry({
-        actorUserId: editor.id,
-        entryId: file.publicId,
-      }),
-    ).rejects.toMatchObject({
+    await expect(entryService.deleteEntry(editor, file.publicId)).rejects.toMatchObject({
       code: 'authorization_denied',
     });
 
@@ -200,24 +265,31 @@ describe('PostgreSQL entry authorization', () => {
   it('authorizes creating folders in the actor drive root and a nested parent', async () => {
     const owner = await createUser('owner');
 
-    const rootFolder = await entryRepository.createFolder({
-      actorUserId: owner.id,
+    const rootFolder = await entryService.createFolder(owner, {
       parentId: null,
       name: 'Root folder',
     });
-    const nestedFolder = await entryRepository.createFolder({
-      actorUserId: owner.id,
-      parentId: rootFolder.publicId,
+    const nestedFolder = await entryService.createFolder(owner, {
+      parentId: rootFolder.id,
       name: 'Nested folder',
     });
 
-    expect(rootFolder).toMatchObject({
+    const [storedRoot] = await database
+      .select()
+      .from(entries)
+      .where(eq(entries.publicId, rootFolder.id));
+    const [storedNested] = await database
+      .select()
+      .from(entries)
+      .where(eq(entries.publicId, nestedFolder.id));
+
+    expect(storedRoot).toMatchObject({
       ownerId: owner.id,
       parentId: null,
     });
-    expect(nestedFolder).toMatchObject({
+    expect(storedNested).toMatchObject({
       ownerId: owner.id,
-      parentId: rootFolder.id,
+      parentId: storedRoot?.id,
     });
   });
 
@@ -227,8 +299,7 @@ describe('PostgreSQL entry authorization', () => {
     const parent = await createFolder(owner.id, 'Private parent');
 
     await expect(
-      entryRepository.createFolder({
-        actorUserId: otherUser.id,
+      entryService.createFolder(otherUser, {
         parentId: parent.publicId,
         name: 'Unauthorized child',
       }),

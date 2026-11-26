@@ -1,7 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
-import { EntryList, EntryRequestParams, EntryResponse, EntryUpdateRequest } from './entry-models';
+import { EntryList, EntryListItem, EntryRequestParams, EntryUpdateRequest } from './entry-models';
 
 @Injectable({
   providedIn: 'root',
@@ -31,9 +31,9 @@ export class EntryApi {
     return this.http.get<EntryList>('/api/entries', { params: httpParams });
   }
 
-  updateEntry(entryId: string, request: EntryUpdateRequest): Observable<EntryResponse> {
+  updateEntry(entryId: string, request: EntryUpdateRequest): Observable<EntryListItem> {
     const encoded = encodeURIComponent(entryId);
-    return this.http.patch<EntryResponse>(`/api/entries/${encoded}`, request);
+    return this.http.patch<EntryListItem>(`/api/entries/${encoded}`, request);
   }
 
   deleteEntry(entryId: string): Observable<void> {

@@ -1,7 +1,8 @@
+import type { TransactionContext } from '../db/unit-of-work.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
 import type { FolderPath } from './folder-path.js';
-import type { EntryKind, EntryListSort } from './entry.js';
+import type { Entry, EntryKind, EntryListSort } from './entry.js';
 
 export type ListedEntry =
   | {
@@ -50,26 +51,47 @@ export type EntriesQuery = {
 };
 
 export type CreateFolderCommand = {
-  actorUserId: number;
-  parentId: string | null;
+  ownerId: number;
+  parentId: number | null;
   name: string;
 };
 
 export type UpdateEntryCommand = {
-  actorUserId: number;
-  entryId: string;
-  parentId?: string | null;
+  entryId: number;
+  ownerId: number;
+  parentId?: number | null;
   name?: string;
+  updatedAt: Date;
+};
+
+export type UpdatedEntryRecord = {
+  entry: Entry;
+  listedEntry: ListedEntry;
 };
 
 export type DeleteEntryCommand = {
-  actorUserId: number;
-  entryId: string;
+  entry: Entry;
+  deletedAt: Date;
+};
+
+export type EntryParentContext = {
+  publicId: string;
+  name: string;
 };
 
 export interface EntryRepository {
   getEntries(query: EntriesQuery): Promise<EntryListing>;
-  createFolder(command: CreateFolderCommand): Promise<Folder>;
-  updateEntry(command: UpdateEntryCommand): Promise<ListedEntry>;
-  deleteEntry(command: DeleteEntryCommand): Promise<void>;
+  createFolder(command: CreateFolderCommand, tx: TransactionContext): Promise<Folder>;
+  assertFolderCanMove(
+    folderId: number,
+    nextParentId: number | null,
+    tx: TransactionContext,
+  ): Promise<void>;
+  updateEntry(command: UpdateEntryCommand, tx: TransactionContext): Promise<UpdatedEntryRecord>;
+  resolveParentContext(
+    ownerId: number,
+    parentId: number,
+    tx: TransactionContext,
+  ): Promise<EntryParentContext>;
+  deleteEntry(command: DeleteEntryCommand, tx: TransactionContext): Promise<void>;
 }

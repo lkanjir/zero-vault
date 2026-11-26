@@ -4,12 +4,10 @@ import type { FolderResponse } from '../folder/dto.js';
 import type { CursorPage } from '../shared/types/cursor-page.js';
 import type { FolderPath } from './folder-path.js';
 
-export type EntryResponse = FolderResponse | FileResponse;
-
-export type EntryListItemResponse = EntryResponse & {
+export type EntryResponse = (FolderResponse | FileResponse) & {
   access: EntryAccessResponse;
 };
 
-export type EntryListResponse = CursorPage<EntryListItemResponse> & {
+export type EntryListResponse = CursorPage<EntryResponse> & {
   path: FolderPath;
 };

@@ -1,14 +1,26 @@
+import type { AuditRepository } from '../audit/audit-repository.js';
+import type { AuthorizationAction } from '../authorization/authorization.js';
+import type { EntryAccessMapper } from '../authorization/entry-access-mapper.js';
+import type { EntryAuthorizer } from '../authorization/entry-authorizer.js';
+import type { UnitOfWork } from '../db/unit-of-work.js';
+import type { FileResponse } from '../files/dto.js';
+import type { FolderResponse } from '../folder/dto.js';
+import type { CreateFolderRequestBody } from '../folder/validation-schemas.js';
+import { AppError } from '../shared/errors/api/app-error.js';
 import type { User } from '../user/user.js';
+import type { EntryListResponse, EntryResponse } from './dto.js';
 import { decodeCursor, encodeCursor } from './entry-list-cursor.js';
 import type { EntryListRecord, EntryRepository, ListedEntry } from './entry-repository.js';
-import type { EntryResponse, EntryListResponse, EntryListItemResponse } from './dto.js';
 import type { EntriesListRequest, EntryUpdateRequest } from './validation-schemas.js';
-import { AppError } from '../shared/errors/api/app-error.js';
-import type { EntryAccessMapper } from '../authorization/entry-access-mapper.js';
+
+type BaseEntryResponse = FolderResponse | FileResponse;
 
 export class EntryService {
   constructor(
+    private readonly unitOfWork: UnitOfWork,
+    private readonly entryAuthorizer: EntryAuthorizer,
     private readonly entryRepository: EntryRepository,
+    private readonly auditRepository: AuditRepository,
     private readonly accessMapper: EntryAccessMapper,
   ) {}
 
@@ -27,7 +39,7 @@ export class EntryService {
     }
 
     const entriesResult = await this.entryRepository.getEntries({
-      cursor: cursor,
+      cursor,
       limit: request.limit + 1,
       ownerId: user.id,
       parentId: request.parentId,
@@ -56,10 +68,53 @@ export class EntryService {
       items: pageEntries.map((record) => this.toListResponseItem(user.id, record, projectedAt)),
       path: entriesResult.path,
       page: {
-        hasMore: hasMore,
+        hasMore,
         limit: request.limit,
-        nextCursor: nextCursor,
+        nextCursor,
       },
+    };
+  }
+
+  async createFolder(user: User, request: CreateFolderRequestBody): Promise<FolderResponse> {
+    const createdFolder = await this.unitOfWork.run(async (tx) => {
+      const parentId = await this.entryAuthorizer.authorizeParentForCreate(
+        {
+          actorUserId: user.id,
+          ownerId: user.id,
+          parentPublicId: request.parentId,
+        },
+        tx,
+      );
+
+      const folder = await this.entryRepository.createFolder(
+        {
+          ownerId: user.id,
+          parentId,
+          name: request.name,
+        },
+        tx,
+      );
+
+      await this.auditRepository.record(
+        {
+          ownerId: folder.ownerId,
+          actorUserId: user.id,
+          entryId: folder.id,
+          entryNameSnapshot: folder.name,
+          action: 'folder.created',
+          occurredAt: folder.createdAt,
+        },
+        tx,
+      );
+
+      return folder;
+    });
+
+    return {
+      kind: createdFolder.kind,
+      id: createdFolder.publicId,
+      name: createdFolder.name,
+      updatedAt: createdFolder.updatedAt.toISOString(),
     };
   }
 
@@ -68,25 +123,145 @@ export class EntryService {
     entryId: string,
     request: EntryUpdateRequest,
   ): Promise<EntryResponse> {
-    const updatedEntry = await this.entryRepository.updateEntry({
-      entryId: entryId,
-      actorUserId: user.id,
-      ...(request.name !== undefined ? { name: request.name } : {}),
-      ...(request.parentId !== undefined ? { parentId: request.parentId } : {}),
-    });
+    const actions: AuthorizationAction[] = [];
 
-    if (!updatedEntry) {
-      throw new AppError('entry_not_found');
+    if (request.name !== undefined) {
+      actions.push('entry:rename');
     }
 
-    return this.toResponseItem(updatedEntry);
+    if (request.parentId !== undefined) {
+      actions.push('entry:move');
+    }
+
+    return this.unitOfWork.run(async (tx) => {
+      const authorized = await this.entryAuthorizer.authorizeForUpdate(
+        {
+          actorUserId: user.id,
+          entryPublicId: entryId,
+          actions,
+        },
+        tx,
+      );
+      const sourceEntry = authorized.entry;
+
+      const nextParentId =
+        request.parentId === undefined
+          ? sourceEntry.parentId
+          : await this.entryAuthorizer.authorizeParentForCreate(
+              {
+                actorUserId: user.id,
+                ownerId: sourceEntry.ownerId,
+                parentPublicId: request.parentId,
+              },
+              tx,
+            );
+
+      if (sourceEntry.kind === 'folder' && request.parentId !== undefined) {
+        await this.entryRepository.assertFolderCanMove(sourceEntry.id, nextParentId, tx);
+      }
+
+      const updated = await this.entryRepository.updateEntry(
+        {
+          entryId: sourceEntry.id,
+          ownerId: sourceEntry.ownerId,
+          updatedAt: new Date(),
+          ...(request.name !== undefined ? { name: request.name } : {}),
+          ...(request.parentId !== undefined ? { parentId: nextParentId } : {}),
+        },
+        tx,
+      );
+
+      if (request.name !== undefined && updated.entry.name !== sourceEntry.name) {
+        await this.auditRepository.record(
+          {
+            ownerId: updated.entry.ownerId,
+            actorUserId: user.id,
+            entryId: updated.entry.id,
+            entryNameSnapshot: updated.entry.name,
+            action: 'entry.renamed',
+            details: {
+              previousName: sourceEntry.name,
+            },
+            occurredAt: updated.entry.updatedAt,
+          },
+          tx,
+        );
+      }
+
+      if (request.parentId !== undefined && updated.entry.parentId !== sourceEntry.parentId) {
+        const sourceParent =
+          sourceEntry.parentId === null
+            ? null
+            : await this.entryRepository.resolveParentContext(
+                sourceEntry.ownerId,
+                sourceEntry.parentId,
+                tx,
+              );
+
+        const destinationParent =
+          updated.entry.parentId === null
+            ? null
+            : await this.entryRepository.resolveParentContext(
+                updated.entry.ownerId,
+                updated.entry.parentId,
+                tx,
+              );
+
+        await this.auditRepository.record(
+          {
+            ownerId: updated.entry.ownerId,
+            actorUserId: user.id,
+            entryId: updated.entry.id,
+            entryNameSnapshot: updated.entry.name,
+            action: 'entry.moved',
+            details: {
+              sourceParentId: sourceParent?.publicId ?? null,
+              sourceParentName: sourceParent?.name ?? null,
+              destinationParentId: destinationParent?.publicId ?? null,
+              destinationParentName: destinationParent?.name ?? null,
+            },
+            occurredAt: updated.entry.updatedAt,
+          },
+          tx,
+        );
+      }
+
+      return {
+        ...this.toBaseEntryResponse(updated.listedEntry),
+        access: this.accessMapper.map(authorized.context),
+      };
+    });
   }
 
   async deleteEntry(user: User, entryId: string): Promise<void> {
-    await this.entryRepository.deleteEntry({ actorUserId: user.id, entryId });
+    await this.unitOfWork.run(async (tx) => {
+      const { entry } = await this.entryAuthorizer.authorizeForUpdate(
+        {
+          actorUserId: user.id,
+          entryPublicId: entryId,
+          actions: ['entry:delete'],
+        },
+        tx,
+      );
+
+      const deletedAt = new Date();
+      await this.entryRepository.deleteEntry({ entry, deletedAt }, tx);
+
+      await this.auditRepository.record(
+        {
+          ownerId: entry.ownerId,
+          actorUserId: user.id,
+          entryId: entry.id,
+          entryNameSnapshot: entry.name,
+          action: 'entry.deleted',
+          occurredAt: deletedAt,
+        },
+        tx,
+      );
+    });
   }
 
-  private toResponseItem(entry: ListedEntry): EntryResponse {
+  private toBaseEntryResponse(entry: ListedEntry): BaseEntryResponse {
     if (entry.kind === 'folder') {
       return {
         kind: 'folder',
@@ -110,7 +285,7 @@ export class EntryService {
     actorUserId: number,
     record: EntryListRecord,
     now: Date,
-  ): EntryListItemResponse {
+  ): EntryResponse {
     const access = this.accessMapper.map({
       scope: 'entry',
       actor: { userId: actorUserId },
@@ -124,6 +299,6 @@ export class EntryService {
       environment: { now },
     });
 
-    return { ...this.toResponseItem(record.entry), access };
+    return { ...this.toBaseEntryResponse(record.entry), access };
   }
 }

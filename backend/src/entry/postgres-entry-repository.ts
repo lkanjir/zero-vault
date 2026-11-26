@@ -4,24 +4,23 @@ import type {
   EntriesQuery,
   EntryListing,
   EntryListRecord,
+  EntryParentContext,
   EntryRepository,
   ListedEntry,
   ResolvedFolderPath,
   UpdateEntryCommand,
+  UpdatedEntryRecord,
 } from './entry-repository.js';
 import { eq, isNull, sql, and, or, gt, type SQL, ilike, asc, desc, lt } from 'drizzle-orm';
 import { entries, files } from '../db/schema.js';
 import type { Database, Transaction } from '../db/db-client.js';
-import { toTransactionContext } from '../db/unit-of-work.js';
+import { requireTransaction, type TransactionContext } from '../db/unit-of-work.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
 import type { Entry, EntryListSort } from './entry.js';
 import { mapEntryDatabaseError } from './map-entry-db-error.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 import { enqueueObjectDeletionInTransaction } from '../object-deletion/object-deletion-helpers.js';
-import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
-import type { AuthorizationAction } from '../authorization/authorization.js';
-import { recordAuditEventInTransaction } from '../audit/record-audit-event-in-transaction.js';
 import { resolveParentContextInTransaction } from './resolve-parent-id-in-transaction.js';
 
 type QueryDbRow = {
@@ -47,10 +46,7 @@ type EntryDeletionTarget =
     };
 
 export class PostgresEntryRepository implements EntryRepository {
-  constructor(
-    private readonly db: Database,
-    private readonly authorizer: PostgresEntryAuthorizer,
-  ) {}
+  constructor(private readonly db: Database) {}
 
   readonly kindRankExpression = sql<number>`case when ${entries.kind} = 'folder' then 0 else 1 end`;
   readonly sortNameExpression = sql<string>`lower(${entries.name})`;
@@ -105,37 +101,23 @@ export class PostgresEntryRepository implements EntryRepository {
     };
   }
 
-  async createFolder(command: CreateFolderCommand): Promise<Folder> {
+  async createFolder(command: CreateFolderCommand, tx: TransactionContext): Promise<Folder> {
+    const drizzleTx = requireTransaction(tx);
+
     try {
-      const folder = await this.db.transaction(async (tx) => {
-        const txContext = toTransactionContext(tx);
-        const parentId = await this.authorizer.authorizeParentForCreate(
-          {
-            actorUserId: command.actorUserId,
-            ownerId: command.actorUserId,
-            parentPublicId: command.parentId,
-          },
-          txContext,
-        );
+      const [folder] = await drizzleTx
+        .insert(entries)
+        .values({
+          kind: 'folder',
+          name: command.name,
+          ownerId: command.ownerId,
+          parentId: command.parentId,
+        })
+        .returning();
 
-        const createdFolder = await this.insertFolder(
-          tx,
-          command.actorUserId,
-          command.name,
-          parentId,
-        );
-
-        await recordAuditEventInTransaction(tx, {
-          ownerId: createdFolder.ownerId,
-          actorUserId: command.actorUserId,
-          entryId: createdFolder.id,
-          entryNameSnapshot: createdFolder.name,
-          action: 'folder.created',
-          occurredAt: createdFolder.createdAt,
-        });
-
-        return createdFolder;
-      });
+      if (!folder) {
+        throw new Error('Failed to create folder');
+      }
 
       return this.toFolder(folder);
     } catch (error) {
@@ -143,185 +125,114 @@ export class PostgresEntryRepository implements EntryRepository {
     }
   }
 
-  private async insertFolder(
-    tx: Transaction,
-    ownerId: number,
-    name: string,
-    parentId: number | null,
-  ): Promise<Entry> {
-    const [folder] = await tx
-      .insert(entries)
-      .values({
-        kind: 'folder',
-        name: name,
-        ownerId: ownerId,
-        parentId: parentId,
-      })
-      .returning();
-
-    if (!folder) {
-      throw new Error('Failed to create folder');
+  async assertFolderCanMove(
+    folderId: number,
+    nextParentId: number | null,
+    tx: TransactionContext,
+  ): Promise<void> {
+    if (nextParentId === null) return;
+    if (folderId === nextParentId) {
+      throw new AppError('move_would_create_cycle', {
+        context: {
+          folderId,
+          nextParentId,
+        },
+      });
     }
 
-    return folder;
+    const drizzleTx = requireTransaction(tx);
+    const result = await drizzleTx.execute<{ id: number }>(sql`
+      with recursive descendants(id) as (
+        select id
+        from entries
+        where id = ${folderId}
+
+        union all
+
+        select child.id
+        from entries child
+        join descendants d on child.parent_id = d.id
+        where child.deleted_at is null
+      )
+      select id
+      from descendants
+      where id = ${nextParentId}
+      limit 1`);
+
+    if (result.rows.length > 0) {
+      throw new AppError('move_would_create_cycle', {
+        context: {
+          folderId,
+          nextParentId,
+        },
+      });
+    }
   }
 
-  async updateEntry(command: UpdateEntryCommand): Promise<ListedEntry> {
-    const actions: AuthorizationAction[] = [];
+  async updateEntry(
+    command: UpdateEntryCommand,
+    tx: TransactionContext,
+  ): Promise<UpdatedEntryRecord> {
+    const drizzleTx = requireTransaction(tx);
+    const updatedData: Partial<Entry> = {
+      updatedAt: command.updatedAt,
+    };
 
     if (command.name !== undefined) {
-      actions.push('entry:rename');
+      updatedData.name = command.name;
     }
 
     if (command.parentId !== undefined) {
-      actions.push('entry:move');
+      updatedData.parentId = command.parentId;
     }
 
     try {
-      return await this.db.transaction(async (tx) => {
-        const txContext = toTransactionContext(tx);
-        const { entry: sourceEntry } = await this.authorizer.authorizeForUpdate(
-          {
-            actorUserId: command.actorUserId,
-            entryPublicId: command.entryId,
-            actions,
-          },
-          txContext,
-        );
+      const [updatedEntry] = await drizzleTx
+        .update(entries)
+        .set(updatedData)
+        .where(
+          and(
+            eq(entries.id, command.entryId),
+            eq(entries.ownerId, command.ownerId),
+            isNull(entries.deletedAt),
+          ),
+        )
+        .returning();
 
-        const nextParentId =
-          command.parentId === undefined
-            ? sourceEntry.parentId
-            : await this.authorizer.authorizeParentForCreate(
-                {
-                  actorUserId: command.actorUserId,
-                  ownerId: sourceEntry.ownerId,
-                  parentPublicId: command.parentId,
-                },
-                txContext,
-              );
+      if (!updatedEntry) {
+        throw new Error('Failed to update entry');
+      }
 
-        if (sourceEntry.kind === 'folder' && command.parentId !== undefined) {
-          await this.assertFolderCanMove(tx, sourceEntry.id, nextParentId);
-        }
-
-        const updatedData: Partial<Entry> = {
-          updatedAt: new Date(),
-        };
-
-        if (command.name !== undefined) {
-          updatedData.name = command.name;
-        }
-
-        if (command.parentId !== undefined) {
-          updatedData.parentId = nextParentId;
-        }
-
-        const [updatedEntry] = await tx
-          .update(entries)
-          .set(updatedData)
-          .where(
-            and(
-              eq(entries.id, sourceEntry.id),
-              eq(entries.ownerId, sourceEntry.ownerId),
-              isNull(entries.deletedAt),
-            ),
-          )
-          .returning();
-
-        if (!updatedEntry) {
-          throw new Error('Greška kod ažuriranja datoteke / direktorija');
-        }
-
-        if (command.name !== undefined && updatedEntry.name !== sourceEntry.name) {
-          await recordAuditEventInTransaction(tx, {
-            ownerId: updatedEntry.ownerId,
-            actorUserId: command.actorUserId,
-            entryId: updatedEntry.id,
-            entryNameSnapshot: updatedEntry.name,
-            action: 'entry.renamed',
-            details: {
-              previousName: sourceEntry.name,
-            },
-            occurredAt: updatedEntry.updatedAt,
-          });
-        }
-
-        if (command.parentId !== undefined && updatedEntry.parentId !== sourceEntry.parentId) {
-          const sourceParent =
-            sourceEntry.parentId === null
-              ? null
-              : await resolveParentContextInTransaction(
-                  tx,
-                  sourceEntry.ownerId,
-                  sourceEntry.parentId,
-                );
-
-          const destinationParent =
-            updatedEntry.parentId === null
-              ? null
-              : await resolveParentContextInTransaction(
-                  tx,
-                  updatedEntry.ownerId,
-                  updatedEntry.parentId,
-                );
-
-          await recordAuditEventInTransaction(tx, {
-            ownerId: updatedEntry.ownerId,
-            actorUserId: command.actorUserId,
-            entryId: updatedEntry.id,
-            entryNameSnapshot: updatedEntry.name,
-            action: 'entry.moved',
-            details: {
-              sourceParentId: sourceParent?.publicId ?? null,
-              sourceParentName: sourceParent?.name ?? null,
-              destinationParentId: destinationParent?.publicId ?? null,
-              destinationParentName: destinationParent?.name ?? null,
-            },
-            occurredAt: updatedEntry.updatedAt,
-          });
-        }
-
-        return this.toListedEntryInTransaction(tx, updatedEntry);
-      });
+      return {
+        entry: updatedEntry,
+        listedEntry: await this.toListedEntryInTransaction(drizzleTx, updatedEntry),
+      };
     } catch (error) {
       throw mapEntryDatabaseError(error);
     }
   }
 
-  async deleteEntry(command: DeleteEntryCommand): Promise<void> {
+  resolveParentContext(
+    ownerId: number,
+    parentId: number,
+    tx: TransactionContext,
+  ): Promise<EntryParentContext> {
+    return resolveParentContextInTransaction(requireTransaction(tx), ownerId, parentId);
+  }
+
+  async deleteEntry(command: DeleteEntryCommand, tx: TransactionContext): Promise<void> {
+    const drizzleTx = requireTransaction(tx);
+
     try {
-      await this.db.transaction(async (tx) => {
-        const { entry } = await this.authorizer.authorizeForUpdate(
-          {
-            actorUserId: command.actorUserId,
-            entryPublicId: command.entryId,
-            actions: ['entry:delete'],
-          },
-          toTransactionContext(tx),
-        );
+      const target = await this.resolveEntryDeletionTarget(drizzleTx, command.entry);
+      await this.softDeleteEntry(drizzleTx, command.entry.ownerId, target.id, command.deletedAt);
 
-        const target = await this.resolveEntryDeletionTarget(tx, entry);
-        const deletedAt = new Date();
-
-        await this.softDeleteEntry(tx, entry.ownerId, target.id, deletedAt);
-
-        if (target.kind === 'file') {
-          await enqueueObjectDeletionInTransaction(tx, {
-            objectKey: target.objectKey,
-            reason: 'deleted_file',
-          });
-        }
-
-        await recordAuditEventInTransaction(tx, {
-          ownerId: entry.ownerId,
-          actorUserId: command.actorUserId,
-          entryId: entry.id,
-          entryNameSnapshot: entry.name,
-          action: 'entry.deleted',
-          occurredAt: deletedAt,
+      if (target.kind === 'file') {
+        await enqueueObjectDeletionInTransaction(drizzleTx, {
+          objectKey: target.objectKey,
+          reason: 'deleted_file',
         });
-      });
+      }
     } catch (error) {
       throw mapEntryDatabaseError(error);
     }
@@ -436,49 +347,6 @@ export class PostgresEntryRepository implements EntryRepository {
       sizeBytes: file.sizeBytes,
       updatedAt: updatedEntry.updatedAt,
     };
-  }
-
-  private async assertFolderCanMove(
-    tx: Transaction,
-    folderId: number,
-    nextParentId: number | null,
-  ) {
-    if (nextParentId === null) return;
-    if (folderId === nextParentId) {
-      throw new AppError('move_would_create_cycle', {
-        context: {
-          folderId,
-          nextParentId,
-        },
-      });
-    }
-
-    const result = await tx.execute<{ id: number }>(sql`
-      with recursive descendants(id) as (
-        select id
-        from entries
-        where id = ${folderId}
-
-        union all
-
-        select child.id
-        from entries child
-        join descendants d on child.parent_id = d.id
-        where child.deleted_at is null
-      )
-      select id
-      from descendants
-      where id = ${nextParentId}
-      limit 1`);
-
-    if (result.rows.length > 0) {
-      throw new AppError('move_would_create_cycle', {
-        context: {
-          folderId,
-          nextParentId,
-        },
-      });
-    }
   }
 
   private async resolveFolderPath(

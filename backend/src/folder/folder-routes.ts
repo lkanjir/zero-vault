@@ -1,6 +1,6 @@
 import express, { type Router } from 'express';
 import { requireUser } from '../auth/resolve-user-middleware.js';
-import type { FolderService } from '../folder/folder-service.js';
+import type { EntryService } from '../entry/entry-service.js';
 import { createFolderBodySchema } from './validation-schemas.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
 import {
@@ -11,7 +11,7 @@ import type { FolderDownloadService } from './download/folder-download-service.j
 import { folderDownloadRateLimiter } from '../shared/http/api-rate-limiters.js';
 
 export type FolderRouterDeps = {
-  folderService: FolderService;
+  entryService: EntryService;
   folderDownloadService: FolderDownloadService;
 };
 
@@ -25,7 +25,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
     validateRequest({ body: createFolderBodySchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
 
-      const result = await deps.folderService.createFolder(authenticatedUser, validated.body);
+      const result = await deps.entryService.createFolder(authenticatedUser, validated.body);
 
       res.status(201).json(result);
     }),

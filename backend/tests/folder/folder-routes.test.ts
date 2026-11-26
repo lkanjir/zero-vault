@@ -3,9 +3,9 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import type { AuthenticatedPrincipal } from '../../src/auth/authenticated-principal.js';
+import type { EntryService } from '../../src/entry/entry-service.js';
 import type { FolderDownloadService } from '../../src/folder/download/folder-download-service.js';
 import { createFolderRouter } from '../../src/folder/folder-routes.js';
-import type { FolderService } from '../../src/folder/folder-service.js';
 import type { ErrorResponse } from '../../src/shared/errors/api/error-response.js';
 import { errorHandler } from '../../src/shared/http/error-handler.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
@@ -34,14 +34,14 @@ const USER: User = {
 };
 
 describe('folder routes', () => {
-  let folderService: MockProxy<FolderService>;
+  let entryService: MockProxy<EntryService>;
   let folderDownloadService: MockProxy<FolderDownloadService>;
 
   beforeEach(() => {
-    folderService = mock<FolderService>();
+    entryService = mock<EntryService>();
     folderDownloadService = mock<FolderDownloadService>();
 
-    folderService.createFolder.mockResolvedValue({
+    entryService.createFolder.mockResolvedValue({
       kind: 'folder',
       id: FOLDER_ID,
       name: 'Documents',
@@ -55,7 +55,7 @@ describe('folder routes', () => {
   });
 
   it('creates a root folder using the normalized request body', async () => {
-    const response = await request(createTestApp(folderService, folderDownloadService))
+    const response = await request(createTestApp(entryService, folderDownloadService))
       .post('/folders')
       .send({ name: ' Documents ' });
 
@@ -66,7 +66,7 @@ describe('folder routes', () => {
       name: 'Documents',
       updatedAt: '2026-01-01T00:00:00.000Z',
     });
-    expect(folderService.createFolder).toHaveBeenCalledExactlyOnceWith(USER, {
+    expect(entryService.createFolder).toHaveBeenCalledExactlyOnceWith(USER, {
       parentId: null,
       name: 'Documents',
     });
@@ -75,18 +75,18 @@ describe('folder routes', () => {
   it.each(['.', '..', 'a/b', 'a\\b', 'bad\0folder', 'bad\rfolder'])(
     'rejects unsafe folder name %j before calling the service',
     async (name) => {
-      const response = await request(createTestApp(folderService, folderDownloadService))
+      const response = await request(createTestApp(entryService, folderDownloadService))
         .post('/folders')
         .send({ name });
 
       expect(response.status).toBe(400);
       expect((response.body as ErrorResponse).code).toBe('invalid_request_body');
-      expect(folderService.createFolder).not.toHaveBeenCalled();
+      expect(entryService.createFolder).not.toHaveBeenCalled();
     },
   );
 
   it('accepts a folder download and returns polling headers', async () => {
-    const response = await request(createTestApp(folderService, folderDownloadService)).post(
+    const response = await request(createTestApp(entryService, folderDownloadService)).post(
       `/folders/${FOLDER_ID}/downloads`,
     );
 
@@ -105,7 +105,7 @@ describe('folder routes', () => {
   });
 
   it('rate limits folder download creation per authenticated principal', async () => {
-    const app = createTestApp(folderService, folderDownloadService, {
+    const app = createTestApp(entryService, folderDownloadService, {
       ...PRINCIPAL,
       subject: 'folder-download-rate-limit-user',
     });
@@ -136,7 +136,7 @@ describe('folder routes', () => {
         status,
       });
 
-      const response = await request(createTestApp(folderService, folderDownloadService)).get(
+      const response = await request(createTestApp(entryService, folderDownloadService)).get(
         `/folders/downloads/${DOWNLOAD_ID}`,
       );
 
@@ -158,7 +158,7 @@ describe('folder routes', () => {
       status: 'expired',
     });
 
-    const response = await request(createTestApp(folderService, folderDownloadService)).get(
+    const response = await request(createTestApp(entryService, folderDownloadService)).get(
       `/folders/downloads/${DOWNLOAD_ID}`,
     );
 
@@ -177,7 +177,7 @@ describe('folder routes', () => {
       expiresAt: '2026-01-01T00:05:00.000Z',
       expiresInSeconds: 60,
     });
-    const app = createTestApp(folderService, folderDownloadService, {
+    const app = createTestApp(entryService, folderDownloadService, {
       ...PRINCIPAL,
       subject: 'folder-download-polling-user',
     });
@@ -191,7 +191,7 @@ describe('folder routes', () => {
   });
 
   it('rejects invalid folder and download identifiers before service calls', async () => {
-    const app = createTestApp(folderService, folderDownloadService);
+    const app = createTestApp(entryService, folderDownloadService);
 
     const createResponse = await request(app).post('/folders/not-a-uuid/downloads');
     const statusResponse = await request(app).get('/folders/downloads/not-a-uuid');
@@ -206,7 +206,7 @@ describe('folder routes', () => {
 });
 
 function createTestApp(
-  folderService: FolderService,
+  entryService: EntryService,
   folderDownloadService: FolderDownloadService,
   principal: AuthenticatedPrincipal = PRINCIPAL,
 ) {
@@ -219,7 +219,7 @@ function createTestApp(
     req.user = USER;
     next();
   });
-  app.use('/folders', createFolderRouter({ folderService, folderDownloadService }));
+  app.use('/folders', createFolderRouter({ entryService, folderDownloadService }));
   app.use(errorHandler);
 
   return app;

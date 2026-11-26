@@ -30,7 +30,6 @@ describe('entrypoint composition roots', () => {
       'downloadService',
       'entryService',
       'folderDownloadService',
-      'folderService',
       'sharingService',
       'uploadService',
       'userService',

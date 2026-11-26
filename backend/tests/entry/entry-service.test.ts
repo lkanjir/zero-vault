@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
-import { EntryAccessMapper } from '../../src/authorization/entry-access-mapper.js';
+import type { AuditRepository } from '../../src/audit/audit-repository.js';
 import { AuthorizationPolicy } from '../../src/authorization/authorization-policy.js';
+import { EntryAccessMapper } from '../../src/authorization/entry-access-mapper.js';
+import type { AuthorizedEntry, EntryAuthorizer } from '../../src/authorization/entry-authorizer.js';
+import type { TransactionContext, UnitOfWork } from '../../src/db/unit-of-work.js';
 import { decodeCursor, encodeCursor } from '../../src/entry/entry-list-cursor.js';
 import type { EntryRepository } from '../../src/entry/entry-repository.js';
 import { EntryService } from '../../src/entry/entry-service.js';
+import type { Entry } from '../../src/entry/entry.js';
 import type { User } from '../../src/user/user.js';
+import { createFakeUnitOfWork } from '../helpers/fake-unit-of-work.js';
 
 const NOW = new Date('2026-07-28T10:00:00.000Z');
 const USER: User = {
@@ -22,14 +27,28 @@ const USER: User = {
 };
 
 describe('EntryService', () => {
+  let tx: TransactionContext;
+  let unitOfWork: UnitOfWork;
+  let runSpy: ReturnType<typeof createFakeUnitOfWork>['runSpy'];
+  let entryAuthorizer: MockProxy<EntryAuthorizer>;
   let repository: MockProxy<EntryRepository>;
+  let auditRepository: MockProxy<AuditRepository>;
   let service: EntryService;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
+    ({ tx, unitOfWork, runSpy } = createFakeUnitOfWork());
+    entryAuthorizer = mock<EntryAuthorizer>();
     repository = mock<EntryRepository>();
-    service = new EntryService(repository, new EntryAccessMapper(new AuthorizationPolicy()));
+    auditRepository = mock<AuditRepository>();
+    service = new EntryService(
+      unitOfWork,
+      entryAuthorizer,
+      repository,
+      auditRepository,
+      new EntryAccessMapper(new AuthorizationPolicy()),
+    );
   });
 
   afterEach(() => {
@@ -165,17 +184,309 @@ describe('EntryService', () => {
     expect(repository.getEntries).not.toHaveBeenCalled();
   });
 
-  it('delegates deletion with the actor identity', async () => {
+  it('authorizes parent, creates a folder, and records audit inside one transaction', async () => {
+    const parentPublicId = '20000000-0000-4000-8000-000000000009';
+    const folderPublicId = '20000000-0000-4000-8000-000000000010';
+    entryAuthorizer.authorizeParentForCreate.mockResolvedValue(9);
+    repository.createFolder.mockResolvedValue({
+      id: 10,
+      publicId: folderPublicId,
+      ownerId: USER.id,
+      parentId: 9,
+      kind: 'folder',
+      name: 'Projects',
+      createdAt: NOW,
+      updatedAt: NOW,
+      deletedAt: null,
+    });
+
+    const result = await service.createFolder(USER, {
+      parentId: parentPublicId,
+      name: 'Projects',
+    });
+
+    expect(runSpy).toHaveBeenCalledOnce();
+    expect(entryAuthorizer.authorizeParentForCreate).toHaveBeenCalledExactlyOnceWith(
+      {
+        actorUserId: USER.id,
+        ownerId: USER.id,
+        parentPublicId,
+      },
+      tx,
+    );
+    expect(repository.createFolder).toHaveBeenCalledExactlyOnceWith(
+      {
+        ownerId: USER.id,
+        parentId: 9,
+        name: 'Projects',
+      },
+      tx,
+    );
+    expect(auditRepository.record).toHaveBeenCalledExactlyOnceWith(
+      {
+        ownerId: USER.id,
+        actorUserId: USER.id,
+        entryId: 10,
+        entryNameSnapshot: 'Projects',
+        action: 'folder.created',
+        occurredAt: NOW,
+      },
+      tx,
+    );
+    expect(result).toStrictEqual({
+      kind: 'folder',
+      id: folderPublicId,
+      name: 'Projects',
+      updatedAt: NOW.toISOString(),
+    });
+  });
+
+  it('updates a folder, checks move cycles, records rename/move audits, and returns access capabilities', async () => {
+    const entryPublicId = '20000000-0000-4000-8000-000000000010';
+    const destParentPublicId = '20000000-0000-4000-8000-000000000020';
+    const sourceEntry = makeEntry({
+      id: 10,
+      publicId: entryPublicId,
+      kind: 'folder',
+      name: 'Old',
+      parentId: 5,
+    });
+    const updatedEntry = {
+      ...sourceEntry,
+      name: 'New',
+      parentId: 20,
+      updatedAt: NOW,
+    };
+
+    entryAuthorizer.authorizeForUpdate.mockResolvedValue(makeAuthorizedEntry(sourceEntry));
+    entryAuthorizer.authorizeParentForCreate.mockResolvedValue(20);
+    repository.updateEntry.mockResolvedValue({
+      entry: updatedEntry,
+      listedEntry: {
+        kind: 'folder',
+        id: entryPublicId,
+        name: 'New',
+        updatedAt: NOW,
+      },
+    });
+    repository.resolveParentContext
+      .mockResolvedValueOnce({ publicId: '20000000-0000-4000-8000-000000000005', name: 'Source' })
+      .mockResolvedValueOnce({ publicId: destParentPublicId, name: 'Destination' });
+
+    const response = await service.updateEntry(USER, entryPublicId, {
+      name: 'New',
+      parentId: destParentPublicId,
+    });
+
+    expect(runSpy).toHaveBeenCalledOnce();
+    expect(entryAuthorizer.authorizeForUpdate).toHaveBeenCalledExactlyOnceWith(
+      {
+        actorUserId: USER.id,
+        entryPublicId,
+        actions: ['entry:rename', 'entry:move'],
+      },
+      tx,
+    );
+    expect(repository.assertFolderCanMove).toHaveBeenCalledExactlyOnceWith(10, 20, tx);
+    expect(repository.updateEntry).toHaveBeenCalledExactlyOnceWith(
+      {
+        entryId: 10,
+        ownerId: USER.id,
+        name: 'New',
+        parentId: 20,
+        updatedAt: NOW,
+      },
+      tx,
+    );
+    expect(auditRepository.record).toHaveBeenNthCalledWith(
+      1,
+      {
+        ownerId: USER.id,
+        actorUserId: USER.id,
+        entryId: 10,
+        entryNameSnapshot: 'New',
+        action: 'entry.renamed',
+        details: { previousName: 'Old' },
+        occurredAt: NOW,
+      },
+      tx,
+    );
+    expect(auditRepository.record).toHaveBeenNthCalledWith(
+      2,
+      {
+        ownerId: USER.id,
+        actorUserId: USER.id,
+        entryId: 10,
+        entryNameSnapshot: 'New',
+        action: 'entry.moved',
+        details: {
+          sourceParentId: '20000000-0000-4000-8000-000000000005',
+          sourceParentName: 'Source',
+          destinationParentId: destParentPublicId,
+          destinationParentName: 'Destination',
+        },
+        occurredAt: NOW,
+      },
+      tx,
+    );
+    expect(response).toStrictEqual({
+      kind: 'folder',
+      id: entryPublicId,
+      name: 'New',
+      updatedAt: NOW.toISOString(),
+      access: {
+        accessLevel: 'owner',
+        capabilities: {
+          download: true,
+          rename: true,
+          replaceContent: false,
+          move: true,
+          delete: true,
+          manageSharing: false,
+        },
+      },
+    });
+  });
+
+  it('returns editor access capabilities when a shared editor renames a file', async () => {
+    const filePublicId = '20000000-0000-4000-8000-000000000011';
+    const sourceEntry = makeEntry({
+      id: 11,
+      publicId: filePublicId,
+      ownerId: 99,
+      kind: 'file',
+      name: 'original.txt',
+      parentId: null,
+    });
+    const updatedEntry = { ...sourceEntry, name: 'renamed.txt', updatedAt: NOW };
+
+    entryAuthorizer.authorizeForUpdate.mockResolvedValue({
+      entry: sourceEntry,
+      context: {
+        scope: 'entry',
+        actor: { userId: USER.id },
+        resource: {
+          id: sourceEntry.id,
+          ownerId: 99,
+          kind: 'file',
+          deletedAt: null,
+        },
+        relationship: {
+          grant: { permission: 'editor', expiresAt: null },
+        },
+        environment: { now: NOW },
+      },
+    });
+    repository.updateEntry.mockResolvedValue({
+      entry: updatedEntry,
+      listedEntry: {
+        kind: 'file',
+        id: filePublicId,
+        name: 'renamed.txt',
+        contentType: 'text/plain',
+        sizeBytes: 12,
+        updatedAt: NOW,
+      },
+    });
+
+    const response = await service.updateEntry(USER, filePublicId, { name: 'renamed.txt' });
+
+    expect(response).toStrictEqual({
+      kind: 'file',
+      id: filePublicId,
+      name: 'renamed.txt',
+      contentType: 'text/plain',
+      sizeBytes: 12,
+      updatedAt: NOW.toISOString(),
+      access: {
+        accessLevel: 'editor',
+        capabilities: {
+          download: true,
+          rename: true,
+          replaceContent: true,
+          move: false,
+          delete: false,
+          manageSharing: false,
+        },
+      },
+    });
+    expect(auditRepository.record).toHaveBeenCalledExactlyOnceWith(
+      {
+        ownerId: 99,
+        actorUserId: USER.id,
+        entryId: 11,
+        entryNameSnapshot: 'renamed.txt',
+        action: 'entry.renamed',
+        details: { previousName: 'original.txt' },
+        occurredAt: NOW,
+      },
+      tx,
+    );
+  });
+
+  it('authorizes, deletes an entry, and records audit inside one transaction', async () => {
     const entryId = '20000000-0000-4000-8000-000000000001';
+    const entry = makeEntry({ id: 10, publicId: entryId, kind: 'file', name: 'report.txt' });
+    entryAuthorizer.authorizeForUpdate.mockResolvedValue(makeAuthorizedEntry(entry));
 
     await service.deleteEntry(USER, entryId);
 
-    expect(repository.deleteEntry).toHaveBeenCalledExactlyOnceWith({
-      actorUserId: USER.id,
-      entryId,
-    });
+    expect(runSpy).toHaveBeenCalledOnce();
+    expect(entryAuthorizer.authorizeForUpdate).toHaveBeenCalledExactlyOnceWith(
+      {
+        actorUserId: USER.id,
+        entryPublicId: entryId,
+        actions: ['entry:delete'],
+      },
+      tx,
+    );
+    expect(repository.deleteEntry).toHaveBeenCalledExactlyOnceWith({ entry, deletedAt: NOW }, tx);
+    expect(auditRepository.record).toHaveBeenCalledExactlyOnceWith(
+      {
+        ownerId: USER.id,
+        actorUserId: USER.id,
+        entryId: 10,
+        entryNameSnapshot: 'report.txt',
+        action: 'entry.deleted',
+        occurredAt: NOW,
+      },
+      tx,
+    );
   });
 });
+
+function makeEntry(overrides: Partial<Entry> = {}): Entry {
+  return {
+    id: 10,
+    publicId: '20000000-0000-4000-8000-000000000010',
+    ownerId: USER.id,
+    parentId: null,
+    kind: 'folder',
+    name: 'Folder',
+    createdAt: NOW,
+    updatedAt: NOW,
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+function makeAuthorizedEntry(entry: Entry): AuthorizedEntry {
+  return {
+    entry,
+    context: {
+      scope: 'entry',
+      actor: { userId: USER.id },
+      resource: {
+        id: entry.id,
+        ownerId: entry.ownerId,
+        kind: entry.kind,
+        deletedAt: entry.deletedAt,
+      },
+      relationship: { grant: null },
+      environment: { now: NOW },
+    },
+  };
+}
 
 function makeFolderRecord(entryId: number, name: string) {
   return {

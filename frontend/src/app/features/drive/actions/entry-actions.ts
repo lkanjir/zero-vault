@@ -2,7 +2,7 @@ import { inject, Injectable } from '@angular/core';
 import { EntryApi } from '../../../data-access/entries/entry-api';
 import { FolderApi } from '../../../data-access/folders/folder-api';
 import { firstValueFrom, map, catchError, of } from 'rxjs';
-import { EntryResponse, FolderEntry } from '../../../data-access/entries/entry-models';
+import { EntryListItem, FolderEntry } from '../../../data-access/entries/entry-models';
 import { ApiError, toApiError } from '../../../shared/api-error';
 import { Result } from '../../../shared/result';
 import { DriveStore } from '../state/drive-store';
@@ -38,29 +38,29 @@ export class EntryActions {
     return result;
   }
 
-  renameEntry(entryId: string, name: string): Promise<Result<EntryResponse, ApiError>> {
+  renameEntry(entryId: string, name: string): Promise<Result<EntryListItem, ApiError>> {
     return firstValueFrom(
       this.entryApi.updateEntry(entryId, { name }).pipe(
-        map((updatedEntry): Result<EntryResponse, ApiError> => ({
+        map((updatedEntry): Result<EntryListItem, ApiError> => ({
           ok: true,
           value: updatedEntry,
         })),
         catchError((error) =>
-          of<Result<EntryResponse, ApiError>>({ ok: false, error: toApiError(error) }),
+          of<Result<EntryListItem, ApiError>>({ ok: false, error: toApiError(error) }),
         ),
       ),
     );
   }
 
-  async moveEntry(command: MoveEntryCommand): Promise<Result<EntryResponse, ApiError>> {
+  async moveEntry(command: MoveEntryCommand): Promise<Result<EntryListItem, ApiError>> {
     const result = await firstValueFrom(
       this.entryApi.updateEntry(command.entryId, { parentId: command.targetParentId }).pipe(
-        map((updatedEntry): Result<EntryResponse, ApiError> => ({
+        map((updatedEntry): Result<EntryListItem, ApiError> => ({
           ok: true,
           value: updatedEntry,
         })),
         catchError((error) =>
-          of<Result<EntryResponse, ApiError>>({ ok: false, error: toApiError(error) }),
+          of<Result<EntryListItem, ApiError>>({ ok: false, error: toApiError(error) }),
         ),
       ),
     );

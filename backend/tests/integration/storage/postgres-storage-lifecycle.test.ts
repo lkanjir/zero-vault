@@ -18,10 +18,12 @@ import { PostgresAuditRepository } from '../../../src/audit/postgres-audit-repos
 import type { AuditRepository } from '../../../src/audit/audit-repository.js';
 import { AuthorizationPolicy } from '../../../src/authorization/authorization-policy.js';
 import { AuthorizationService } from '../../../src/authorization/authorization-service.js';
+import { EntryAccessMapper } from '../../../src/authorization/entry-access-mapper.js';
 import { PostgresAuthorizationContextResolver } from '../../../src/authorization/postgres-authorization-context-resolver.js';
 import { PostgresEntryAuthorizer } from '../../../src/authorization/postgres-entry-authorizer.js';
 import { createDatabase, type Database } from '../../../src/db/db-client.js';
 import { DrizzleUnitOfWork } from '../../../src/db/unit-of-work.js';
+import { EntryService } from '../../../src/entry/entry-service.js';
 import { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
 import { resolveParentIdInTransaction } from '../../../src/entry/resolve-parent-id-in-transaction.js';
 import { FileDownloadService } from '../../../src/files/file-download-service.js';
@@ -45,6 +47,7 @@ describe('PostgreSQL storage lifecycle', () => {
   let folderRepository: PostgresFolderDownloadRepository;
   let deletionRepository: PostgresObjectDeletionRepository;
   let entryRepository: PostgresEntryRepository;
+  let entryService: EntryService;
   let intentRepository: PostgresIntentRepository;
   let unitOfWork: DrizzleUnitOfWork;
   let entryAuthorizer: PostgresEntryAuthorizer;
@@ -63,15 +66,23 @@ describe('PostgreSQL storage lifecycle', () => {
     closeDatabase = dbHandle.close;
     folderRepository = new PostgresFolderDownloadRepository(database);
     deletionRepository = new PostgresObjectDeletionRepository(database);
+    const policy = new AuthorizationPolicy();
     const authorizationService = new AuthorizationService(
       new PostgresAuthorizationContextResolver(database),
-      new AuthorizationPolicy(),
+      policy,
     );
     unitOfWork = new DrizzleUnitOfWork(database);
     entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
     auditRepository = new PostgresAuditRepository(database);
     fileRepository = new PostgresFileRepository(database);
-    entryRepository = new PostgresEntryRepository(database, entryAuthorizer);
+    entryRepository = new PostgresEntryRepository(database);
+    entryService = new EntryService(
+      unitOfWork,
+      entryAuthorizer,
+      entryRepository,
+      auditRepository,
+      new EntryAccessMapper(policy),
+    );
     intentRepository = new PostgresIntentRepository(database, entryAuthorizer);
 
     await migrate(database, {
@@ -392,10 +403,7 @@ describe('PostgreSQL storage lifecycle', () => {
       const file = await createFile(owner.id, null, 'report.txt', 'objects/report');
       const startedAt = new Date();
 
-      await entryRepository.deleteEntry({
-        actorUserId: owner.id,
-        entryId: file.publicId,
-      });
+      await entryService.deleteEntry(toDomainUser(owner), file.publicId);
       const finishedAt = new Date();
 
       const [storedEntry] = await database.select().from(entries).where(eq(entries.id, file.id));
@@ -422,17 +430,13 @@ describe('PostgreSQL storage lifecycle', () => {
       await createFolder(owner.id, 'Child', nonEmpty.id);
 
       await expect(
-        entryRepository.deleteEntry({
-          actorUserId: owner.id,
-          entryId: empty.publicId,
-        }),
+        entryService.deleteEntry(toDomainUser(owner), empty.publicId),
       ).resolves.toBeUndefined();
       await expect(
-        entryRepository.deleteEntry({
-          actorUserId: owner.id,
-          entryId: nonEmpty.publicId,
-        }),
-      ).rejects.toMatchObject({ code: 'folder_not_empty' });
+        entryService.deleteEntry(toDomainUser(owner), nonEmpty.publicId),
+      ).rejects.toMatchObject({
+        code: 'folder_not_empty',
+      });
 
       const [storedEmpty] = await database.select().from(entries).where(eq(entries.id, empty.id));
       const [storedNonEmpty] = await database
@@ -464,10 +468,7 @@ describe('PostgreSQL storage lifecycle', () => {
       });
       await locked;
 
-      const deletion = entryRepository.deleteEntry({
-        actorUserId: owner.id,
-        entryId: folder.publicId,
-      });
+      const deletion = entryService.deleteEntry(toDomainUser(owner), folder.publicId);
       const earlyResult = await Promise.race([
         deletion.then(() => 'deleted' as const),
         delay(100).then(() => 'waiting' as const),
@@ -800,10 +801,7 @@ describe('PostgreSQL storage lifecycle', () => {
       const downloadPromise = service.createDownloadUrl(toDomainUser(owner), file.publicId);
       await signingStarted;
 
-      const deletePromise = entryRepository.deleteEntry({
-        actorUserId: owner.id,
-        entryId: file.publicId,
-      });
+      const deletePromise = entryService.deleteEntry(toDomainUser(owner), file.publicId);
 
       const raceResult = await Promise.race([
         deletePromise.then(() => 'deleted' as const),

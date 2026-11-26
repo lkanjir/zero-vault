@@ -56,6 +56,17 @@ describe('entry routes', () => {
       id: ENTRY_ID,
       name: 'Renamed',
       updatedAt: '2026-01-01T00:00:00.000Z',
+      access: {
+        accessLevel: 'owner',
+        capabilities: {
+          download: true,
+          rename: true,
+          replaceContent: false,
+          move: true,
+          delete: true,
+          manageSharing: false,
+        },
+      },
     });
   });
 
@@ -135,6 +146,23 @@ describe('entry routes', () => {
       .send({ name: ' Renamed ' });
 
     expect(response.status).toBe(200);
+    expect(response.body).toStrictEqual({
+      kind: 'folder',
+      id: ENTRY_ID,
+      name: 'Renamed',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      access: {
+        accessLevel: 'owner',
+        capabilities: {
+          download: true,
+          rename: true,
+          replaceContent: false,
+          move: true,
+          delete: true,
+          manageSharing: false,
+        },
+      },
+    });
     expect(entryService.updateEntry).toHaveBeenCalledExactlyOnceWith(USER, ENTRY_ID, {
       name: 'Renamed',
     });

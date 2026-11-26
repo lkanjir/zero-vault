@@ -1,6 +1,5 @@
 import { FileDownloadService } from './files/file-download-service.js';
 import { EntryService } from './entry/entry-service.js';
-import { FolderService } from './folder/folder-service.js';
 import { PostgresEntryRepository } from './entry/postgres-entry-repository.js';
 import { PostgresFileRepository } from './files/postgres-file-repository.js';
 import { S3ObjectStorage } from './storage/s3-object-storage.js';
@@ -72,10 +71,15 @@ export function createApiComposition(db: Database, s3Config: S3Config) {
     storage,
   );
 
-  const entryRepository = new PostgresEntryRepository(db, authorizer);
-  const entryService = new EntryService(entryRepository, authzMapper);
+  const entryRepository = new PostgresEntryRepository(db);
+  const entryService = new EntryService(
+    unitOfWork,
+    authorizer,
+    entryRepository,
+    auditRepository,
+    authzMapper,
+  );
 
-  const folderService = new FolderService(entryRepository);
   const folderDownloadRepository = new PostgresFolderDownloadRepository(db);
   const folderDownloadService = new FolderDownloadService(
     unitOfWork,
@@ -101,7 +105,6 @@ export function createApiComposition(db: Database, s3Config: S3Config) {
     completeUploadUseCase,
     downloadService,
     entryService,
-    folderService,
     folderDownloadService,
     sharingService,
     auditService,
