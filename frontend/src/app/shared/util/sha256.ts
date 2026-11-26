@@ -1,4 +1,4 @@
-export async function calcualteSha256(file: File): Promise<string> {
+export async function calculateSha256(file: File): Promise<string> {
   const bytes = await file.arrayBuffer();
   const digest = await crypto.subtle.digest('SHA-256', bytes);
 

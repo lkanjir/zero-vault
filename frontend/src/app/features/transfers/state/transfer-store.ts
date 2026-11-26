@@ -3,7 +3,7 @@ import { Result } from '../../../shared/result';
 import { firstValueFrom, from, lastValueFrom, mergeMap, Observable, tap, toArray } from 'rxjs';
 import { HttpEventType } from '@angular/common/http';
 import { apiErrorMessage, toApiError } from '../../../shared/api-error';
-import { calcualteSha256 } from '../../../shared/util/sha256';
+import { calculateSha256 } from '../../../shared/util/sha256';
 import { FileEntry } from '../../../data-access/entries/entry-models';
 import { UploadApi } from '../../../data-access/uploads/upload-api';
 import { TransferFailure, TransferOperation, UploadTransfer } from './transfer-models';
@@ -132,7 +132,7 @@ export class TransferStore {
         };
       }
 
-      const sha256 = await calcualteSha256(file);
+      const sha256 = await calculateSha256(file);
 
       failureContext = 'presigning';
       const content: UploadContentRequest = {

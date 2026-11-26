@@ -135,11 +135,15 @@ describe('FileSharingService', () => {
     expect(repository.save).not.toHaveBeenCalled();
   });
 
-  it('authorizes but does not persist a self-share', async () => {
-    await service.shareFile(USER, FILE_ID, {
-      recipientEmail: USER.email,
-      permission: 'editor',
-      expiresAt: null,
+  it('authorizes and rejects a self-share with cannot_share_with_self', async () => {
+    await expect(
+      service.shareFile(USER, FILE_ID, {
+        recipientEmail: USER.email,
+        permission: 'editor',
+        expiresAt: null,
+      }),
+    ).rejects.toMatchObject({
+      code: 'cannot_share_with_self',
     });
 
     expect(authorizationService.authorizeEntryByPublicId).toHaveBeenCalledExactlyOnceWith({

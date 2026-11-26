@@ -14,19 +14,19 @@ export class AuthService {
   });
   private readonly _userProfile = signal<UserProfile | null>(null);
 
-  readonly authenitcated = signal(false);
+  readonly authenticated = signal(false);
   readonly userProfile = this._userProfile.asReadonly();
   readonly accountUrl = signal<string>('');
 
   async initialize(): Promise<void> {
-    const authenitcated = await this.keycloak.init({
+    const authenticated = await this.keycloak.init({
       onLoad: 'login-required',
       pkceMethod: 'S256',
     });
 
     this.accountUrl.set(this.keycloak.createAccountUrl());
-    this.authenitcated.set(authenitcated);
-    if (this.authenitcated()) {
+    this.authenticated.set(authenticated);
+    if (this.authenticated()) {
       this._userProfile.set(this.readUserProfile());
     }
   }

@@ -52,7 +52,7 @@ export class FileSharingService {
     });
 
     if (command.recipientEmail === user.email) {
-      return;
+      throw new AppError('cannot_share_with_self');
     }
 
     const maximumActivationDeadline = new Date(

@@ -71,6 +71,11 @@ export const errorCatalog = {
     message: 'Vrijeme isteka dijeljenja mora biti u budućnosti.',
   },
 
+  cannot_share_with_self: {
+    status: 400,
+    message: 'Datoteku nije moguće podijeliti sa samim sobom.',
+  },
+
   authentication_service_unavailable: {
     status: 503,
     message: 'Usluga za prijavu nije dostupna.',
