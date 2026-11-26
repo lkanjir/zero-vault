@@ -13,9 +13,13 @@ export class TransferPanel {
   readonly dismissed = output<void>();
   readonly transfers = input.required<readonly UploadTransfer[]>();
   readonly clearRequested = output<void>();
+  readonly cancelRequested = output<string>();
   readonly canClear = computed(() =>
     this.transfers().some(
-      (transfer) => transfer.phase === 'completed' || transfer.phase === 'failed',
+      (transfer) =>
+        transfer.phase === 'completed' ||
+        transfer.phase === 'failed' ||
+        transfer.phase === 'cancelled',
     ),
   );
 }

@@ -1,21 +1,26 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
-import { Result } from '../../../shared/result';
-import { firstValueFrom, from, lastValueFrom, mergeMap, Observable, tap, toArray } from 'rxjs';
-import { HttpEventType } from '@angular/common/http';
-import { apiErrorMessage, toApiError } from '../../../shared/api-error';
-import { calculateSha256 } from '../../../shared/util/sha256';
+import { firstValueFrom, from, lastValueFrom, mergeMap, Observable, toArray } from 'rxjs';
 import { FileEntry } from '../../../data-access/entries/entry-models';
 import { UploadApi } from '../../../data-access/uploads/upload-api';
-import { TransferFailure, TransferOperation, UploadTransfer } from './transfer-models';
-import {
-  FileUploadRequest,
-  UploadContentRequest,
-  UploadIntentResponse,
-} from '../../../data-access/uploads/upload-models';
 import {
   MAX_UPLOAD_SIZE_BYTES,
   SINGLE_PART_MAX_BYTES,
 } from '../../../data-access/uploads/upload-constraints';
+import {
+  CompletedUploadPart,
+  UploadContentRequest,
+  UploadIntentResponse,
+} from '../../../data-access/uploads/upload-models';
+import { apiErrorMessage, toApiError } from '../../../shared/api-error';
+import { Result } from '../../../shared/result';
+import { calculateSha256 } from '../../../shared/util/sha256';
+import {
+  abortableLastValueFrom,
+  isUploadCancelledError,
+  UploadCancelledError,
+  UploadExecutor,
+} from '../upload-executor';
+import { TransferFailure, TransferOperation, UploadTransfer } from './transfer-models';
 
 type FailureContext = 'preparing' | 'presigning' | 'uploading' | 'finalizing';
 
@@ -24,8 +29,11 @@ const MAX_CONCURRENT_UPLOADS = 3;
 @Injectable({ providedIn: 'root' })
 export class TransferStore {
   private readonly uploadApi = inject(UploadApi);
+  private readonly uploadExecutor = inject(UploadExecutor);
   private readonly _transfers = signal<UploadTransfer[]>([]);
   private readonly _panelOpen = signal(false);
+  private readonly activeControllers = new Map<string, AbortController>();
+  private readonly abortedUploadIds = new Set<string>();
 
   readonly transfers = this._transfers.asReadonly();
   readonly failedCount = computed(
@@ -64,9 +72,33 @@ export class TransferStore {
     );
   }
 
+  cancelTransfer(transferId: string): void {
+    const transfer = this._transfers().find((item) => item.id === transferId);
+    if (!transfer || (transfer.phase !== 'preparing' && transfer.phase !== 'uploading')) {
+      return;
+    }
+
+    this.patch(transferId, {
+      phase: 'cancelled',
+      bytesPerSecond: null,
+      error: null,
+    });
+
+    this.activeControllers.get(transferId)?.abort();
+
+    if (transfer.uploadId !== null) {
+      this.abortUploadBestEffort(transfer.uploadId);
+    }
+  }
+
   clearFinished(): void {
     this._transfers.update((transfers) =>
-      transfers.filter((transfer) => transfer.phase !== 'completed' && transfer.phase !== 'failed'),
+      transfers.filter(
+        (transfer) =>
+          transfer.phase !== 'completed' &&
+          transfer.phase !== 'failed' &&
+          transfer.phase !== 'cancelled',
+      ),
     );
   }
 
@@ -80,6 +112,8 @@ export class TransferStore {
 
     const transferId = crypto.randomUUID();
     const contentType = file.type.trim() || 'application/octet-stream';
+    const controller = new AbortController();
+    this.activeControllers.set(transferId, controller);
 
     this._transfers.update((transfers) => [
       {
@@ -97,6 +131,7 @@ export class TransferStore {
     ]);
 
     let failureContext: FailureContext = 'preparing';
+    let createdUploadId: string | null = null;
 
     try {
       if (file.size > MAX_UPLOAD_SIZE_BYTES) {
@@ -119,6 +154,9 @@ export class TransferStore {
 
       const isSinglePart = file.size <= SINGLE_PART_MAX_BYTES;
       const sha256 = isSinglePart ? await calculateSha256(file) : undefined;
+      if (controller.signal.aborted) {
+        throw new UploadCancelledError();
+      }
 
       failureContext = 'presigning';
       const content: UploadContentRequest = {
@@ -127,40 +165,49 @@ export class TransferStore {
         ...(sha256 !== undefined ? { sha256 } : {}),
       };
 
-      const intent = await firstValueFrom(createIntent(content));
-      if (intent.uploadMode !== 'single') {
-        throw new Error('Multipart upload executor not yet wired');
+      const intent = await abortableLastValueFrom(createIntent(content), controller.signal);
+      createdUploadId = intent.uploadId;
+
+      if (controller.signal.aborted) {
+        this.abortUploadBestEffort(intent.uploadId);
+        throw new UploadCancelledError();
       }
 
       this.patch(transferId, { uploadId: intent.uploadId, phase: 'uploading', progress: 0 });
       failureContext = 'uploading';
 
-      const uploadRequest: FileUploadRequest = {
-        file,
-        url: intent.uploadUrl,
-        headers: {
-          'Content-Type': intent.requiredHeaders['Content-Type'],
-          'x-amz-checksum-sha256': intent.requiredHeaders['x-amz-checksum-sha256'],
-        },
-      };
+      let completedParts: CompletedUploadPart[] | undefined;
 
-      const uploadStartedAt = performance.now();
-
-      await lastValueFrom(
-        this.uploadApi.upload(uploadRequest).pipe(
-          tap((event) => {
-            if (event.type !== HttpEventType.UploadProgress) return;
-
-            const total = event.total ?? file.size;
-            const elapsedSeconds = Math.max((performance.now() - uploadStartedAt) / 1000, 0.001);
-
+      if (intent.uploadMode === 'single') {
+        await this.uploadExecutor.uploadSinglePart({
+          file,
+          intent,
+          signal: controller.signal,
+          onProgress: (snapshot) => {
             this.patch(transferId, {
-              progress: total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : null,
-              bytesPerSecond: event.loaded / elapsedSeconds,
+              progress: snapshot.progress,
+              bytesPerSecond: snapshot.bytesPerSecond,
             });
-          }),
-        ),
-      );
+          },
+        });
+      } else {
+        completedParts = await this.uploadExecutor.uploadMultipart({
+          file,
+          intent,
+          signal: controller.signal,
+          onProgress: (snapshot) => {
+            this.patch(transferId, {
+              progress: snapshot.progress,
+              bytesPerSecond: snapshot.bytesPerSecond,
+            });
+          },
+        });
+      }
+
+      if (controller.signal.aborted) {
+        this.abortUploadBestEffort(intent.uploadId);
+        throw new UploadCancelledError();
+      }
 
       failureContext = 'finalizing';
       this.patch(transferId, {
@@ -169,16 +216,55 @@ export class TransferStore {
         bytesPerSecond: null,
       });
 
-      const completed = await firstValueFrom(this.uploadApi.complete(intent.uploadId));
+      const completed = await firstValueFrom(
+        this.uploadApi.complete(
+          intent.uploadId,
+          completedParts !== undefined ? { parts: completedParts } : undefined,
+        ),
+      );
       this.patch(transferId, { phase: 'completed', bytesPerSecond: null, progress: 100 });
       return { ok: true, value: completed };
     } catch (error) {
+      if (isUploadCancelledError(error) || controller.signal.aborted) {
+        if (createdUploadId !== null) {
+          this.abortUploadBestEffort(createdUploadId);
+        }
+
+        this.patch(transferId, {
+          phase: 'cancelled',
+          bytesPerSecond: null,
+          error: null,
+        });
+
+        return {
+          ok: false,
+          error: {
+            status: -1,
+            code: 'upload_cancelled',
+            message: 'Prijenos je otkazan.',
+          },
+        };
+      }
+
       const failure = this.mapFailure(error, failureContext);
 
       this.patch(transferId, { phase: 'failed', bytesPerSecond: null, error: failure });
 
       return { ok: false, error: failure };
+    } finally {
+      this.activeControllers.delete(transferId);
     }
+  }
+
+  private abortUploadBestEffort(uploadId: string): void {
+    if (this.abortedUploadIds.has(uploadId)) {
+      return;
+    }
+
+    this.abortedUploadIds.add(uploadId);
+    this.uploadApi.abort(uploadId).subscribe({
+      error: () => undefined,
+    });
   }
 
   private patch(transferId: string, changes: Partial<UploadTransfer>): void {

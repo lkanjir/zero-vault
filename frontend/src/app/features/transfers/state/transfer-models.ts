@@ -1,6 +1,7 @@
 import { ApiError } from '../../../shared/api-error';
 
-export type TransferPhase = 'preparing' | 'uploading' | 'finalizing' | 'completed' | 'failed';
+export type TransferPhase =
+  'preparing' | 'uploading' | 'finalizing' | 'completed' | 'failed' | 'cancelled';
 
 export type TransferFailure = ApiError & {
   message: string;

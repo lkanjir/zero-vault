@@ -12,6 +12,8 @@
         type="button"
         (click)="clearRequested.emit()"
         [disabled]="!canClear()"
+        aria-label="Očisti dovršene prijenose"
+        title="Očisti dovršene prijenose"
         class="cursor-pointer rounded-sm p-1 hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
       >
         <app-icon class="text-foreground" [name]="'trash-2'" [size]="24" />
@@ -20,6 +22,8 @@
       <button
         type="button"
         (click)="dismissed.emit()"
+        aria-label="Zatvori prijenose"
+        title="Zatvori prijenose"
         class="cursor-pointer rounded-sm p-1 hover:bg-surface-hover"
       >
         <app-icon class="text-foreground" [name]="'x'" [size]="24" />
@@ -36,8 +40,22 @@
           >
             <app-icon class="bg-surface-hover text-foreground" [name]="'file-text'" [size]="24" />
           </div>
-          <div class="flex size-10 w-full min-w-0 flex-col">
-            <span class="truncate font-medium">{{ transfer.fileName }}</span>
+          <div class="flex min-w-0 flex-1 flex-col">
+            <div class="flex items-center justify-between gap-2">
+              <span class="truncate font-medium">{{ transfer.fileName }}</span>
+
+              @if (transfer.phase === 'preparing' || transfer.phase === 'uploading') {
+                <button
+                  type="button"
+                  (click)="cancelRequested.emit(transfer.id)"
+                  aria-label="Otkaži prijenos"
+                  title="Otkaži prijenos"
+                  class="shrink-0 cursor-pointer rounded-sm p-0.5 text-foreground-muted hover:bg-surface-hover hover:text-foreground"
+                >
+                  <app-icon [name]="'x'" [size]="16" />
+                </button>
+              }
+            </div>
 
             <div class="flex w-full items-center justify-between">
               <span #sizeSpan class="mt-0.5 text-xs text-foreground-muted">{{
@@ -69,6 +87,10 @@
 
                 @case ('completed') {
                   <span class="mt-0.5 text-xs text-foreground-muted">Dovršeno</span>
+                }
+
+                @case ('cancelled') {
+                  <span class="mt-0.5 text-xs text-foreground-muted">Otkazano</span>
                 }
 
                 @case ('failed') {

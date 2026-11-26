@@ -39,6 +39,7 @@
       [transfers]="transferStore.transfers()"
       (dismissed)="closeTransfers()"
       (clearRequested)="transferStore.clearFinished()"
+      (cancelRequested)="transferStore.cancelTransfer($event)"
     ></app-transfer-panel>
   </div>
 </div>
