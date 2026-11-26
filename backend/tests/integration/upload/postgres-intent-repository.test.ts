@@ -397,6 +397,73 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
     });
   });
 
+  it('rolls back file replacement, intent completion, and object deletion enqueue when audit recording fails', async () => {
+    const user = await createUser();
+    const target = await createFile(user.id, {
+      name: 'report.pdf',
+      objectKey: 'objects/original',
+      contentType: 'application/pdf',
+      sizeBytes: 12,
+      sha256: EXPECTED_SHA256,
+    });
+    const originalUpdatedAt = target.entry.updatedAt;
+    const replacement = makeReplacementIntent(user.id, target.entry.id, {
+      objectKey: 'objects/replacement',
+      contentType: 'text/plain',
+      expectedSizeBytes: 24,
+      expectedSha256: 'b'.repeat(64),
+    });
+
+    await saveReplaceIntent(replacement);
+
+    const failingAuditRepo: AuditRepository = {
+      record: () => Promise.reject(new Error('audit write failed')),
+      listEvents: () => Promise.resolve([]),
+      getStatistics: () =>
+        Promise.resolve({ total: 0, entryChanges: 0, downloadRequests: 0, sharingChanges: 0 }),
+    };
+    const serviceWithFailingAudit = new UploadService(
+      unitOfWork,
+      entryAuthorizer,
+      createInMemoryStorage(uploadedObjects),
+      repository,
+      failingAuditRepo,
+    );
+
+    await expect(
+      serviceWithFailingAudit.completeUpload(user, replacement.upload.uploadId),
+    ).rejects.toThrow('audit write failed');
+
+    const [storedEntry] = await database
+      .select()
+      .from(entries)
+      .where(eq(entries.id, target.entry.id));
+    const [storedFile] = await database
+      .select()
+      .from(files)
+      .where(eq(files.entryId, target.entry.id));
+    const [storedIntent] = await database
+      .select()
+      .from(uploadIntents)
+      .where(eq(uploadIntents.uploadId, replacement.upload.uploadId));
+
+    expect(storedEntry?.updatedAt).toEqual(originalUpdatedAt);
+    expect(storedFile).toMatchObject({
+      objectKey: 'objects/original',
+      contentType: 'application/pdf',
+      sizeBytes: 12,
+      sha256: EXPECTED_SHA256,
+      contentVersion: 1,
+    });
+    expect(storedIntent).toMatchObject({
+      status: 'pending',
+      fileId: null,
+      completedAt: null,
+    });
+    expect(await database.select().from(objectDeletionJobs)).toHaveLength(0);
+    expect(await database.select().from(auditEvents)).toHaveLength(0);
+  });
+
   it('supersedes a stale replacement and queues only its unused uploaded object', async () => {
     const user = await createUser();
     const target = await createFile(user.id, {

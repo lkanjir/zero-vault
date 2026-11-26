@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { Database } from '../../db/db-client.js';
-import { resolveDbExecutor, type TransactionContext } from '../../db/unit-of-work.js';
+import { requireTransaction, type TransactionContext } from '../../db/unit-of-work.js';
 import { folderDownloads } from '../../db/schema.js';
 import type {
   ClaimNextFolderDownloadCommand,
@@ -30,9 +30,9 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
 
   async create(
     command: CreateFolderDownloadCommand,
-    tx?: TransactionContext,
+    tx: TransactionContext,
   ): Promise<FolderDownload> {
-    const [download] = await resolveDbExecutor(this.db, tx)
+    const [download] = await requireTransaction(tx)
       .insert(folderDownloads)
       .values({
         downloadId: command.downloadId,

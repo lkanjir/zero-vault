@@ -8,6 +8,7 @@ import { asc, eq, sql } from 'drizzle-orm';
 import {
   auditEvents,
   entries,
+  fileGrants,
   files,
   folderDownloads,
   objectDeletionJobs,
@@ -31,6 +32,8 @@ import { PostgresFileRepository } from '../../../src/files/postgres-file-reposit
 import { FolderDownloadService } from '../../../src/folder/download/folder-download-service.js';
 import { PostgresFolderDownloadRepository } from '../../../src/folder/download/postgres-folder-download-repository.js';
 import { PostgresObjectDeletionRepository } from '../../../src/object-deletion/postgres-object-deletion-repository.js';
+import { FileSharingService } from '../../../src/sharing/file-sharing-service.js';
+import { PostgresFileGrantRepository } from '../../../src/sharing/postgres-file-grant-repository.js';
 import type { ObjectStorage } from '../../../src/storage/object-storage.js';
 import { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
 import type { SaveUploadIntentCommand } from '../../../src/upload/upload-intent-repository.js';
@@ -55,6 +58,7 @@ describe('PostgreSQL storage lifecycle', () => {
   let entryAuthorizer: PostgresEntryAuthorizer;
   let auditRepository: PostgresAuditRepository;
   let fileRepository: PostgresFileRepository;
+  let sharingService: FileSharingService;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:18-alpine')
@@ -73,6 +77,7 @@ describe('PostgreSQL storage lifecycle', () => {
       new PostgresAuthorizationContextResolver(database),
       policy,
     );
+    const accessMapper = new EntryAccessMapper(policy);
     unitOfWork = new DrizzleUnitOfWork(database);
     entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
     auditRepository = new PostgresAuditRepository(database);
@@ -83,7 +88,15 @@ describe('PostgreSQL storage lifecycle', () => {
       entryAuthorizer,
       entryRepository,
       auditRepository,
-      new EntryAccessMapper(policy),
+      accessMapper,
+    );
+    sharingService = new FileSharingService(
+      unitOfWork,
+      authorizationService,
+      entryAuthorizer,
+      new PostgresFileGrantRepository(database),
+      auditRepository,
+      accessMapper,
     );
     intentRepository = new PostgresIntentRepository(database);
     uploadService = new UploadService(
@@ -104,6 +117,7 @@ describe('PostgreSQL storage lifecycle', () => {
     await database.delete(objectDeletionJobs);
     await database.delete(folderDownloads);
     await database.delete(uploadIntents);
+    await database.delete(fileGrants);
     await database.delete(files);
     await database.delete(entries);
     await database.delete(users);
@@ -831,6 +845,120 @@ describe('PostgreSQL storage lifecycle', () => {
         'entry.deleted',
       ]);
     });
+
+    it('rejects file download without persisting audit when audit recording fails', async () => {
+      const owner = await createUser();
+      const file = await createFile(owner.id, null, 'audit-fail.txt', 'objects/audit-fail');
+      const failingAuditRepo: AuditRepository = {
+        record: () => Promise.reject(new Error('audit write failed')),
+        listEvents: () => Promise.resolve([]),
+        getStatistics: () =>
+          Promise.resolve({ total: 0, entryChanges: 0, downloadRequests: 0, sharingChanges: 0 }),
+      };
+      const service = new FileDownloadService(
+        unitOfWork,
+        entryAuthorizer,
+        fileRepository,
+        failingAuditRepo,
+        createStubStorage(),
+      );
+
+      await expect(service.createDownloadUrl(toDomainUser(owner), file.publicId)).rejects.toThrow(
+        'audit write failed',
+      );
+      expect(await database.select().from(auditEvents)).toHaveLength(0);
+    });
+
+    it('serializes shared file download with concurrent share revocation without deadlock and denies subsequent download', async () => {
+      const owner = await createUser();
+      const viewer = await createUser();
+      const file = await createFile(owner.id, null, 'shared-locked.txt', 'objects/shared-locked');
+      const [grant] = await database
+        .insert(fileGrants)
+        .values({
+          fileId: file.id,
+          recipientUserId: viewer.id,
+          recipientEmail: viewer.email,
+          createdByUserId: owner.id,
+          permission: 'viewer',
+        })
+        .returning({ publicId: fileGrants.publicId });
+
+      if (!grant) {
+        throw new Error('Failed to create test file grant');
+      }
+
+      let releaseSign!: () => void;
+      let reportSigning!: () => void;
+      const signingStarted = new Promise<void>((resolve) => {
+        reportSigning = resolve;
+      });
+      const allowSigningToFinish = new Promise<void>((resolve) => {
+        releaseSign = resolve;
+      });
+
+      const blockingStorage: ObjectStorage = {
+        ...createStubStorage(),
+        createPresignedDownloadUrl: async () => {
+          reportSigning();
+          await allowSigningToFinish;
+          return 'https://storage.example.test/shared-download';
+        },
+      };
+      const downloadService = new FileDownloadService(
+        unitOfWork,
+        entryAuthorizer,
+        fileRepository,
+        auditRepository,
+        blockingStorage,
+      );
+
+      const downloadPromise = downloadService.createDownloadUrl(
+        toDomainUser(viewer),
+        file.publicId,
+      );
+      await signingStarted;
+
+      const revokePromise = sharingService.revokeFileShare(
+        toDomainUser(owner),
+        file.publicId,
+        grant.publicId,
+      );
+
+      const raceResult = await Promise.race([
+        revokePromise.then(() => 'revoked' as const),
+        delay(100).then(() => 'waiting' as const),
+      ]);
+
+      try {
+        expect(raceResult).toBe('waiting');
+      } finally {
+        releaseSign();
+      }
+
+      await expect(downloadPromise).resolves.toMatchObject({
+        fileId: file.publicId,
+        downloadUrl: 'https://storage.example.test/shared-download',
+      });
+      await expect(revokePromise).resolves.toBeUndefined();
+
+      const immediateDownloadService = new FileDownloadService(
+        unitOfWork,
+        entryAuthorizer,
+        fileRepository,
+        auditRepository,
+        createStubStorage(),
+      );
+      await expect(
+        immediateDownloadService.createDownloadUrl(toDomainUser(viewer), file.publicId),
+      ).rejects.toMatchObject({ code: 'entry_not_found' });
+
+      const events = await database.select().from(auditEvents).orderBy(asc(auditEvents.id));
+      expect(events.map((event) => event.action)).toStrictEqual([
+        'file.download_url_issued',
+        'file.share_revoked',
+      ]);
+    });
   });
 
   async function createUser() {
@@ -843,7 +971,7 @@ describe('PostgreSQL storage lifecycle', () => {
         firstName: 'Test',
         lastName: 'User',
       })
-      .returning({ id: users.id, publicId: users.publicId });
+      .returning({ id: users.id, publicId: users.publicId, email: users.email });
 
     if (!user) {
       throw new Error('Failed to create integration test user');
@@ -948,14 +1076,14 @@ describe('PostgreSQL storage lifecycle', () => {
   }
 });
 
-function toDomainUser(user: { id: number; publicId: string }): User {
+function toDomainUser(user: { id: number; publicId: string; email?: string }): User {
   const now = new Date('2026-07-28T10:00:00.000Z');
   return {
     id: user.id,
     publicId: user.publicId,
     issuer: OWNER_ISSUER,
     subject: 'test-subject',
-    email: 'test@example.com',
+    email: user.email ?? 'test@example.com',
     firstName: 'Test',
     lastName: 'User',
     createdAt: now,

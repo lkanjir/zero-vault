@@ -3,20 +3,10 @@ import type { Database } from '../db/db-client.js';
 import { resolveDbExecutor, type TransactionContext } from '../db/unit-of-work.js';
 import { entries, files } from '../db/schema.js';
 import type { FileRepository } from './file-repository.js';
-import type { DownloadableFile, File } from './file.js';
+import type { DownloadableFile } from './file.js';
 
 export class PostgresFileRepository implements FileRepository {
   constructor(private readonly db: Database) {}
-
-  async findByEntryId(entryId: number, tx?: TransactionContext): Promise<File | null> {
-    const [row] = await resolveDbExecutor(this.db, tx)
-      .select()
-      .from(files)
-      .where(eq(files.entryId, entryId))
-      .limit(1);
-
-    return row ?? null;
-  }
 
   async findAvailableFileByEntryId(
     entryId: number,

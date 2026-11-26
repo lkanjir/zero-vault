@@ -49,7 +49,7 @@ export type ExpireReadyFolderDownloadsCommand = {
 };
 
 export interface FolderDownloadRepository {
-  create(command: CreateFolderDownloadCommand, tx?: TransactionContext): Promise<FolderDownload>;
+  create(command: CreateFolderDownloadCommand, tx: TransactionContext): Promise<FolderDownload>;
   findByOwnerAndDownloadId(ownerId: number, downloadId: string): Promise<FolderDownload | null>;
   claimNext(command: ClaimNextFolderDownloadCommand): Promise<FolderDownload | null>;
   renewLease(command: RenewFolderDownloadLeaseCommand): Promise<boolean>;
