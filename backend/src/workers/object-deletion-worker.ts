@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { createCompositionRoot } from '../composition-root.js';
+import { createObjectDeletionWorkerComposition } from '../composition-root.js';
 import { loadDbConfig, loadDotenv, loadS3Config } from '../config.js';
 import { createDatabase } from '../db/db-client.js';
 
@@ -7,7 +7,7 @@ loadDotenv();
 
 const MAX_JOBS_PER_RUN = 100;
 const database = createDatabase(loadDbConfig());
-const composition = createCompositionRoot(database.db, loadS3Config());
+const composition = createObjectDeletionWorkerComposition(database.db, loadS3Config());
 
 const objectDeletionTask = cron.schedule(
   '* * * * * *',

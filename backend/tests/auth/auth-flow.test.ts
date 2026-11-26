@@ -1,8 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { app } from '../../src/app.js';
+import { createApp } from '../../src/app.js';
+import { loadApiConfig } from '../../src/config.js';
+import { createDatabase } from '../../src/db/db-client.js';
 
 describe('upload authentication', () => {
+  const apiConfig = loadApiConfig();
+  const database = createDatabase(apiConfig.db);
+  const app = createApp({ config: apiConfig, database });
+
+  afterAll(async () => {
+    await database.close();
+  });
+
   it('upload route requires authentication', async () => {
     const response = await request(app).post('/api/uploads/presign');
 

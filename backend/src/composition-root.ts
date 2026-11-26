@@ -27,10 +27,10 @@ import { FileSharingService } from './sharing/file-sharing-service.js';
 import { FileGrantMaintenanceService } from './sharing/file-grant-maintenance-service.js';
 import { PostgresAuditRepository } from './audit/postgres-audit-repository.js';
 import { AuditService } from './audit/audit-service.js';
-import { loadS3Config, type S3Config } from './config.js';
+import type { S3Config } from './config.js';
 import type { Database } from './db/db-client.js';
 
-export function createCompositionRoot(db: Database, s3Config: S3Config = loadS3Config()) {
+function createAuthorizationPrimitives(db: Database) {
   const authorizationContextResolver = new PostgresAuthorizationContextResolver(db);
   const authorizationPolicy = new AuthorizationPolicy();
   const authorizationService = new AuthorizationService(
@@ -40,6 +40,15 @@ export function createCompositionRoot(db: Database, s3Config: S3Config = loadS3C
   const authzMapper = new EntryAccessMapper(authorizationPolicy);
   const authorizer = new PostgresEntryAuthorizer(authorizationService);
 
+  return {
+    authorizationService,
+    authzMapper,
+    authorizer,
+  };
+}
+
+export function createApiComposition(db: Database, s3Config: S3Config) {
+  const { authorizationService, authzMapper, authorizer } = createAuthorizationPrimitives(db);
   const storage = new S3ObjectStorage(s3Config);
 
   const auditRepository = new PostgresAuditRepository(db);
@@ -50,7 +59,7 @@ export function createCompositionRoot(db: Database, s3Config: S3Config = loadS3C
 
   const intentRepository = new PostgresIntentRepository(db, authorizer);
   const uploadService = new UploadService(storage, intentRepository);
-  const uploadCleanupService = new UploadCleanupService(intentRepository);
+  const completeUploadUseCase = new CompleteUploadUseCase(uploadService);
 
   const fileRepository = new PostgresFileRepository(db);
   const downloadService = new FileDownloadService(
@@ -70,36 +79,62 @@ export function createCompositionRoot(db: Database, s3Config: S3Config = loadS3C
     folderDownloadRepository,
     storage,
   );
-  const folderArchiver = new StreamingFolderArchiver(storage);
-  const folderDownloadProcessor = new FolderDownloadProcessor(
-    folderDownloadRepository,
-    folderArchiver,
-  );
-  const folderDownloadCleanupService = new FolderDownloadCleanupService(folderDownloadRepository);
-
-  const completeUploadUseCase = new CompleteUploadUseCase(uploadService);
-
-  const objectDeletionRepository = new PostgresObjectDeletionRepository(db);
-  const objectDeletionProcessor = new ObjectDeletionProcessor(objectDeletionRepository, storage);
 
   const grantRepository = new PostgresFileGrantRepository(db, authorizer);
   const sharingService = new FileSharingService(authorizationService, grantRepository, authzMapper);
-  const fileGrantMaintenanceService = new FileGrantMaintenanceService(grantRepository);
 
   return {
     userService,
     uploadService,
-    uploadCleanupService,
     completeUploadUseCase,
     downloadService,
     entryService,
     folderService,
     folderDownloadService,
-    folderDownloadCleanupService,
-    folderDownloadProcessor,
-    objectDeletionProcessor,
     sharingService,
-    fileGrantMaintenanceService,
     auditService,
+  };
+}
+
+export function createFolderDownloadWorkerComposition(db: Database, s3Config: S3Config) {
+  const storage = new S3ObjectStorage(s3Config);
+  const folderDownloadRepository = new PostgresFolderDownloadRepository(db);
+  const folderArchiver = new StreamingFolderArchiver(storage);
+  const folderDownloadProcessor = new FolderDownloadProcessor(
+    folderDownloadRepository,
+    folderArchiver,
+  );
+
+  return {
+    folderDownloadProcessor,
+  };
+}
+
+export function createObjectDeletionWorkerComposition(db: Database, s3Config: S3Config) {
+  const storage = new S3ObjectStorage(s3Config);
+  const objectDeletionRepository = new PostgresObjectDeletionRepository(db);
+  const objectDeletionProcessor = new ObjectDeletionProcessor(objectDeletionRepository, storage);
+
+  return {
+    objectDeletionProcessor,
+  };
+}
+
+export function createMaintenanceWorkerComposition(db: Database) {
+  const { authorizer } = createAuthorizationPrimitives(db);
+
+  const intentRepository = new PostgresIntentRepository(db, authorizer);
+  const uploadCleanupService = new UploadCleanupService(intentRepository);
+
+  const folderDownloadRepository = new PostgresFolderDownloadRepository(db);
+  const folderDownloadCleanupService = new FolderDownloadCleanupService(folderDownloadRepository);
+
+  const grantRepository = new PostgresFileGrantRepository(db, authorizer);
+  const fileGrantMaintenanceService = new FileGrantMaintenanceService(grantRepository);
+
+  return {
+    uploadCleanupService,
+    folderDownloadCleanupService,
+    fileGrantMaintenanceService,
   };
 }

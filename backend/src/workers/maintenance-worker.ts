@@ -1,13 +1,13 @@
-import { createCompositionRoot } from '../composition-root.js';
-import { loadDbConfig, loadDotenv, loadS3Config } from '../config.js';
-import { createDatabase } from '../db/db-client.js';
 import cron from 'node-cron';
+import { createMaintenanceWorkerComposition } from '../composition-root.js';
+import { loadDbConfig, loadDotenv } from '../config.js';
+import { createDatabase } from '../db/db-client.js';
 
 loadDotenv();
 
 const BATCH_SIZE = 100;
 const database = createDatabase(loadDbConfig());
-const composition = createCompositionRoot(database.db, loadS3Config());
+const composition = createMaintenanceWorkerComposition(database.db);
 
 const uploadCleanupTask = cron.schedule(
   '0 * * * * *',
