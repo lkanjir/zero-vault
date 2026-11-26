@@ -371,12 +371,29 @@ describe('PostgreSQL storage lifecycle', () => {
       });
     });
 
-    it('builds a recursive owner-scoped archive manifest', async () => {
+    it('builds a recursive owner-scoped archive manifest including zero-byte files', async () => {
       const owner = await createUser();
       const root = await createFolder(owner.id, 'Root');
       const nested = await createFolder(owner.id, 'Nested', root.id);
       await createFile(owner.id, root.id, 'root.txt', 'objects/root');
       await createFile(owner.id, nested.id, 'nested.txt', 'objects/nested');
+      const [emptyEntry] = await database
+        .insert(entries)
+        .values({
+          ownerId: owner.id,
+          parentId: root.id,
+          kind: 'file',
+          name: 'empty.txt',
+        })
+        .returning();
+      await database.insert(files).values({
+        entryId: emptyEntry!.id,
+        objectKey: 'objects/empty',
+        contentType: 'text/plain',
+        sizeBytes: 0,
+        sha256: SHA256,
+        checksumType: 'full_sha256',
+      });
 
       await expect(
         folderRepository.getArchiveManifest({
@@ -395,11 +412,115 @@ describe('PostgreSQL storage lifecycle', () => {
         },
         {
           kind: 'file',
+          pathParts: ['Root', 'empty.txt'],
+          objectKey: 'objects/empty',
+          sizeBytes: 0,
+        },
+        {
+          kind: 'file',
           pathParts: ['Root', 'root.txt'],
           objectKey: 'objects/root',
           sizeBytes: 12,
         },
       ]);
+    });
+
+    it('enforces multipart intent, composite checksum, and zero-byte file DB constraints', async () => {
+      const owner = await createUser();
+      const now = new Date('2026-07-28T10:00:00.000Z');
+      const compositeChecksum = '47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=-2';
+
+      // Valid multipart upload intent
+      await expect(
+        database.insert(uploadIntents).values({
+          createdByUserId: owner.id,
+          fileName: 'large.bin',
+          objectKey: `objects/${randomUUID()}`,
+          contentType: 'application/octet-stream',
+          expectedSizeBytes: 32 * 1024 * 1024,
+          expectedSha256: null,
+          uploadMode: 'multipart',
+          s3UploadId: 's3-upload-123',
+          partSizeBytes: 16 * 1024 * 1024,
+          partCount: 2,
+          checksumType: 'composite_sha256',
+          createdAt: now,
+          uploadUrlExpiresAt: null,
+          finalizeDeadline: new Date(now.getTime() + 48 * 60 * 60_000),
+        }),
+      ).resolves.toBeDefined();
+
+      // Rejects multipart upload intent with single partCount (must be 2..10000)
+      await expect(
+        database.insert(uploadIntents).values({
+          createdByUserId: owner.id,
+          fileName: 'invalid-parts.bin',
+          objectKey: `objects/${randomUUID()}`,
+          contentType: 'application/octet-stream',
+          expectedSizeBytes: 16 * 1024 * 1024,
+          expectedSha256: null,
+          uploadMode: 'multipart',
+          s3UploadId: 's3-upload-456',
+          partSizeBytes: 16 * 1024 * 1024,
+          partCount: 1,
+          checksumType: 'composite_sha256',
+          createdAt: now,
+          uploadUrlExpiresAt: null,
+          finalizeDeadline: new Date(now.getTime() + 48 * 60 * 60_000),
+        }),
+      ).rejects.toThrow();
+
+      // Rejects negative file size
+      const [negEntry] = await database
+        .insert(entries)
+        .values({ ownerId: owner.id, parentId: null, kind: 'file', name: 'neg.bin' })
+        .returning();
+      await expect(
+        database.insert(files).values({
+          entryId: negEntry!.id,
+          objectKey: `objects/${randomUUID()}`,
+          contentType: 'application/octet-stream',
+          sizeBytes: -1,
+          sha256: SHA256,
+          checksumType: 'full_sha256',
+        }),
+      ).rejects.toThrow();
+
+      // Accepts composite_sha256 on files, rejects malformed composite_sha256
+      await expect(
+        database.insert(files).values({
+          entryId: negEntry!.id,
+          objectKey: `objects/${randomUUID()}`,
+          contentType: 'application/octet-stream',
+          sizeBytes: 32 * 1024 * 1024,
+          sha256: compositeChecksum,
+          checksumType: 'composite_sha256',
+        }),
+      ).resolves.toBeDefined();
+
+      const [badChecksumEntry] = await database
+        .insert(entries)
+        .values({ ownerId: owner.id, parentId: null, kind: 'file', name: 'bad-checksum.bin' })
+        .returning();
+      await expect(
+        database.insert(files).values({
+          entryId: badChecksumEntry!.id,
+          objectKey: `objects/${randomUUID()}`,
+          contentType: 'application/octet-stream',
+          sizeBytes: 32 * 1024 * 1024,
+          sha256: SHA256,
+          checksumType: 'composite_sha256',
+        }),
+      ).rejects.toThrow();
+
+      // Rejects blank s3_upload_id on object_deletion_jobs
+      await expect(
+        database.insert(objectDeletionJobs).values({
+          objectKey: `objects/${randomUUID()}`,
+          s3UploadId: '   ',
+          reason: 'aborted_upload',
+        }),
+      ).rejects.toThrow();
     });
   });
 
@@ -1328,6 +1449,11 @@ function makeIntent(
       contentType: 'text/plain',
       expectedSizeBytes: 12,
       expectedSha256: SHA256,
+      uploadMode: 'single',
+      s3UploadId: null,
+      partSizeBytes: null,
+      partCount: null,
+      checksumType: 'full_sha256',
       createdAt,
       uploadUrlExpiresAt: new Date(createdAt.getTime() + 60_000),
       finalizeDeadline: new Date(createdAt.getTime() + 120_000),

@@ -141,6 +141,11 @@ export const errorCatalog = {
     message: 'Vrijeme za dovršavanje prijenosa je isteklo.',
   },
 
+  upload_aborted: {
+    status: 409,
+    message: 'Prijenos je otkazan.',
+  },
+
   upload_checksum_missing: {
     status: 409,
     message: 'Spremište nije vratilo podatke za provjeru integriteta datoteke.',

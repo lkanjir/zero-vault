@@ -214,6 +214,10 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         return { kind: 'superseded' };
       }
 
+      if (intent.expectedSha256 === null) {
+        throw new Error('Replace intent is missing verified checksum');
+      }
+
       const [updatedFile] = await tx
         .update(files)
         .set({
@@ -221,6 +225,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
           contentType: intent.contentType,
           sizeBytes: intent.expectedSizeBytes,
           sha256: intent.expectedSha256,
+          checksumType: intent.checksumType,
           contentVersion: sql`${files.contentVersion} + 1`,
         })
         .where(
@@ -331,6 +336,10 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     entryId: number,
     intent: UploadIntent,
   ): Promise<FileRow | null> {
+    if (intent.expectedSha256 === null) {
+      throw new Error('Create intent is missing verified checksum');
+    }
+
     const [file] = await tx
       .insert(files)
       .values({
@@ -339,6 +348,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         contentType: intent.contentType,
         sizeBytes: intent.expectedSizeBytes,
         sha256: intent.expectedSha256,
+        checksumType: intent.checksumType,
       })
       .returning();
 
@@ -409,6 +419,11 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       contentType: row.contentType,
       expectedSizeBytes: row.expectedSizeBytes,
       expectedSha256: row.expectedSha256,
+      uploadMode: row.uploadMode,
+      s3UploadId: row.s3UploadId,
+      partSizeBytes: row.partSizeBytes,
+      partCount: row.partCount,
+      checksumType: row.checksumType,
       status: row.status,
       createdAt: new Date(row.createdAt),
       uploadUrlExpiresAt: row.uploadUrlExpiresAt,
@@ -428,6 +443,11 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       contentType: upload.contentType,
       expectedSizeBytes: upload.expectedSizeBytes,
       expectedSha256: upload.expectedSha256,
+      uploadMode: upload.uploadMode,
+      s3UploadId: upload.s3UploadId,
+      partSizeBytes: upload.partSizeBytes,
+      partCount: upload.partCount,
+      checksumType: upload.checksumType,
       status: 'pending',
       createdAt: upload.createdAt,
       uploadUrlExpiresAt: upload.uploadUrlExpiresAt,

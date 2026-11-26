@@ -147,6 +147,7 @@ function makeJob(overrides: Partial<ObjectDeletionJob> = {}): ObjectDeletionJob 
   return {
     id: 10,
     objectKey: 'users/user/objects/file',
+    s3UploadId: null,
     reason: 'deleted_file',
     createdAt: new Date('2026-07-28T09:00:00.000Z'),
     availableAt: NOW,

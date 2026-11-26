@@ -288,7 +288,7 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
 
       const sizeBytes = Number(row.sizeBytes);
 
-      if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) {
+      if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
         throw new Error('Archive file has invalid size');
       }
 

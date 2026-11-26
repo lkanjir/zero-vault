@@ -4,11 +4,13 @@ export type ObjectDeletionReason =
   | 'replaced_file'
   | 'superseded_upload'
   | 'expired_folder_archive'
-  | 'stale_folder_archive_attempt';
+  | 'stale_folder_archive_attempt'
+  | 'aborted_upload';
 
 export type ObjectDeletionJob = {
   id: number;
   objectKey: string;
+  s3UploadId: string | null;
   reason: ObjectDeletionReason;
   createdAt: Date;
   availableAt: Date;

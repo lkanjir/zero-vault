@@ -120,6 +120,13 @@
       "when": 1795712062042,
       "tag": "0016_object_deletion_jobs_failed_at",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1795721796308,
+      "tag": "0017_multipart_uploads_and_zero_byte_files",
+      "breakpoints": true
     }
   ]
 }

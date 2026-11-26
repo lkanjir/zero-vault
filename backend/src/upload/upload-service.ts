@@ -24,6 +24,7 @@ type CompleteUploadOutcome =
   | { kind: 'completed'; file: CompletedUploadFile }
   | { kind: 'not_found' }
   | { kind: 'expired' }
+  | { kind: 'aborted' }
   | { kind: 'superseded' }
   | { kind: 'duplicate_entry_name' };
 
@@ -152,6 +153,8 @@ export class UploadService {
         };
       case 'expired':
         return { kind: 'expired' };
+      case 'aborted':
+        return { kind: 'aborted' };
       case 'superseded':
         return lockedIntent.operation === 'create'
           ? { kind: 'duplicate_entry_name' }
@@ -266,6 +269,10 @@ export class UploadService {
   }
 
   private async createPresignedUploadUrl(upload: UploadIntentInput): Promise<string> {
+    if (upload.expectedSha256 === null) {
+      throw new Error('Single-part upload is missing expected SHA-256');
+    }
+
     return this.storage.createPresignedUploadUrl({
       objectKey: upload.objectKey,
       contentType: upload.contentType,
@@ -331,6 +338,8 @@ export class UploadService {
         throw new AppError('upload_not_found');
       case 'expired':
         throw new AppError('upload_expired');
+      case 'aborted':
+        throw new AppError('upload_aborted');
       case 'superseded':
         throw new AppError('replacement_conflict');
       case 'duplicate_entry_name':
@@ -353,6 +362,11 @@ export class UploadService {
       contentType: request.contentType,
       expectedSizeBytes: request.size,
       expectedSha256: request.sha256,
+      uploadMode: 'single',
+      s3UploadId: null,
+      partSizeBytes: null,
+      partCount: null,
+      checksumType: 'full_sha256',
       createdAt,
       uploadUrlExpiresAt: new Date(createdAt.getTime() + this.EXPIRES_IN_SECONDS * 1000),
       finalizeDeadline: new Date(createdAt.getTime() + this.FINALIZE_DEADLINE_SECONDS * 1000),
@@ -360,6 +374,10 @@ export class UploadService {
   }
 
   private toUploadResponse(upload: UploadIntentInput, uploadUrl: string): UploadResponse {
+    if (upload.expectedSha256 === null) {
+      throw new Error('Single-part upload is missing expected SHA-256');
+    }
+
     return {
       uploadId: upload.uploadId,
       uploadUrl,

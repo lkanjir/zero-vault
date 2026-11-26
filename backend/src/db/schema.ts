@@ -22,9 +22,14 @@ export const uploadIntentStatus = pgEnum('upload_intent_status', [
   'completed',
   'expired',
   'superseded',
+  'aborted',
 ]);
 
 export const uploadIntentOperation = pgEnum('upload_intent_operation', ['create', 'replace']);
+
+export const uploadMode = pgEnum('upload_mode', ['single', 'multipart']);
+
+export const checksumType = pgEnum('checksum_type', ['full_sha256', 'composite_sha256']);
 
 export const entryKind = pgEnum('entry_kind', ['file', 'folder']);
 
@@ -44,13 +49,18 @@ export const uploadIntents = pgTable(
     objectKey: text('object_key').notNull(),
     contentType: text('content_type').notNull(),
     expectedSizeBytes: bigint('expected_size_bytes', { mode: 'number' }).notNull(),
-    expectedSha256: text('expected_sha256').notNull(),
+    expectedSha256: text('expected_sha256'),
+    uploadMode: uploadMode('upload_mode').default('single').notNull(),
+    s3UploadId: text('s3_upload_id'),
+    partSizeBytes: integer('part_size_bytes'),
+    partCount: integer('part_count'),
+    checksumType: checksumType('checksum_type').default('full_sha256').notNull(),
     status: uploadIntentStatus('status').default('pending').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     uploadUrlExpiresAt: timestamp('upload_url_expires_at', {
       withTimezone: true,
       mode: 'date',
-    }).notNull(),
+    }),
     completedAt: timestamp('completed_at', { withTimezone: true, mode: 'date' }),
     finalizeDeadline: timestamp('finalize_deadline', {
       withTimezone: true,
@@ -79,15 +89,45 @@ export const uploadIntents = pgTable(
       'upload_intents_content_type_check',
       sql`char_length(btrim(${table.contentType})) between 1 and 500`,
     ),
-    check('upload_intents_size_check', sql`${table.expectedSizeBytes} > 0`),
-    check('upload_intents_sha256_check', sql`${table.expectedSha256} ~ '^[0-9a-f]{64}$'`),
+    check('upload_intents_size_check', sql`${table.expectedSizeBytes} >= 0`),
+    check(
+      'upload_intents_sha256_check',
+      sql`${table.expectedSha256} is null or ${table.expectedSha256} ~ '^[0-9a-f]{64}$'`,
+    ),
     check(
       'upload_intents_upload_url_deadline_check',
-      sql`${table.uploadUrlExpiresAt} > ${table.createdAt}`,
+      sql`${table.uploadUrlExpiresAt} is null or ${table.uploadUrlExpiresAt} > ${table.createdAt}`,
     ),
     check(
       'upload_intents_finalize_deadline_check',
-      sql`${table.finalizeDeadline} > ${table.uploadUrlExpiresAt}`,
+      sql`${table.finalizeDeadline} > ${table.createdAt} and (${table.uploadUrlExpiresAt} is null or ${table.finalizeDeadline} > ${table.uploadUrlExpiresAt})`,
+    ),
+    check(
+      'upload_intents_mode_check',
+      sql`
+      (
+        ${table.uploadMode} = 'single'
+        and ${table.checksumType} = 'full_sha256'
+        and ${table.expectedSha256} is not null
+        and ${table.uploadUrlExpiresAt} is not null
+        and ${table.s3UploadId} is null
+        and ${table.partSizeBytes} is null
+        and ${table.partCount} is null
+      )
+      or
+      (
+        ${table.uploadMode} = 'multipart'
+        and ${table.checksumType} = 'composite_sha256'
+        and ${table.expectedSha256} is null
+        and ${table.uploadUrlExpiresAt} is null
+        and ${table.s3UploadId} is not null
+        and char_length(btrim(${table.s3UploadId})) > 0
+        and ${table.partSizeBytes} is not null
+        and ${table.partSizeBytes} > 0
+        and ${table.partCount} is not null
+        and ${table.partCount} between 2 and 10000
+      )
+    `,
     ),
     check(
       'upload_intents_completion_state_check',
@@ -235,6 +275,7 @@ export const files = pgTable(
     contentVersion: integer('content_version').default(1).notNull(),
     sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
     sha256: text('sha256').notNull(),
+    checksumType: checksumType('checksum_type').default('full_sha256').notNull(),
   },
   (table) => [
     unique('files_object_key_key').on(table.objectKey),
@@ -244,8 +285,21 @@ export const files = pgTable(
       sql`char_length(btrim(${table.contentType})) between 1 and 500`,
     ),
     check('files_content_version_check', sql`${table.contentVersion} > 0`),
-    check('files_size_check', sql`${table.sizeBytes} > 0`),
-    check('files_sha256_check', sql`${table.sha256} ~ '^[0-9a-f]{64}$'`),
+    check('files_size_check', sql`${table.sizeBytes} >= 0`),
+    check(
+      'files_sha256_check',
+      sql`
+      (
+        ${table.checksumType} = 'full_sha256'
+        and ${table.sha256} ~ '^[0-9a-f]{64}$'
+      )
+      or
+      (
+        ${table.checksumType} = 'composite_sha256'
+        and ${table.sha256} ~ '^[A-Za-z0-9+/]{43}=-[1-9][0-9]*$'
+      )
+    `,
+    ),
   ],
 );
 
@@ -308,6 +362,7 @@ export const objectDeletionReason = pgEnum('object_deletion_reason', [
   'superseded_upload',
   'expired_folder_archive',
   'stale_folder_archive_attempt',
+  'aborted_upload',
 ]);
 
 export const objectDeletionJobs = pgTable(
@@ -315,6 +370,7 @@ export const objectDeletionJobs = pgTable(
   {
     id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
     objectKey: text('object_key').notNull(),
+    s3UploadId: text('s3_upload_id'),
     reason: objectDeletionReason('reason').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
     availableAt: timestamp('available_at', { withTimezone: true, mode: 'date' })
@@ -331,6 +387,10 @@ export const objectDeletionJobs = pgTable(
     check(
       'object_deletion_jobs_object_key_not_blank_check',
       sql`char_length(btrim(${table.objectKey})) > 0`,
+    ),
+    check(
+      'object_deletion_jobs_s3_upload_id_not_blank_check',
+      sql`${table.s3UploadId} is null or char_length(btrim(${table.s3UploadId})) > 0`,
     ),
     check('object_deletion_jobs_attempt_count_check', sql`${table.attemptCount} >= 0`),
     check(

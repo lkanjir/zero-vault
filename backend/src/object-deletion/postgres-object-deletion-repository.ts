@@ -156,6 +156,7 @@ export class PostgresObjectDeletionRepository implements ObjectDeletionRepositor
     return {
       id: updatedRow.id,
       objectKey: updatedRow.objectKey,
+      s3UploadId: updatedRow.s3UploadId,
       reason: updatedRow.reason,
       createdAt: updatedRow.createdAt,
       availableAt: updatedRow.availableAt,

@@ -67,6 +67,41 @@ describe('StreamingFolderArchiver', () => {
     });
   });
 
+  it('archives 0-byte empty files alongside non-empty files', async () => {
+    storage.getObjectStream.mockImplementation((objectKey) => {
+      if (objectKey === 'objects/empty') {
+        return Promise.resolve(Readable.from([]));
+      }
+      return Promise.resolve(Readable.from([Buffer.from('report body')]));
+    });
+
+    const result = await archiver.create({
+      archiveObjectKey: 'folder-downloads/user/download/empty.zip',
+      entries: [
+        { kind: 'folder', pathParts: ['Documents'] },
+        {
+          kind: 'file',
+          pathParts: ['Documents', 'empty.txt'],
+          objectKey: 'objects/empty',
+          sizeBytes: 0,
+        },
+        {
+          kind: 'file',
+          pathParts: ['Documents', 'report.txt'],
+          objectKey: 'objects/report',
+          sizeBytes: 11,
+        },
+      ],
+    });
+
+    expect(result.sizeBytes).toBe(uploadedArchive.length);
+    expect(result.sizeBytes).toBeGreaterThan(0);
+    expect(uploadedArchive.includes(Buffer.from('Documents/empty.txt'))).toBe(true);
+    expect(uploadedArchive.includes(Buffer.from('Documents/report.txt'))).toBe(true);
+    expect(uploadedArchive.includes(Buffer.from('report body'))).toBe(true);
+    expect(storage.getObjectStream).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects an empty archive manifest before starting an upload', async () => {
     await expect(
       archiver.create({
