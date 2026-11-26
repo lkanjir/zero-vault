@@ -333,6 +333,44 @@ describe('PostgreSQL storage lifecycle', () => {
       });
     });
 
+    it('handles concurrent workers claiming alongside an exhausted folder download without deadlock or double-claim', async () => {
+      const now = new Date('2026-07-28T10:00:00.000Z');
+      const exhausted = await createFolderDownload({ status: 'processing', attemptCount: 3 });
+      await database
+        .update(folderDownloads)
+        .set({ leaseExpiresAt: new Date(now.getTime() - 1_000) })
+        .where(eq(folderDownloads.id, exhausted.download.id));
+      const queuedA = await createFolderDownload({ status: 'queued', attemptCount: 0 });
+      const queuedB = await createFolderDownload({ status: 'queued', attemptCount: 0 });
+
+      const [claimA, claimB] = await Promise.all([
+        folderRepository.claimNext({
+          claimedAt: now,
+          leaseExpiresAt: new Date(now.getTime() + 60_000),
+          maxAttempts: 3,
+        }),
+        folderRepository.claimNext({
+          claimedAt: now,
+          leaseExpiresAt: new Date(now.getTime() + 60_000),
+          maxAttempts: 3,
+        }),
+      ]);
+
+      const claimedIds = [claimA?.id, claimB?.id].filter((id): id is number => id !== undefined);
+      expect(claimedIds.sort((a, b) => a - b)).toStrictEqual(
+        [queuedA.download.id, queuedB.download.id].sort((a, b) => a - b),
+      );
+
+      const [storedExhausted] = await database
+        .select()
+        .from(folderDownloads)
+        .where(eq(folderDownloads.id, exhausted.download.id));
+      expect(storedExhausted).toMatchObject({
+        status: 'failed',
+        failureCode: 'max_attempts_exceeded',
+      });
+    });
+
     it('builds a recursive owner-scoped archive manifest', async () => {
       const owner = await createUser();
       const root = await createFolder(owner.id, 'Root');
@@ -536,6 +574,58 @@ describe('PostgreSQL storage lifecycle', () => {
           maxAttempts: 10,
         }),
       ).resolves.toBeNull();
+    });
+
+    it('handles concurrent workers claiming alongside an exhausted object deletion job without deadlock or double-claim', async () => {
+      const now = new Date('2026-07-28T10:00:00.000Z');
+      const [exhausted] = await database
+        .insert(objectDeletionJobs)
+        .values({
+          objectKey: 'objects/concurrent-poison',
+          reason: 'deleted_file',
+          availableAt: new Date(now.getTime() - 60_000),
+          attemptCount: 10,
+          leaseExpiresAt: new Date(now.getTime() - 1_000),
+        })
+        .returning();
+      const [dueA, dueB] = await database
+        .insert(objectDeletionJobs)
+        .values([
+          { objectKey: 'objects/concurrent-a', reason: 'deleted_file', availableAt: now },
+          { objectKey: 'objects/concurrent-b', reason: 'deleted_file', availableAt: now },
+        ])
+        .returning();
+
+      if (!exhausted || !dueA || !dueB) {
+        throw new Error('Failed to seed concurrent deletion jobs');
+      }
+
+      const [claimA, claimB] = await Promise.all([
+        deletionRepository.claimNext({
+          claimedAt: now,
+          leaseExpiresAt: new Date(now.getTime() + 60_000),
+          maxAttempts: 10,
+        }),
+        deletionRepository.claimNext({
+          claimedAt: now,
+          leaseExpiresAt: new Date(now.getTime() + 60_000),
+          maxAttempts: 10,
+        }),
+      ]);
+
+      const claimedIds = [claimA?.id, claimB?.id].filter((id): id is number => id !== undefined);
+      expect(claimedIds.sort((a, b) => a - b)).toStrictEqual(
+        [dueA.id, dueB.id].sort((a, b) => a - b),
+      );
+
+      const [storedExhausted] = await database
+        .select()
+        .from(objectDeletionJobs)
+        .where(eq(objectDeletionJobs.id, exhausted.id));
+      expect(storedExhausted).toMatchObject({
+        failedAt: now,
+        lastErrorCode: 'max_attempts_exceeded',
+      });
     });
   });
 

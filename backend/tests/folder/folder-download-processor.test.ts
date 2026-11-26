@@ -232,13 +232,14 @@ describe('FolderDownloadProcessor', () => {
     expect(repository.claimNext).not.toHaveBeenCalled();
   });
 
-  it('aborts in-flight archiving on shutdown without marking the download permanently failed', async () => {
+  it('aborts in-flight archiving on shutdown, releases the lease immediately, and does not mark failed', async () => {
     const download = makeDownload();
     const shutdownController = new AbortController();
     let capturedSignal: AbortSignal | undefined;
 
     repository.claimNext.mockResolvedValue(download);
     repository.getArchiveManifest.mockResolvedValue(MANIFEST);
+    repository.renewLease.mockResolvedValue(true);
     archiver.create.mockImplementationOnce(({ signal }) => {
       capturedSignal = signal;
       return new Promise((_resolve, reject) => {
@@ -255,12 +256,54 @@ describe('FolderDownloadProcessor', () => {
 
     await expect(processPromise).resolves.toBe(true);
     expect(capturedSignal?.aborted).toBe(true);
+    expect(repository.renewLease).toHaveBeenCalledExactlyOnceWith({
+      id: download.id,
+      attemptCount: download.attemptCount,
+      leaseExpiresAt: NOW,
+    });
     expect(repository.markFailed).not.toHaveBeenCalled();
     expect(repository.completeArchiveAttempt).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith('Folder download processing aborted due to worker shutdown', {
       downloadId: download.downloadId,
       attemptCount: download.attemptCount,
     });
+  });
+
+  it('ignores an in-flight renewLease returning false after archive completion starts', async () => {
+    const download = makeDownload();
+    let resolveArchive!: (result: { sizeBytes: number }) => void;
+    let resolveRenewal!: (renewed: boolean) => void;
+
+    repository.claimNext.mockResolvedValue(download);
+    repository.getArchiveManifest.mockResolvedValue(MANIFEST);
+    repository.completeArchiveAttempt.mockResolvedValue('ready');
+    repository.renewLease.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveRenewal = resolve;
+        }),
+    );
+    archiver.create.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveArchive = resolve;
+        }),
+    );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const processPromise = processor.processNext();
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+    expect(repository.renewLease).toHaveBeenCalledOnce();
+
+    resolveArchive({ sizeBytes: 512 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Renewal resolves false after completeArchiveAttempt transitioned status to 'ready'
+    resolveRenewal(false);
+    await expect(processPromise).resolves.toBe(true);
+
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('does not mark an uploaded archive failed when persisting its completion fails', async () => {
