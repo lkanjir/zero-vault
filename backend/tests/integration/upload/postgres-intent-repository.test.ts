@@ -13,8 +13,12 @@ import {
   uploadIntents,
   users,
 } from '../../../src/db/schema.js';
-import type { Database } from '../../../src/db/db-client.js';
-import type { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
+import { AuthorizationPolicy } from '../../../src/authorization/authorization-policy.js';
+import { AuthorizationService } from '../../../src/authorization/authorization-service.js';
+import { PostgresAuthorizationContextResolver } from '../../../src/authorization/postgres-authorization-context-resolver.js';
+import { PostgresEntryAuthorizer } from '../../../src/authorization/postgres-entry-authorizer.js';
+import { createDatabase, type Database } from '../../../src/db/db-client.js';
+import { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
 import type {
   SaveReplacementUploadIntentCommand,
   SaveUploadIntentCommand,
@@ -37,32 +41,15 @@ describe('PostgresIntentRepository upload targets', () => {
       .withPassword('test')
       .start();
 
-    process.env['DATABASE_URL'] = container.getConnectionUri();
-
-    const [
-      databaseModule,
-      repositoryModule,
-      contextResolverModule,
-      policyModule,
-      authorizationServiceModule,
-      entryAuthorizerModule,
-    ] = await Promise.all([
-      import('../../../src/db/db-client.js'),
-      import('../../../src/upload/postgres-intent-repository.js'),
-      import('../../../src/authorization/postgres-authorization-context-resolver.js'),
-      import('../../../src/authorization/authorization-policy.js'),
-      import('../../../src/authorization/authorization-service.js'),
-      import('../../../src/authorization/postgres-entry-authorizer.js'),
-    ]);
-
-    database = databaseModule.db;
-    closeDatabase = databaseModule.closeDatabase;
-    const authorizationService = new authorizationServiceModule.AuthorizationService(
-      new contextResolverModule.PostgresAuthorizationContextResolver(),
-      new policyModule.AuthorizationPolicy(),
+    const dbHandle = createDatabase({ connectionString: container.getConnectionUri() });
+    database = dbHandle.db;
+    closeDatabase = dbHandle.close;
+    const authorizationService = new AuthorizationService(
+      new PostgresAuthorizationContextResolver(database),
+      new AuthorizationPolicy(),
     );
-    const entryAuthorizer = new entryAuthorizerModule.PostgresEntryAuthorizer(authorizationService);
-    repository = new repositoryModule.PostgresIntentRepository(entryAuthorizer);
+    const entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
+    repository = new PostgresIntentRepository(database, entryAuthorizer);
 
     await migrate(database, {
       migrationsFolder: path.resolve(process.cwd(), 'drizzle'),

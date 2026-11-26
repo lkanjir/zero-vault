@@ -1,7 +1,12 @@
 import { createCompositionRoot } from '../composition-root.js';
+import { loadDbConfig, loadDotenv, loadS3Config } from '../config.js';
+import { createDatabase } from '../db/db-client.js';
 import cron from 'node-cron';
 
-const composition = createCompositionRoot();
+loadDotenv();
+
+const database = createDatabase(loadDbConfig());
+const composition = createCompositionRoot(database.db, loadS3Config());
 
 const folderDownloadTask = cron.schedule(
   '* * * * * *',

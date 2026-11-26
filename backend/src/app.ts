@@ -14,14 +14,15 @@ import { createHealthRouter } from './shared/http/health-routes.js';
 import { routeNotFound } from './shared/http/route-not-found.js';
 import { createAuditRouter } from './audit/audit-routes.js';
 import { createFrontendRouter } from './frontend/frontend-routes.js';
-import { checkDatabaseConnection } from './db/db-client.js';
+import { createDatabase } from './db/db-client.js';
 import { loadApiConfig } from './config.js';
 
 const HSTS_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 
 const apiConfig = loadApiConfig();
+const database = createDatabase(apiConfig.db);
 export const app = express();
-const composition = createCompositionRoot(apiConfig.s3);
+const composition = createCompositionRoot(database.db, apiConfig.s3);
 const requireAuth = createRequireAuthMiddleware(createAccessTokenVerifier(apiConfig.oidc));
 
 app.disable('x-powered-by');
@@ -35,7 +36,7 @@ app.use(
 );
 
 app.use(requestContext);
-app.use(createHealthRouter(checkDatabaseConnection));
+app.use(createHealthRouter(database.checkConnection));
 app.use(express.json({ limit: '16kb' }));
 
 app.use('/api', (_req, res, next) => {

@@ -12,8 +12,12 @@ import {
   objectDeletionJobs,
   users,
 } from '../../../src/db/schema.js';
-import type { Database } from '../../../src/db/db-client.js';
-import type { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
+import { AuthorizationPolicy } from '../../../src/authorization/authorization-policy.js';
+import { AuthorizationService } from '../../../src/authorization/authorization-service.js';
+import { PostgresAuthorizationContextResolver } from '../../../src/authorization/postgres-authorization-context-resolver.js';
+import { PostgresEntryAuthorizer } from '../../../src/authorization/postgres-entry-authorizer.js';
+import { createDatabase, type Database } from '../../../src/db/db-client.js';
+import { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
 
 const ISSUER = 'https://issuer.example.test/realms/zero-vault';
 const SHA256 = 'a'.repeat(64);
@@ -31,36 +35,19 @@ describe('PostgreSQL entry authorization', () => {
       .withPassword('test')
       .start();
 
-    process.env['DATABASE_URL'] = container.getConnectionUri();
-
-    const [
-      databaseModule,
-      entryRepositoryModule,
-      contextResolverModule,
-      policyModule,
-      authorizationServiceModule,
-      entryAuthorizerModule,
-    ] = await Promise.all([
-      import('../../../src/db/db-client.js'),
-      import('../../../src/entry/postgres-entry-repository.js'),
-      import('../../../src/authorization/postgres-authorization-context-resolver.js'),
-      import('../../../src/authorization/authorization-policy.js'),
-      import('../../../src/authorization/authorization-service.js'),
-      import('../../../src/authorization/postgres-entry-authorizer.js'),
-    ]);
-
-    database = databaseModule.db;
-    closeDatabase = databaseModule.closeDatabase;
+    const dbHandle = createDatabase({ connectionString: container.getConnectionUri() });
+    database = dbHandle.db;
+    closeDatabase = dbHandle.close;
     await migrate(database, {
       migrationsFolder: path.resolve(process.cwd(), 'drizzle'),
     });
 
-    const authorizationService = new authorizationServiceModule.AuthorizationService(
-      new contextResolverModule.PostgresAuthorizationContextResolver(),
-      new policyModule.AuthorizationPolicy(),
+    const authorizationService = new AuthorizationService(
+      new PostgresAuthorizationContextResolver(database),
+      new AuthorizationPolicy(),
     );
-    const entryAuthorizer = new entryAuthorizerModule.PostgresEntryAuthorizer(authorizationService);
-    entryRepository = new entryRepositoryModule.PostgresEntryRepository(entryAuthorizer);
+    const entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
+    entryRepository = new PostgresEntryRepository(database, entryAuthorizer);
   });
 
   beforeEach(async () => {

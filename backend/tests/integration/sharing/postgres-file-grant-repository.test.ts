@@ -4,10 +4,14 @@ import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { Database } from '../../../src/db/db-client.js';
+import { AuthorizationPolicy } from '../../../src/authorization/authorization-policy.js';
+import { AuthorizationService } from '../../../src/authorization/authorization-service.js';
+import { PostgresAuthorizationContextResolver } from '../../../src/authorization/postgres-authorization-context-resolver.js';
+import { PostgresEntryAuthorizer } from '../../../src/authorization/postgres-entry-authorizer.js';
+import { createDatabase, type Database } from '../../../src/db/db-client.js';
 import { isUniqueViolation } from '../../../src/db/postgres-error.js';
 import { auditEvents, entries, fileGrants, files, users } from '../../../src/db/schema.js';
-import type { PostgresFileGrantRepository } from '../../../src/sharing/postgres-file-grant-repository.js';
+import { PostgresFileGrantRepository } from '../../../src/sharing/postgres-file-grant-repository.js';
 
 const ISSUER = 'https://issuer.example.test/realms/zero-vault';
 const SHA256 = 'a'.repeat(64);
@@ -27,37 +31,20 @@ describe('PostgresFileGrantRepository', () => {
       .withPassword('test')
       .start();
 
-    process.env['DATABASE_URL'] = container.getConnectionUri();
-
-    const [
-      databaseModule,
-      contextResolverModule,
-      policyModule,
-      authorizationServiceModule,
-      entryAuthorizerModule,
-      repositoryModule,
-    ] = await Promise.all([
-      import('../../../src/db/db-client.js'),
-      import('../../../src/authorization/postgres-authorization-context-resolver.js'),
-      import('../../../src/authorization/authorization-policy.js'),
-      import('../../../src/authorization/authorization-service.js'),
-      import('../../../src/authorization/postgres-entry-authorizer.js'),
-      import('../../../src/sharing/postgres-file-grant-repository.js'),
-    ]);
-
-    database = databaseModule.db;
-    closeDatabase = databaseModule.closeDatabase;
+    const dbHandle = createDatabase({ connectionString: container.getConnectionUri() });
+    database = dbHandle.db;
+    closeDatabase = dbHandle.close;
 
     await migrate(database, {
       migrationsFolder: path.resolve(process.cwd(), 'drizzle'),
     });
 
-    const authorizationService = new authorizationServiceModule.AuthorizationService(
-      new contextResolverModule.PostgresAuthorizationContextResolver(),
-      new policyModule.AuthorizationPolicy(),
+    const authorizationService = new AuthorizationService(
+      new PostgresAuthorizationContextResolver(database),
+      new AuthorizationPolicy(),
     );
-    const entryAuthorizer = new entryAuthorizerModule.PostgresEntryAuthorizer(authorizationService);
-    repository = new repositoryModule.PostgresFileGrantRepository(entryAuthorizer);
+    const entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
+    repository = new PostgresFileGrantRepository(database, entryAuthorizer);
   });
 
   beforeEach(async () => {

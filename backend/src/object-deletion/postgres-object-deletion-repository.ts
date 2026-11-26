@@ -1,5 +1,5 @@
 import { and, eq, isNull, lte, or, sql } from 'drizzle-orm';
-import { db } from '../db/db-client.js';
+import type { Database } from '../db/db-client.js';
 import { objectDeletionJobs } from '../db/schema.js';
 import type { ObjectDeletionJob } from './object-deletion-job.js';
 import type {
@@ -10,8 +10,10 @@ import type {
 } from './object-deletion-repository.js';
 
 export class PostgresObjectDeletionRepository implements ObjectDeletionRepository {
+  constructor(private readonly db: Database) {}
+
   async claimNext(command: ClaimNextObjectDeletionCommand): Promise<ObjectDeletionJob | null> {
-    return db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       const [candidate] = await tx
         .select({ id: objectDeletionJobs.id })
         .from(objectDeletionJobs)
@@ -51,7 +53,7 @@ export class PostgresObjectDeletionRepository implements ObjectDeletionRepositor
   }
 
   async complete(command: CompleteObjectDeletionCommand): Promise<boolean> {
-    const [completed] = await db
+    const [completed] = await this.db
       .update(objectDeletionJobs)
       .set({
         completedAt: command.completedAt,
@@ -65,7 +67,7 @@ export class PostgresObjectDeletionRepository implements ObjectDeletionRepositor
   }
 
   async reschedule(command: RescheduleObjectDeletionCommand): Promise<boolean> {
-    const [rescheduled] = await db
+    const [rescheduled] = await this.db
       .update(objectDeletionJobs)
       .set({
         availableAt: command.availableAt,

@@ -1,14 +1,16 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal.js';
-import { db } from '../db/db-client.js';
+import type { Database } from '../db/db-client.js';
 import { users } from '../db/schema.js';
 import type { UserRepository } from './user-repository.js';
 import type { User } from './user.js';
 import { mapUserDatabaseError } from './map-user-db-error.js';
 
 export class PostgresUserRepository implements UserRepository {
+  constructor(private readonly db: Database) {}
+
   async findByPrincipal(principal: AuthenticatedPrincipal): Promise<User | null> {
-    const [row] = await db
+    const [row] = await this.db
       .select()
       .from(users)
       .where(and(eq(users.issuer, principal.issuer), eq(users.subject, principal.subject)))
@@ -19,7 +21,7 @@ export class PostgresUserRepository implements UserRepository {
 
   async createFromPrincipal(principal: AuthenticatedPrincipal): Promise<User | null> {
     try {
-      const [savedUser] = await db
+      const [savedUser] = await this.db
         .insert(users)
         .values(this.toInsert(principal))
         .onConflictDoNothing({ target: [users.issuer, users.subject] })
@@ -36,7 +38,7 @@ export class PostgresUserRepository implements UserRepository {
     profile: { email: string; firstName: string; lastName: string },
   ): Promise<User> {
     try {
-      const [row] = await db
+      const [row] = await this.db
         .update(users)
         .set({
           email: profile.email,

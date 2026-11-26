@@ -28,9 +28,10 @@ import { FileGrantMaintenanceService } from './sharing/file-grant-maintenance-se
 import { PostgresAuditRepository } from './audit/postgres-audit-repository.js';
 import { AuditService } from './audit/audit-service.js';
 import { loadS3Config, type S3Config } from './config.js';
+import type { Database } from './db/db-client.js';
 
-export function createCompositionRoot(s3Config: S3Config = loadS3Config()) {
-  const authorizationContextResolver = new PostgresAuthorizationContextResolver();
+export function createCompositionRoot(db: Database, s3Config: S3Config = loadS3Config()) {
+  const authorizationContextResolver = new PostgresAuthorizationContextResolver(db);
   const authorizationPolicy = new AuthorizationPolicy();
   const authorizationService = new AuthorizationService(
     authorizationContextResolver,
@@ -41,17 +42,17 @@ export function createCompositionRoot(s3Config: S3Config = loadS3Config()) {
 
   const storage = new S3ObjectStorage(s3Config);
 
-  const auditRepository = new PostgresAuditRepository();
+  const auditRepository = new PostgresAuditRepository(db);
   const auditService = new AuditService(authorizationService, auditRepository);
 
-  const userRepository = new PostgresUserRepository();
+  const userRepository = new PostgresUserRepository(db);
   const userService = new UserService(userRepository);
 
-  const intentRepository = new PostgresIntentRepository(authorizer);
+  const intentRepository = new PostgresIntentRepository(db, authorizer);
   const uploadService = new UploadService(storage, intentRepository);
   const uploadCleanupService = new UploadCleanupService(intentRepository);
 
-  const fileRepository = new PostgresFileRepository();
+  const fileRepository = new PostgresFileRepository(db);
   const downloadService = new FileDownloadService(
     authorizationService,
     fileRepository,
@@ -59,11 +60,11 @@ export function createCompositionRoot(s3Config: S3Config = loadS3Config()) {
     storage,
   );
 
-  const entryRepository = new PostgresEntryRepository(authorizer);
+  const entryRepository = new PostgresEntryRepository(db, authorizer);
   const entryService = new EntryService(entryRepository, authzMapper);
 
   const folderService = new FolderService(entryRepository);
-  const folderDownloadRepository = new PostgresFolderDownloadRepository();
+  const folderDownloadRepository = new PostgresFolderDownloadRepository(db);
   const folderDownloadService = new FolderDownloadService(
     authorizationService,
     folderDownloadRepository,
@@ -78,10 +79,10 @@ export function createCompositionRoot(s3Config: S3Config = loadS3Config()) {
 
   const completeUploadUseCase = new CompleteUploadUseCase(uploadService);
 
-  const objectDeletionRepository = new PostgresObjectDeletionRepository();
+  const objectDeletionRepository = new PostgresObjectDeletionRepository(db);
   const objectDeletionProcessor = new ObjectDeletionProcessor(objectDeletionRepository, storage);
 
-  const grantRepository = new PostgresFileGrantRepository(authorizer);
+  const grantRepository = new PostgresFileGrantRepository(db, authorizer);
   const sharingService = new FileSharingService(authorizationService, grantRepository, authzMapper);
   const fileGrantMaintenanceService = new FileGrantMaintenanceService(grantRepository);
 

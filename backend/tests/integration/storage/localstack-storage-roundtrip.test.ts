@@ -13,16 +13,22 @@ import {
   uploadIntents,
   users,
 } from '../../../src/db/schema.js';
-import type { Database } from '../../../src/db/db-client.js';
-import type { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
-import type { FileDownloadService } from '../../../src/files/file-download-service.js';
-import type { ObjectDeletionProcessor } from '../../../src/object-deletion/object-deletion-processor.js';
-import type { PostgresObjectDeletionRepository } from '../../../src/object-deletion/postgres-object-deletion-repository.js';
+import { PostgresAuditRepository } from '../../../src/audit/postgres-audit-repository.js';
+import { AuthorizationPolicy } from '../../../src/authorization/authorization-policy.js';
+import { AuthorizationService } from '../../../src/authorization/authorization-service.js';
+import { PostgresAuthorizationContextResolver } from '../../../src/authorization/postgres-authorization-context-resolver.js';
+import { PostgresEntryAuthorizer } from '../../../src/authorization/postgres-entry-authorizer.js';
+import { createDatabase, type Database } from '../../../src/db/db-client.js';
+import { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
+import { FileDownloadService } from '../../../src/files/file-download-service.js';
+import { PostgresFileRepository } from '../../../src/files/postgres-file-repository.js';
+import { ObjectDeletionProcessor } from '../../../src/object-deletion/object-deletion-processor.js';
+import { PostgresObjectDeletionRepository } from '../../../src/object-deletion/postgres-object-deletion-repository.js';
 import { StorageObjectNotFoundError } from '../../../src/shared/errors/storage/storage-object-not-found-error.js';
-import type { S3ObjectStorage } from '../../../src/storage/s3-object-storage.js';
-import type { CompleteUploadUseCase } from '../../../src/upload/complete-upload-use-case.js';
-import type { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
-import type { UploadService } from '../../../src/upload/upload-service.js';
+import { S3ObjectStorage } from '../../../src/storage/s3-object-storage.js';
+import { CompleteUploadUseCase } from '../../../src/upload/complete-upload-use-case.js';
+import { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
+import { UploadService } from '../../../src/upload/upload-service.js';
 import type { User } from '../../../src/user/user.js';
 
 const REGION = 'eu-central-1';
@@ -64,15 +70,6 @@ describe('LocalStack storage round-trip', () => {
     ]);
 
     const endpoint = `http://${localstack.getHost()}:${localstack.getMappedPort(4566)}`;
-    Object.assign(process.env, {
-      DATABASE_URL: postgres.getConnectionUri(),
-      S3_ENDPOINT: endpoint,
-      S3_REGION: REGION,
-      S3_FORCE_PATH_STYLE: 'true',
-      S3_ACCESS_KEY_ID: ACCESS_KEY,
-      S3_SECRET_ACCESS_KEY: SECRET_KEY,
-      S3_BUCKET: BUCKET,
-    });
 
     const client = new S3Client({
       endpoint,
@@ -93,47 +90,14 @@ describe('LocalStack storage round-trip', () => {
     );
     client.destroy();
 
-    const [
-      databaseModule,
-      storageModule,
-      intentRepositoryModule,
-      uploadServiceModule,
-      completeUploadModule,
-      fileRepositoryModule,
-      fileDownloadModule,
-      entryRepositoryModule,
-      deletionRepositoryModule,
-      deletionProcessorModule,
-      authorizationContextResolverModule,
-      authorizationPolicyModule,
-      authorizationServiceModule,
-      entryAuthorizerModule,
-      auditRepositoryModule,
-    ] = await Promise.all([
-      import('../../../src/db/db-client.js'),
-      import('../../../src/storage/s3-object-storage.js'),
-      import('../../../src/upload/postgres-intent-repository.js'),
-      import('../../../src/upload/upload-service.js'),
-      import('../../../src/upload/complete-upload-use-case.js'),
-      import('../../../src/files/postgres-file-repository.js'),
-      import('../../../src/files/file-download-service.js'),
-      import('../../../src/entry/postgres-entry-repository.js'),
-      import('../../../src/object-deletion/postgres-object-deletion-repository.js'),
-      import('../../../src/object-deletion/object-deletion-processor.js'),
-      import('../../../src/authorization/postgres-authorization-context-resolver.js'),
-      import('../../../src/authorization/authorization-policy.js'),
-      import('../../../src/authorization/authorization-service.js'),
-      import('../../../src/authorization/postgres-entry-authorizer.js'),
-      import('../../../src/audit/postgres-audit-repository.js'),
-    ]);
-
-    database = databaseModule.db;
-    closeDatabase = databaseModule.closeDatabase;
+    const dbHandle = createDatabase({ connectionString: postgres.getConnectionUri() });
+    database = dbHandle.db;
+    closeDatabase = dbHandle.close;
     await migrate(database, {
       migrationsFolder: path.resolve(process.cwd(), 'drizzle'),
     });
 
-    storage = new storageModule.S3ObjectStorage({
+    storage = new S3ObjectStorage({
       endpoint,
       publicOrigin: endpoint,
       region: REGION,
@@ -142,30 +106,25 @@ describe('LocalStack storage round-trip', () => {
       secretAccessKey: SECRET_KEY,
       bucket: BUCKET,
     });
-    const authorizationContextResolver =
-      new authorizationContextResolverModule.PostgresAuthorizationContextResolver();
-    const authorizationPolicy = new authorizationPolicyModule.AuthorizationPolicy();
-    const authorizationService = new authorizationServiceModule.AuthorizationService(
+    const authorizationContextResolver = new PostgresAuthorizationContextResolver(database);
+    const authorizationPolicy = new AuthorizationPolicy();
+    const authorizationService = new AuthorizationService(
       authorizationContextResolver,
       authorizationPolicy,
     );
-    const entryAuthorizer = new entryAuthorizerModule.PostgresEntryAuthorizer(authorizationService);
-    const intentRepository: PostgresIntentRepository =
-      new intentRepositoryModule.PostgresIntentRepository(entryAuthorizer);
-    uploadService = new uploadServiceModule.UploadService(storage, intentRepository);
-    completeUpload = new completeUploadModule.CompleteUploadUseCase(uploadService);
-    fileDownloadService = new fileDownloadModule.FileDownloadService(
+    const entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
+    const intentRepository = new PostgresIntentRepository(database, entryAuthorizer);
+    uploadService = new UploadService(storage, intentRepository);
+    completeUpload = new CompleteUploadUseCase(uploadService);
+    fileDownloadService = new FileDownloadService(
       authorizationService,
-      new fileRepositoryModule.PostgresFileRepository(),
-      new auditRepositoryModule.PostgresAuditRepository(),
+      new PostgresFileRepository(database),
+      new PostgresAuditRepository(database),
       storage,
     );
-    entryRepository = new entryRepositoryModule.PostgresEntryRepository(entryAuthorizer);
-    deletionRepository = new deletionRepositoryModule.PostgresObjectDeletionRepository();
-    deletionProcessor = new deletionProcessorModule.ObjectDeletionProcessor(
-      deletionRepository,
-      storage,
-    );
+    entryRepository = new PostgresEntryRepository(database, entryAuthorizer);
+    deletionRepository = new PostgresObjectDeletionRepository(database);
+    deletionProcessor = new ObjectDeletionProcessor(deletionRepository, storage);
   });
 
   afterAll(async () => {

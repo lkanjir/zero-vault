@@ -11,7 +11,7 @@ import type {
 } from './entry-repository.js';
 import { eq, isNull, sql, and, or, gt, type SQL, ilike, asc, desc, lt } from 'drizzle-orm';
 import { entries, files } from '../db/schema.js';
-import { db, type Transaction } from '../db/db-client.js';
+import type { Database, Transaction } from '../db/db-client.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
 import type { Entry, EntryListSort } from './entry.js';
@@ -46,7 +46,10 @@ type EntryDeletionTarget =
     };
 
 export class PostgresEntryRepository implements EntryRepository {
-  constructor(private readonly authorizer: PostgresEntryAuthorizer) {}
+  constructor(
+    private readonly db: Database,
+    private readonly authorizer: PostgresEntryAuthorizer,
+  ) {}
 
   readonly kindRankExpression = sql<number>`case when ${entries.kind} = 'folder' then 0 else 1 end`;
   readonly sortNameExpression = sql<string>`lower(${entries.name})`;
@@ -78,7 +81,7 @@ export class PostgresEntryRepository implements EntryRepository {
       condition.push(cursorFilter);
     }
 
-    const rows = await db
+    const rows = await this.db
       .select({
         entryId: entries.id,
         id: entries.publicId,
@@ -103,7 +106,7 @@ export class PostgresEntryRepository implements EntryRepository {
 
   async createFolder(command: CreateFolderCommand): Promise<Folder> {
     try {
-      const folder = await db.transaction(async (tx) => {
+      const folder = await this.db.transaction(async (tx) => {
         const parentId = await this.authorizer.authorizeParentForCreate(tx, {
           actorUserId: command.actorUserId,
           ownerId: command.actorUserId,
@@ -170,7 +173,7 @@ export class PostgresEntryRepository implements EntryRepository {
     }
 
     try {
-      return await db.transaction(async (tx) => {
+      return await this.db.transaction(async (tx) => {
         const sourceEntry = await this.authorizer.authorizeForUpdate(tx, {
           actorUserId: command.actorUserId,
           entryPublicId: command.entryId,
@@ -276,7 +279,7 @@ export class PostgresEntryRepository implements EntryRepository {
 
   async deleteEntry(command: DeleteEntryCommand): Promise<void> {
     try {
-      await db.transaction(async (tx) => {
+      await this.db.transaction(async (tx) => {
         const entry = await this.authorizer.authorizeForUpdate(tx, {
           actorUserId: command.actorUserId,
           entryPublicId: command.entryId,
@@ -479,7 +482,7 @@ export class PostgresEntryRepository implements EntryRepository {
       depth: number;
     };
 
-    const result = await db.execute<FolderPathRow>(sql`
+    const result = await this.db.execute<FolderPathRow>(sql`
        WITH RECURSIVE folder_path AS (
         SELECT
           current_folder.id,

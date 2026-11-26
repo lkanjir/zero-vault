@@ -4,9 +4,9 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { AuthenticatedPrincipal } from '../../../src/auth/authenticated-principal.js';
-import type { Database } from '../../../src/db/db-client.js';
+import { createDatabase, type Database } from '../../../src/db/db-client.js';
 import { users } from '../../../src/db/schema.js';
-import type { PostgresUserRepository } from '../../../src/user/postgres-user-repository.js';
+import { PostgresUserRepository } from '../../../src/user/postgres-user-repository.js';
 
 const ISSUER = 'https://issuer.example.test/realms/zero-vault';
 
@@ -23,16 +23,10 @@ describe('PostgresUserRepository', () => {
       .withPassword('test')
       .start();
 
-    process.env['DATABASE_URL'] = container.getConnectionUri();
-
-    const [databaseModule, repositoryModule] = await Promise.all([
-      import('../../../src/db/db-client.js'),
-      import('../../../src/user/postgres-user-repository.js'),
-    ]);
-
-    database = databaseModule.db;
-    closeDatabase = databaseModule.closeDatabase;
-    repository = new repositoryModule.PostgresUserRepository();
+    const dbHandle = createDatabase({ connectionString: container.getConnectionUri() });
+    database = dbHandle.db;
+    closeDatabase = dbHandle.close;
+    repository = new PostgresUserRepository(database);
 
     await migrate(database, {
       migrationsFolder: path.resolve(process.cwd(), 'drizzle'),

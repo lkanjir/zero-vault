@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
-import { db } from '../db/db-client.js';
+import type { Database } from '../db/db-client.js';
 import { auditEvents, entries, users } from '../db/schema.js';
 import {
   downloadRequestAuditActions,
@@ -16,8 +16,10 @@ import type {
 } from './audit-repository.js';
 
 export class PostgresAuditRepository implements AuditRepository {
+  constructor(private readonly db: Database) {}
+
   async record(command: RecordAuditEventCommand): Promise<void> {
-    await db.insert(auditEvents).values({
+    await this.db.insert(auditEvents).values({
       ownerId: command.ownerId,
       actorUserId: command.actorUserId,
       entryId: command.entryId,
@@ -51,7 +53,7 @@ export class PostgresAuditRepository implements AuditRepository {
       conditions.push(cursorFilter);
     }
 
-    return db
+    return this.db
       .select({
         id: auditEvents.publicId,
         action: auditEvents.action,
@@ -84,7 +86,7 @@ export class PostgresAuditRepository implements AuditRepository {
   }
 
   async getStatistics(query: GetAuditStatisticsQuery): Promise<AuditStatistics> {
-    const [statistics] = await db
+    const [statistics] = await this.db
       .select({
         total: sql<number>`count(*)::integer`,
         entryChanges: sql<number>`count(*) filter (

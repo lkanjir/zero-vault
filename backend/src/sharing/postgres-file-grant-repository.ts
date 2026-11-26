@@ -1,6 +1,6 @@
 import { and, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
-import { db, type Transaction } from '../db/db-client.js';
+import type { Database, Transaction } from '../db/db-client.js';
 import { entries, fileGrants, files, users } from '../db/schema.js';
 import type {
   FileGrantMaintenanceResult,
@@ -20,10 +20,13 @@ import type { Entry } from '../entry/entry.js';
 import { recordAuditEventInTransaction } from '../audit/record-audit-event-in-transaction.js';
 
 export class PostgresFileGrantRepository implements FileGrantRepository {
-  constructor(private readonly authorizer: PostgresEntryAuthorizer) {}
+  constructor(
+    private readonly db: Database,
+    private readonly authorizer: PostgresEntryAuthorizer,
+  ) {}
 
   async save(command: SaveFileGrantCommand): Promise<FileGrant> {
-    return db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       const file = await this.authorizer.authorizeForUpdate(tx, {
         actorUserId: command.actorUserId,
         entryPublicId: command.filePublicId,
@@ -135,7 +138,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
             ),
           );
 
-    return db
+    return this.db
       .select()
       .from(fileGrants)
       .where(and(eq(fileGrants.fileId, query.fileId), cursorFilter))
@@ -144,7 +147,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
   }
 
   async revoke(command: RevokeFileGrantCommand): Promise<void> {
-    await db.transaction(async (tx) => {
+    await this.db.transaction(async (tx) => {
       const file = await this.authorizer.authorizeForUpdate(tx, {
         actorUserId: command.actorUserId,
         entryPublicId: command.filePublicId,
@@ -178,7 +181,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
   }
 
   update(command: UpdateFileGrantCommand): Promise<FileGrant | null> {
-    return db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       const file = await this.authorizer.authorizeForUpdate(tx, {
         actorUserId: command.actorUserId,
         entryPublicId: command.filePublicId,
@@ -226,7 +229,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
   }
 
   maintainPending(command: MaintainPendingFileGrantsCommand): Promise<FileGrantMaintenanceResult> {
-    return db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       const deletedCount = await this.deleteExpiredPendingGrants(tx, command);
       const activatedCount = await this.activatePendingGrants(tx, command);
 
@@ -324,7 +327,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
             and(eq(sortName, query.cursor.sortName), gt(entries.id, query.cursor.entryId)),
           );
 
-    return db
+    return this.db
       .select({
         file: {
           id: entries.publicId,
@@ -377,7 +380,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
             and(eq(sortName, query.cursor.sortName), gt(entries.id, query.cursor.entryId)),
           );
 
-    return db
+    return this.db
       .select({
         file: {
           id: entries.publicId,

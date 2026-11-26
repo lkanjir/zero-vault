@@ -1,18 +1,20 @@
 import { eq, and, isNull } from 'drizzle-orm';
-import { db } from '../db/db-client.js';
+import type { Database } from '../db/db-client.js';
 import { entries, files } from '../db/schema.js';
 import type { FileRepository } from './file-repository.js';
 import type { DownloadableFile, File } from './file.js';
 
 export class PostgresFileRepository implements FileRepository {
+  constructor(private readonly db: Database) {}
+
   async findByEntryId(entryId: number): Promise<File | null> {
-    const [row] = await db.select().from(files).where(eq(files.entryId, entryId)).limit(1);
+    const [row] = await this.db.select().from(files).where(eq(files.entryId, entryId)).limit(1);
 
     return row ?? null;
   }
 
   async findAvailableFileByEntryId(entryId: number): Promise<DownloadableFile | null> {
-    const [row] = await db
+    const [row] = await this.db
       .select({
         entryId: entries.id,
         publicId: entries.publicId,

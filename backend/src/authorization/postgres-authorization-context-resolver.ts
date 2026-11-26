@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { db } from '../db/db-client.js';
+import type { Database } from '../db/db-client.js';
 import { entries, fileGrants } from '../db/schema.js';
 import type {
   AuthorizationContextResolver,
@@ -8,8 +8,10 @@ import type {
 import type { EntryAuthorizationContext } from './authorization.js';
 
 export class PostgresAuthorizationContextResolver implements AuthorizationContextResolver {
+  constructor(private readonly db: Database) {}
+
   async resolveEntry(input: ResolveEntryContextInput): Promise<EntryAuthorizationContext | null> {
-    const [row] = await db
+    const [row] = await this.db
       .select({
         id: entries.id,
         ownerId: entries.ownerId,

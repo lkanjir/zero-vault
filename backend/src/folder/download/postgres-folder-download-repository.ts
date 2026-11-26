@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
-import { db } from '../../db/db-client.js';
+import type { Database } from '../../db/db-client.js';
 import { entries, folderDownloads } from '../../db/schema.js';
 import type {
   ClaimNextFolderDownloadCommand,
@@ -27,8 +27,10 @@ type FolderArchiveManifestRow = {
 };
 
 export class PostgresFolderDownloadRepository implements FolderDownloadRepository {
+  constructor(private readonly db: Database) {}
+
   async create(command: CreateFolderDownloadCommand): Promise<FolderDownload> {
-    return db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       const [folder] = await tx
         .select({ id: entries.id, name: entries.name })
         .from(entries)
@@ -83,7 +85,7 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
     ownerId: number,
     downloadId: string,
   ): Promise<FolderDownload | null> {
-    const [row] = await db
+    const [row] = await this.db
       .select()
       .from(folderDownloads)
       .where(and(eq(folderDownloads.downloadId, downloadId), eq(folderDownloads.ownerId, ownerId)))
@@ -93,7 +95,7 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
   }
 
   async claimNext(command: ClaimNextFolderDownloadCommand): Promise<FolderDownload | null> {
-    return db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       const [candidate] = await tx
         .select({ id: folderDownloads.id })
         .from(folderDownloads)
@@ -138,7 +140,7 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
   }
 
   async renewLease(command: RenewFolderDownloadLeaseCommand): Promise<boolean> {
-    const [updated] = await db
+    const [updated] = await this.db
       .update(folderDownloads)
       .set({ leaseExpiresAt: command.leaseExpiresAt })
       .where(this.activeAttemptCondition(command.id, command.attemptCount))
@@ -150,7 +152,7 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
   async completeArchiveAttempt(
     command: CompleteFolderDownloadAttemptCommand,
   ): Promise<'ready' | 'stale'> {
-    return db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       const [updated] = await tx
         .update(folderDownloads)
         .set({
@@ -199,7 +201,7 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
   }
 
   async markFailed(command: MarkFolderDownloadFailedCommand): Promise<boolean> {
-    const [updated] = await db
+    const [updated] = await this.db
       .update(folderDownloads)
       .set({
         status: 'failed',
@@ -218,7 +220,7 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
   async getArchiveManifest(
     command: GetFolderArchiveManifestCommand,
   ): Promise<FolderArchiveEntry[]> {
-    const result = await db.execute<FolderArchiveManifestRow>(sql`
+    const result = await this.db.execute<FolderArchiveManifestRow>(sql`
       WITH RECURSIVE folder_tree AS (
         SELECT
           root.id,
@@ -285,7 +287,7 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
   }
 
   async expireReadyFolderDownloads(command: ExpireReadyFolderDownloadsCommand): Promise<number> {
-    return db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       const candidates = await tx
         .select({ id: folderDownloads.id })
         .from(folderDownloads)
