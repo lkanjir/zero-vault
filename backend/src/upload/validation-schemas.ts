@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import { entryNameSchema } from '../entry/validation-schemas.js';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
 
 const SINGLE_PART_MAX_BYTES = 100 * 1024 * 1024;
@@ -23,14 +24,7 @@ const uploadContentSchema = z.object({
 
 export const uploadRequestSchema = uploadContentSchema.extend({
   parentFolderId: z.uuid().nullable().optional(),
-  fileName: z
-    .string()
-    .trim()
-    .min(1)
-    .max(500)
-    .refine((value) => !/[\\/]+/.test(value), {
-      error: 'Naziv datoteke ne smije sadržavati znak / ili \\',
-    }),
+  fileName: entryNameSchema,
 });
 
 export type UploadRequestBody = z.output<typeof uploadRequestSchema>;

@@ -76,6 +76,21 @@ describe('folder routes', () => {
     });
   });
 
+  it.each(['.', '..', 'a/b', 'a\\b', 'bad\0folder', 'bad\rfolder'])(
+    'rejects unsafe folder name %j before calling the service',
+    async (name) => {
+      const response = await request(
+        createTestApp(userService, folderService, folderDownloadService),
+      )
+        .post('/folders')
+        .send({ name });
+
+      expect(response.status).toBe(400);
+      expect((response.body as ErrorResponse).code).toBe('invalid_request_body');
+      expect(folderService.createFolder).not.toHaveBeenCalled();
+    },
+  );
+
   it('accepts a folder download and returns polling headers', async () => {
     const response = await request(
       createTestApp(userService, folderService, folderDownloadService),

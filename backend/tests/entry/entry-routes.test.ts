@@ -160,6 +160,23 @@ describe('entry routes', () => {
     });
   });
 
+  it.each([
+    ['slash', 'nested/name'],
+    ['backslash', 'nested\\name'],
+    ['current directory segment', '.'],
+    ['parent directory segment', '..'],
+    ['null byte', 'bad\0name'],
+    ['control character', 'bad\nname'],
+  ])('rejects an unsafe entry rename containing %s', async (_case, name) => {
+    const response = await request(createTestApp(userService, entryService))
+      .patch(`/entries/${ENTRY_ID}`)
+      .send({ name });
+
+    expect(response.status).toBe(400);
+    expect((response.body as ErrorResponse).code).toBe('invalid_request_body');
+    expect(entryService.updateEntry).not.toHaveBeenCalled();
+  });
+
   it('rejects an empty update body', async () => {
     const response = await request(createTestApp(userService, entryService))
       .patch(`/entries/${ENTRY_ID}`)

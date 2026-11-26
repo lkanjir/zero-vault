@@ -131,6 +131,28 @@ describe('upload routes contract', () => {
     expect(uploadService.createUpload).not.toHaveBeenCalled();
   });
 
+  it.each(['.', '..', 'a/b.txt', 'a\\b.txt', 'bad\0.txt', 'bad\n.txt'])(
+    'rejects unsafe upload fileName %j before resolving the user',
+    async (fileName) => {
+      const response = await request(
+        createTestApp(userService, uploadService, completeUploadUseCase),
+      )
+        .post('/uploads/presign')
+        .send({
+          parentFolderId: null,
+          fileName,
+          contentType: 'text/plain',
+          size: 12,
+          sha256: EXPECTED_SHA256,
+        });
+
+      expect(response.status).toBe(400);
+      expect((response.body as ErrorResponse).code).toBe('invalid_request_body');
+      expect(userService.resolveUser).not.toHaveBeenCalled();
+      expect(uploadService.createUpload).not.toHaveBeenCalled();
+    },
+  );
+
   it('normalizes the content type before invoking the upload service', async () => {
     uploadService.createUpload.mockResolvedValue({
       uploadId: UPLOAD_ID,

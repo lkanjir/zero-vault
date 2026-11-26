@@ -29,6 +29,17 @@ export const listEntriesQuerySchema = z.object({
 
 export type EntriesListRequest = z.infer<typeof listEntriesQuerySchema>;
 
+function hasControlCharacters(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export const entryNameSchema = z
   .string()
   .trim()
@@ -36,6 +47,12 @@ export const entryNameSchema = z
   .max(500)
   .refine((value) => !/[\\/]+/.test(value), {
     error: 'Naziv datoteke ili direktorija ne smije sadržavati znak / ili \\',
+  })
+  .refine((value) => value !== '.' && value !== '..', {
+    error: 'Naziv datoteke ili direktorija ne smije biti . ili ..',
+  })
+  .refine((value) => !hasControlCharacters(value), {
+    error: 'Naziv datoteke ili direktorija ne smije sadržavati kontrolne znakove',
   });
 
 export const updateEntryBodySchema = z
