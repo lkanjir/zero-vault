@@ -1,17 +1,13 @@
 import { Injectable, signal } from '@angular/core';
 import Keycloak from 'keycloak-js';
-import { environment } from '../../environments/environment';
+import { loadRuntimeConfig } from './runtime-config';
 import { UserProfile } from './user';
 
 @Injectable({
   providedIn: 'root',
 })
 export class AuthService {
-  private readonly keycloak = new Keycloak({
-    url: environment.auth.url,
-    realm: environment.auth.realm,
-    clientId: environment.auth.clientId,
-  });
+  private keycloak: Keycloak | null = null;
   private readonly _userProfile = signal<UserProfile | null>(null);
 
   readonly authenticated = signal(false);
@@ -19,39 +15,56 @@ export class AuthService {
   readonly accountUrl = signal<string>('');
 
   async initialize(): Promise<void> {
-    const authenticated = await this.keycloak.init({
+    const runtimeConfig = await loadRuntimeConfig();
+    const keycloak = new Keycloak({
+      url: runtimeConfig.auth.url,
+      realm: runtimeConfig.auth.realm,
+      clientId: runtimeConfig.auth.clientId,
+    });
+    this.keycloak = keycloak;
+
+    const authenticated = await keycloak.init({
       onLoad: 'login-required',
       pkceMethod: 'S256',
     });
 
-    this.accountUrl.set(this.keycloak.createAccountUrl());
+    this.accountUrl.set(keycloak.createAccountUrl());
     this.authenticated.set(authenticated);
     if (this.authenticated()) {
-      this._userProfile.set(this.readUserProfile());
+      this._userProfile.set(this.readUserProfile(keycloak));
     }
   }
 
   async getAccessToken(): Promise<string> {
-    await this.keycloak.updateToken(30);
+    const keycloak = this.requireKeycloak();
+    await keycloak.updateToken(30);
 
-    if (!this.keycloak.token) {
+    if (!keycloak.token) {
       throw new Error('Pristupni token nije dostupan');
     }
 
-    return this.keycloak.token;
+    return keycloak.token;
   }
 
   login(): Promise<void> {
-    return this.keycloak.login();
+    return this.requireKeycloak().login();
   }
 
   logout(): Promise<void> {
-    return this.keycloak.logout({ redirectUri: window.location.origin });
+    return this.requireKeycloak().logout({ redirectUri: window.location.origin });
   }
 
-  private readUserProfile(): UserProfile {
-    const firstName: unknown = this.keycloak.tokenParsed?.['given_name'];
-    const lastName: unknown = this.keycloak.tokenParsed?.['family_name'];
+  private requireKeycloak(): Keycloak {
+    if (!this.keycloak) {
+      throw new Error('Autentikacija nije inicijalizirana');
+    }
+
+    return this.keycloak;
+  }
+
+  private readUserProfile(keycloak: Keycloak): UserProfile {
+    const firstName: unknown = keycloak.tokenParsed?.['given_name'];
+    const lastName: unknown = keycloak.tokenParsed?.['family_name'];
 
     if (
       typeof firstName !== 'string' ||

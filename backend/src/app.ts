@@ -11,6 +11,7 @@ import { createFolderRouter } from './folder/folder-routes.js';
 import { requestContext } from './shared/http/request-context.js';
 import { errorHandler } from './shared/http/error-handler.js';
 import { createHealthRouter } from './shared/http/health-routes.js';
+import { createPublicConfigRouter } from './shared/http/config-routes.js';
 import { routeNotFound } from './shared/http/route-not-found.js';
 import { createAuditRouter } from './audit/audit-routes.js';
 import { createFrontendRouter } from './frontend/frontend-routes.js';
@@ -48,6 +49,8 @@ export function createApp({ config, database }: CreateAppOptions): Express {
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
+
+  app.use('/api', createPublicConfigRouter(config.oidc));
 
   app.use('/api/uploads', requireAuth, resolveUser, createUploadRouter(composition));
   app.use('/api/entries', requireAuth, resolveUser, createEntryRouter(composition));

@@ -33,4 +33,18 @@ describe('upload authentication', () => {
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.body).toStrictEqual({ status: 'ok' });
   });
+
+  it('serves /api/config without authentication', async () => {
+    const response = await request(app).get('/api/config');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.body).toStrictEqual({
+      auth: {
+        url: apiConfig.oidc.url,
+        realm: apiConfig.oidc.realm,
+        clientId: apiConfig.oidc.clientId,
+      },
+    });
+  });
 });

@@ -20,9 +20,17 @@ const s3EnvSchema = z.object({
   S3_BUCKET: requiredTrimmedString,
 });
 
+const KEYCLOAK_ISSUER_PATH_REGEX = /^(.*)\/realms\/([^/]+)$/;
+
 const oidcEnvSchema = z.object({
-  OIDC_ISSUER: z.url().transform((v) => v.replace(/\/+$/, '')),
+  OIDC_ISSUER: z
+    .url()
+    .transform((v) => v.replace(/\/+$/, ''))
+    .refine((v) => KEYCLOAK_ISSUER_PATH_REGEX.test(new URL(v).pathname), {
+      message: 'OIDC_ISSUER must end with /realms/<realm>',
+    }),
   OIDC_AUDIENCE: requiredTrimmedString,
+  OIDC_CLIENT_ID: requiredTrimmedString.default('zero-vault-web'),
 });
 
 const httpEnvSchema = z.object({
@@ -47,6 +55,9 @@ export type S3Config = {
 export type OidcConfig = {
   readonly issuer: string;
   readonly audience: string;
+  readonly clientId: string;
+  readonly url: string;
+  readonly realm: string;
 };
 
 export type HttpConfig = {
@@ -102,9 +113,19 @@ export function loadS3Config(env: NodeJS.ProcessEnv = process.env): S3Config {
 
 export function loadOidcConfig(env: NodeJS.ProcessEnv = process.env): OidcConfig {
   const parsed = parseEnv(oidcEnvSchema, env, 'OIDC');
+  const issuerUrl = new URL(parsed.OIDC_ISSUER);
+  const match = KEYCLOAK_ISSUER_PATH_REGEX.exec(issuerUrl.pathname);
+
+  if (!match || !match[2]) {
+    throw new Error('Invalid OIDC environment configuration');
+  }
+
   return {
     issuer: parsed.OIDC_ISSUER,
     audience: parsed.OIDC_AUDIENCE,
+    clientId: parsed.OIDC_CLIENT_ID,
+    url: `${issuerUrl.origin}${match[1] ?? ''}`,
+    realm: match[2],
   };
 }
 

@@ -22,7 +22,9 @@ const fetchJwks: jose.FetchImplementation = async (url, options) => {
   }
 };
 
-export function createAccessTokenVerifier(oidcConfig: OidcConfig): AccessTokenVerifier {
+export function createAccessTokenVerifier(
+  oidcConfig: Pick<OidcConfig, 'issuer' | 'audience'>,
+): AccessTokenVerifier {
   const jwks = jose.createRemoteJWKSet(
     new URL(`${oidcConfig.issuer}/protocol/openid-connect/certs`),
     { [jose.customFetch]: fetchJwks },

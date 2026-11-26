@@ -48,16 +48,42 @@ describe('modular environment config loaders', () => {
     });
   });
 
-  it('loads OIDC config and strips trailing slashes from issuer', () => {
+  it('loads OIDC config, strips trailing slashes, and derives Keycloak url, realm, and clientId', () => {
     const oidcConfig = loadOidcConfig({
-      OIDC_ISSUER: 'https://auth.example.com/realms/zero-vault///',
+      OIDC_ISSUER: 'https://auth.example.com/auth/realms/zero-vault///',
+      OIDC_AUDIENCE: 'zero-vault-api',
+      OIDC_CLIENT_ID: 'custom-web-client',
+    });
+
+    expect(oidcConfig).toStrictEqual({
+      issuer: 'https://auth.example.com/auth/realms/zero-vault',
+      audience: 'zero-vault-api',
+      clientId: 'custom-web-client',
+      url: 'https://auth.example.com/auth',
+      realm: 'zero-vault',
+    });
+  });
+
+  it('defaults OIDC_CLIENT_ID to zero-vault-web and rejects issuers without a realm path', () => {
+    const oidcConfig = loadOidcConfig({
+      OIDC_ISSUER: 'http://localhost:8080/realms/zero-vault',
       OIDC_AUDIENCE: 'zero-vault-api',
     });
 
     expect(oidcConfig).toStrictEqual({
-      issuer: 'https://auth.example.com/realms/zero-vault',
+      issuer: 'http://localhost:8080/realms/zero-vault',
       audience: 'zero-vault-api',
+      clientId: 'zero-vault-web',
+      url: 'http://localhost:8080',
+      realm: 'zero-vault',
     });
+
+    expect(() =>
+      loadOidcConfig({
+        OIDC_ISSUER: 'http://localhost:8080',
+        OIDC_AUDIENCE: 'zero-vault-api',
+      }),
+    ).toThrow('Invalid OIDC environment configuration');
   });
 
   it('applies HTTP defaults when optional variables are omitted', () => {
