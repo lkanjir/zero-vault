@@ -146,6 +146,21 @@ export const errorCatalog = {
     message: 'Prijenos je otkazan.',
   },
 
+  upload_already_completed: {
+    status: 409,
+    message: 'Prijenos je već dovršen.',
+  },
+
+  upload_mode_mismatch: {
+    status: 409,
+    message: 'Ova operacija podržana je samo za višedijelne prijenose.',
+  },
+
+  upload_parts_invalid: {
+    status: 409,
+    message: 'Dijelovi prenesene datoteke nisu ispravni ili se ne podudaraju sa spremištem.',
+  },
+
   upload_checksum_missing: {
     status: 409,
     message: 'Spremište nije vratilo podatke za provjeru integriteta datoteke.',

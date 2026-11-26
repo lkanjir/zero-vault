@@ -12,10 +12,11 @@ import { requestContext } from '../../src/shared/http/request-context.js';
 import type { User } from '../../src/user/user.js';
 import { createUploadRouter } from '../../src/upload/upload-routes.js';
 import type { UploadService } from '../../src/upload/upload-service.js';
+import { MAX_UPLOAD_SIZE_BYTES, SINGLE_PART_MAX_BYTES } from '../../src/upload/upload-sizing.js';
 
 const UPLOAD_ID = '00000000-0000-4000-8000-000000000001';
 const EXPECTED_SHA256 = 'a'.repeat(64);
-const MAX_SINGLE_PART_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
+const OTHER_SHA256 = 'b'.repeat(64);
 
 const COMPLETED_FILE: FileResponse = {
   kind: 'file',
@@ -136,6 +137,7 @@ describe('upload routes contract', () => {
 
   it('normalizes the content type before invoking the upload service', async () => {
     uploadService.createUpload.mockResolvedValue({
+      uploadMode: 'single',
       uploadId: UPLOAD_ID,
       uploadUrl: 'https://storage.example.test/upload',
       expiresInSeconds: 60,
@@ -166,48 +168,81 @@ describe('upload routes contract', () => {
     });
   });
 
-  it('accepts the maximum single-part upload size', async () => {
+  it('accepts a 0-byte empty file and the maximum single-part upload size (16 MiB)', async () => {
     uploadService.createUpload.mockResolvedValue({
+      uploadMode: 'single',
       uploadId: UPLOAD_ID,
       uploadUrl: 'https://storage.example.test/upload',
-      expiresInSeconds: 60,
+      expiresInSeconds: 600,
       requiredHeaders: {
         'Content-Type': 'application/octet-stream',
         'x-amz-checksum-sha256': Buffer.from(EXPECTED_SHA256, 'hex').toString('base64'),
       },
     });
 
-    const response = await request(createTestApp(uploadService)).post('/uploads/presign').send({
-      parentFolderId: null,
-      fileName: 'maximum.bin',
-      contentType: 'application/octet-stream',
-      size: MAX_SINGLE_PART_UPLOAD_SIZE_BYTES,
-      sha256: EXPECTED_SHA256,
-    });
+    const emptyResponse = await request(createTestApp(uploadService))
+      .post('/uploads/presign')
+      .send({
+        parentFolderId: null,
+        fileName: 'empty.txt',
+        contentType: 'text/plain',
+        size: 0,
+        sha256: EXPECTED_SHA256,
+      });
+    expect(emptyResponse.status).toBe(201);
 
-    expect(response.status).toBe(201);
-    expect(uploadService.createUpload).toHaveBeenCalledExactlyOnceWith(USER, {
-      parentFolderId: null,
-      fileName: 'maximum.bin',
-      contentType: 'application/octet-stream',
-      size: MAX_SINGLE_PART_UPLOAD_SIZE_BYTES,
-      sha256: EXPECTED_SHA256,
-    });
+    const maxSingleResponse = await request(createTestApp(uploadService))
+      .post('/uploads/presign')
+      .send({
+        parentFolderId: null,
+        fileName: 'maximum-single.bin',
+        contentType: 'application/octet-stream',
+        size: SINGLE_PART_MAX_BYTES,
+        sha256: EXPECTED_SHA256,
+      });
+
+    expect(maxSingleResponse.status).toBe(201);
   });
 
-  it('rejects an upload larger than the single-part limit', async () => {
-    const response = await request(createTestApp(uploadService))
+  it('accepts multipart upload intents up to 512 GiB without upfront sha256 and rejects larger files', async () => {
+    uploadService.createUpload.mockResolvedValue({
+      uploadMode: 'multipart',
+      uploadId: UPLOAD_ID,
+      partSizeBytes: 64 * 1024 * 1024,
+      partCount: 8_192,
+      finalizeDeadline: '2026-08-10T11:00:00.000Z',
+    });
+
+    const maxMultipartResponse = await request(createTestApp(uploadService))
+      .post('/uploads/presign')
+      .send({
+        parentFolderId: null,
+        fileName: 'huge.bin',
+        contentType: 'application/octet-stream',
+        size: MAX_UPLOAD_SIZE_BYTES,
+      });
+    expect(maxMultipartResponse.status).toBe(201);
+    expect(uploadService.createUpload).toHaveBeenCalledExactlyOnceWith(USER, {
+      parentFolderId: null,
+      fileName: 'huge.bin',
+      contentType: 'application/octet-stream',
+      size: MAX_UPLOAD_SIZE_BYTES,
+      sha256: undefined,
+    });
+
+    uploadService.createUpload.mockClear();
+
+    const oversizedResponse = await request(createTestApp(uploadService))
       .post('/uploads/presign')
       .send({
         parentFolderId: null,
         fileName: 'too-large.bin',
         contentType: 'application/octet-stream',
-        size: MAX_SINGLE_PART_UPLOAD_SIZE_BYTES + 1,
-        sha256: EXPECTED_SHA256,
+        size: MAX_UPLOAD_SIZE_BYTES + 1,
       });
 
-    const body = response.body as ErrorResponse;
-    expect(response.status).toBe(400);
+    const body = oversizedResponse.body as ErrorResponse;
+    expect(oversizedResponse.status).toBe(400);
     expect(body).toMatchObject({
       code: 'invalid_request_body',
       message: errorCatalog.invalid_request_body.message,
@@ -221,9 +256,76 @@ describe('upload routes contract', () => {
     expect(uploadService.createUpload).not.toHaveBeenCalled();
   });
 
+  it('enforces sha256 presence for <= 16 MiB and forbids upfront sha256 for > 16 MiB', async () => {
+    const missingSha = await request(createTestApp(uploadService)).post('/uploads/presign').send({
+      parentFolderId: null,
+      fileName: 'small.bin',
+      contentType: 'application/octet-stream',
+      size: SINGLE_PART_MAX_BYTES,
+    });
+    expect(missingSha.status).toBe(400);
+    expect((missingSha.body as ErrorResponse).code).toBe('invalid_request_body');
+
+    const unexpectedSha = await request(createTestApp(uploadService))
+      .post('/uploads/presign')
+      .send({
+        parentFolderId: null,
+        fileName: 'multipart.bin',
+        contentType: 'application/octet-stream',
+        size: SINGLE_PART_MAX_BYTES + 1,
+        sha256: EXPECTED_SHA256,
+      });
+    expect(unexpectedSha.status).toBe(400);
+    expect((unexpectedSha.body as ErrorResponse).code).toBe('invalid_request_body');
+    expect(uploadService.createUpload).not.toHaveBeenCalled();
+  });
+
+  it('presigns a batch of multipart parts and rejects duplicate part numbers', async () => {
+    uploadService.presignParts.mockResolvedValue({
+      uploadId: UPLOAD_ID,
+      parts: [
+        {
+          partNumber: 1,
+          uploadUrl: 'https://storage.example.test/part-1',
+          expiresInSeconds: 900,
+          requiredHeaders: {
+            'x-amz-checksum-sha256': Buffer.from(EXPECTED_SHA256, 'hex').toString('base64'),
+          },
+        },
+      ],
+    });
+
+    const okResponse = await request(createTestApp(uploadService))
+      .post(`/uploads/${UPLOAD_ID}/parts/presign`)
+      .send({
+        parts: [{ partNumber: 1, sha256: EXPECTED_SHA256.toUpperCase() }],
+      });
+
+    expect(okResponse.status).toBe(200);
+    expect(okResponse.headers['ratelimit-policy']).toContain('"upload-part-presign"');
+    expect(uploadService.presignParts).toHaveBeenCalledExactlyOnceWith(USER, UPLOAD_ID, {
+      parts: [{ partNumber: 1, sha256: EXPECTED_SHA256 }],
+    });
+
+    const duplicateResponse = await request(createTestApp(uploadService))
+      .post(`/uploads/${UPLOAD_ID}/parts/presign`)
+      .send({
+        parts: [
+          { partNumber: 1, sha256: EXPECTED_SHA256 },
+          { partNumber: 1, sha256: OTHER_SHA256 },
+        ],
+      });
+    expect(duplicateResponse.status).toBe(400);
+    expect((duplicateResponse.body as ErrorResponse).code).toBe('invalid_request_body');
+  });
+
   it.each([
     'upload_object_missing',
     'upload_expired',
+    'upload_aborted',
+    'upload_already_completed',
+    'upload_mode_mismatch',
+    'upload_parts_invalid',
     'upload_checksum_missing',
     'upload_checksum_mismatch',
     'upload_size_mismatch',
@@ -240,19 +342,48 @@ describe('upload routes contract', () => {
     expectErrorResponse(response, code);
   });
 
-  it('returns the completed upload using the FileResponse contract', async () => {
+  it('returns the completed upload using the FileResponse contract for single-part and large multipart manifests', async () => {
     uploadService.completeUpload.mockResolvedValue(COMPLETED_FILE);
 
-    const response = await request(createTestApp(uploadService))
+    const singleResponse = await request(createTestApp(uploadService))
       .post(`/uploads/${UPLOAD_ID}/complete`)
       .send();
 
-    expect(response.status).toBe(200);
-    expect(response.headers['ratelimit-policy']).toContain('"upload-completion"');
-    expect(response.headers['ratelimit-policy']).toContain('q=120');
-    expect(response.headers['ratelimit-policy']).toContain('w=60');
-    expect(response.body).toStrictEqual(COMPLETED_FILE);
-    expect(uploadService.completeUpload).toHaveBeenCalledExactlyOnceWith(USER, UPLOAD_ID);
+    expect(singleResponse.status).toBe(200);
+    expect(singleResponse.headers['ratelimit-policy']).toContain('"upload-completion"');
+    expect(singleResponse.headers['ratelimit-policy']).toContain('q=120');
+    expect(singleResponse.headers['ratelimit-policy']).toContain('w=60');
+    expect(singleResponse.body).toStrictEqual(COMPLETED_FILE);
+    expect(uploadService.completeUpload).toHaveBeenCalledWith(USER, UPLOAD_ID, {
+      parts: undefined,
+    });
+
+    // > 16 KB multipart manifest (300 parts ~ 40 KB JSON) succeeds on /complete
+    const largeParts = Array.from({ length: 300 }, (_, index) => ({
+      partNumber: index + 1,
+      etag: `"etag-${index + 1}"`,
+      sha256: EXPECTED_SHA256,
+    }));
+    const multipartResponse = await request(createTestApp(uploadService))
+      .post(`/uploads/${UPLOAD_ID}/complete`)
+      .send({ parts: largeParts });
+
+    expect(multipartResponse.status).toBe(200);
+    expect(uploadService.completeUpload).toHaveBeenLastCalledWith(USER, UPLOAD_ID, {
+      parts: largeParts,
+    });
+  });
+
+  it('aborts an upload and returns 204 No Content', async () => {
+    uploadService.abortUpload.mockResolvedValue(undefined);
+
+    const response = await request(createTestApp(uploadService))
+      .post(`/uploads/${UPLOAD_ID}/abort`)
+      .send();
+
+    expect(response.status).toBe(204);
+    expect(response.text).toBe('');
+    expect(uploadService.abortUpload).toHaveBeenCalledExactlyOnceWith(USER, UPLOAD_ID);
   });
 });
 
@@ -260,7 +391,6 @@ function createTestApp(uploadService: UploadService) {
   const app = express();
 
   app.use(requestContext);
-  app.use(express.json());
   app.use((req, _res, next) => {
     req.principal = PRINCIPAL;
     req.user = USER;

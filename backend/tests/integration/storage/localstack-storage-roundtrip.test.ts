@@ -38,6 +38,7 @@ import {
 import { S3ObjectStorage } from '../../../src/storage/s3-object-storage.js';
 import { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
 import { UploadService } from '../../../src/upload/upload-service.js';
+import { SINGLE_PART_MAX_BYTES } from '../../../src/upload/upload-sizing.js';
 import type { User } from '../../../src/user/user.js';
 
 const REGION = 'eu-central-1';
@@ -169,6 +170,9 @@ describe('LocalStack storage round-trip', () => {
       size: content.length,
       sha256,
     });
+    if (presign.uploadMode !== 'single') {
+      throw new Error('Expected single-part upload response');
+    }
 
     const putResponse = await fetch(presign.uploadUrl, {
       method: 'PUT',
@@ -267,6 +271,9 @@ describe('LocalStack storage round-trip', () => {
       size: content.length + 1,
       sha256,
     });
+    if (presign.uploadMode !== 'single') {
+      throw new Error('Expected single-part upload response');
+    }
 
     expect(new URL(presign.uploadUrl).searchParams.get('X-Amz-SignedHeaders')).toContain(
       'content-length',
@@ -551,6 +558,112 @@ describe('LocalStack storage round-trip', () => {
 
     await storage.deleteObject(objectKey);
     await storage.deleteObject(archiveKey);
+  });
+
+  it('completes a full UploadService multipart upload and download round-trip in LocalStack', async () => {
+    const user = await createUser('multipart-service-owner');
+    const part1 = Buffer.alloc(SINGLE_PART_MAX_BYTES, 0x42);
+    const part2 = Buffer.from('multipart-service-tail-content');
+    const part1Sha256 = createHash('sha256').update(part1).digest('hex');
+    const part2Sha256 = createHash('sha256').update(part2).digest('hex');
+    const totalSize = part1.length + part2.length;
+
+    const created = await uploadService.createUpload(user, {
+      parentFolderId: null,
+      fileName: 'large-roundtrip.bin',
+      contentType: 'application/octet-stream',
+      size: totalSize,
+    });
+    expect(created).toMatchObject({
+      uploadMode: 'multipart',
+      partSizeBytes: SINGLE_PART_MAX_BYTES,
+      partCount: 2,
+    });
+
+    const presignedParts = await uploadService.presignParts(user, created.uploadId, {
+      parts: [
+        { partNumber: 1, sha256: part1Sha256 },
+        { partNumber: 2, sha256: part2Sha256 },
+      ],
+    });
+    expect(presignedParts.parts).toHaveLength(2);
+
+    const [p1Res, p2Res] = await Promise.all([
+      fetch(presignedParts.parts[0]!.uploadUrl, {
+        method: 'PUT',
+        headers: presignedParts.parts[0]!.requiredHeaders,
+        body: part1,
+      }),
+      fetch(presignedParts.parts[1]!.uploadUrl, {
+        method: 'PUT',
+        headers: presignedParts.parts[1]!.requiredHeaders,
+        body: part2,
+      }),
+    ]);
+    expect(p1Res.status, await p1Res.text()).toBe(200);
+    expect(p2Res.status, await p2Res.text()).toBe(200);
+
+    const completedFile = await uploadService.completeUpload(user, created.uploadId, {
+      parts: [
+        { partNumber: 1, etag: p1Res.headers.get('etag')!, sha256: part1Sha256 },
+        { partNumber: 2, etag: p2Res.headers.get('etag')!, sha256: part2Sha256 },
+      ],
+    });
+    expect(completedFile).toMatchObject({
+      kind: 'file',
+      name: 'large-roundtrip.bin',
+      contentType: 'application/octet-stream',
+      sizeBytes: totalSize,
+    });
+
+    const download = await fileDownloadService.createDownloadUrl(user, completedFile.id);
+    const downloadRes = await fetch(download.downloadUrl);
+    expect(downloadRes.status).toBe(200);
+    const downloaded = Buffer.from(await downloadRes.arrayBuffer());
+    expect(downloaded.length).toBe(totalSize);
+    expect(downloaded.subarray(0, 16).equals(part1.subarray(0, 16))).toBe(true);
+    expect(downloaded.subarray(SINGLE_PART_MAX_BYTES).equals(part2)).toBe(true);
+
+    await entryService.deleteEntry(user, completedFile.id);
+    await expect(deletionProcessor.processNext()).resolves.toBe(true);
+  });
+
+  it('completes an UploadService 0-byte file upload and download round-trip in LocalStack', async () => {
+    const user = await createUser('empty-service-owner');
+    const emptySha256 = createHash('sha256').update(Buffer.alloc(0)).digest('hex');
+
+    const created = await uploadService.createUpload(user, {
+      parentFolderId: null,
+      fileName: 'zero.txt',
+      contentType: 'text/plain',
+      size: 0,
+      sha256: emptySha256,
+    });
+    if (created.uploadMode !== 'single') {
+      throw new Error('Expected single-part upload for 0-byte file');
+    }
+
+    const putRes = await fetch(created.uploadUrl, {
+      method: 'PUT',
+      headers: created.requiredHeaders,
+      body: Buffer.alloc(0),
+    });
+    expect(putRes.status, await putRes.text()).toBe(200);
+
+    const file = await uploadService.completeUpload(user, created.uploadId);
+    expect(file).toMatchObject({
+      kind: 'file',
+      name: 'zero.txt',
+      sizeBytes: 0,
+    });
+
+    const download = await fileDownloadService.createDownloadUrl(user, file.id);
+    const downloadRes = await fetch(download.downloadUrl);
+    expect(downloadRes.status).toBe(200);
+    expect((await downloadRes.arrayBuffer()).byteLength).toBe(0);
+
+    await entryService.deleteEntry(user, file.id);
+    await expect(deletionProcessor.processNext()).resolves.toBe(true);
   });
 
   async function createUser(userLabel: string): Promise<User> {

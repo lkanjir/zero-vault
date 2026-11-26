@@ -1,4 +1,5 @@
 import type { TransactionContext } from '../db/unit-of-work.js';
+import type { ObjectChecksum } from '../storage/object-storage.js';
 import type { UploadIntent, UploadIntentInput } from './upload-intent.js';
 
 export type CompletedUploadFile = {
@@ -13,6 +14,7 @@ export type CompletedUploadFile = {
 export type CompleteCreateIntentCommand = {
   intent: UploadIntent;
   userId: number;
+  verifiedChecksum: ObjectChecksum;
   completedAt: Date;
 };
 
@@ -23,6 +25,7 @@ export type CompleteCreateIntentResult =
 export type CompleteReplaceIntentCommand = {
   intent: UploadIntent;
   targetEntryId: number;
+  verifiedChecksum: ObjectChecksum;
   completedAt: Date;
 };
 
@@ -78,6 +81,7 @@ export interface UploadIntentRepository {
     tx: TransactionContext,
   ): Promise<void>;
   expireLockedIntent(intentId: number, tx: TransactionContext): Promise<void>;
+  abortLockedIntent(intentId: number, tx: TransactionContext): Promise<void>;
   completeCreateIntent(
     command: CompleteCreateIntentCommand,
     tx: TransactionContext,

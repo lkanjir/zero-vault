@@ -43,7 +43,6 @@ export function createApp({ config, database }: CreateAppOptions): Express {
 
   app.use(requestContext);
   app.use(createHealthRouter(database.checkConnection));
-  app.use(express.json({ limit: '16kb' }));
 
   app.use('/api', (_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -52,7 +51,12 @@ export function createApp({ config, database }: CreateAppOptions): Express {
 
   app.use('/api', createPublicConfigRouter(config.oidc));
 
+  // Upload routes own route-specific JSON body limits (2mb on /:uploadId/complete, 16kb elsewhere)
+  // so auth and rate limiting run before parsing large multipart part manifests.
   app.use('/api/uploads', requireAuth, resolveUser, createUploadRouter(composition));
+
+  app.use(express.json({ limit: '16kb' }));
+
   app.use('/api/entries', requireAuth, resolveUser, createEntryRouter(composition));
   app.use('/api/files', requireAuth, resolveUser, createFilesRouter(composition));
   app.use('/api/folders', requireAuth, resolveUser, createFolderRouter(composition));

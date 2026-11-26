@@ -9,6 +9,12 @@ export const uploadIntentRateLimiter = createAuthenticatedRateLimiter({
   limit: 120,
 });
 
+export const uploadPartPresignRateLimiter = createAuthenticatedRateLimiter({
+  identifier: 'upload-part-presign',
+  windowMs: ONE_MINUTE_MS,
+  limit: 600,
+});
+
 export const uploadCompletionRateLimiter = createAuthenticatedRateLimiter({
   identifier: 'upload-completion',
   windowMs: ONE_MINUTE_MS,

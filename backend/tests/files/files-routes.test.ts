@@ -12,6 +12,7 @@ import type { ErrorResponse } from '../../src/shared/errors/api/error-response.j
 import type { FileSharingService } from '../../src/sharing/file-sharing-service.js';
 import { AppError } from '../../src/shared/errors/api/app-error.js';
 import type { UploadService } from '../../src/upload/upload-service.js';
+import { MAX_UPLOAD_SIZE_BYTES, SINGLE_PART_MAX_BYTES } from '../../src/upload/upload-sizing.js';
 
 const FILE_ID = '20000000-0000-4000-8000-000000000001';
 const SHARE_ID = '30000000-0000-4000-8000-000000000001';
@@ -79,6 +80,7 @@ describe('files routes', () => {
       expiresAt: null,
     });
     uploadService.createReplacementUpload.mockResolvedValue({
+      uploadMode: 'single',
       uploadId: '40000000-0000-4000-8000-000000000001',
       uploadUrl: 'https://storage.example.test/upload',
       expiresInSeconds: 60,
@@ -173,6 +175,7 @@ describe('files routes', () => {
     expect(response.headers['ratelimit-policy']).toContain('q=120');
     expect(response.headers['ratelimit-policy']).toContain('w=60');
     expect(response.body).toStrictEqual({
+      uploadMode: 'single',
       uploadId: '40000000-0000-4000-8000-000000000001',
       uploadUrl: 'https://storage.example.test/upload',
       expiresInSeconds: 60,
@@ -188,6 +191,38 @@ describe('files routes', () => {
     });
   });
 
+  it('accepts a 0-byte replacement and a multipart replacement without upfront sha256', async () => {
+    const emptyResponse = await request(
+      createTestApp(downloadService, sharingService, uploadService),
+    )
+      .post(`/files/${FILE_ID}/replacements`)
+      .send({
+        contentType: 'text/plain',
+        size: 0,
+        sha256: EXPECTED_SHA256,
+      });
+    expect(emptyResponse.status).toBe(201);
+
+    uploadService.createReplacementUpload.mockResolvedValueOnce({
+      uploadMode: 'multipart',
+      uploadId: '40000000-0000-4000-8000-000000000002',
+      partSizeBytes: 16 * 1024 * 1024,
+      partCount: 2,
+      finalizeDeadline: '2026-08-10T11:00:00.000Z',
+    });
+
+    const multipartResponse = await request(
+      createTestApp(downloadService, sharingService, uploadService),
+    )
+      .post(`/files/${FILE_ID}/replacements`)
+      .send({
+        contentType: 'application/octet-stream',
+        size: SINGLE_PART_MAX_BYTES + 1,
+      });
+    expect(multipartResponse.status).toBe(201);
+    expect(multipartResponse.body).toMatchObject({ uploadMode: 'multipart', partCount: 2 });
+  });
+
   it.each([
     ['an invalid file ID', '/files/not-a-uuid/replacements', validReplacementBody()],
     [
@@ -195,11 +230,16 @@ describe('files routes', () => {
       `/files/${FILE_ID}/replacements`,
       validReplacementBody({ contentType: '; charset=utf-8' }),
     ],
-    ['an invalid size', `/files/${FILE_ID}/replacements`, validReplacementBody({ size: 0 })],
+    ['a negative size', `/files/${FILE_ID}/replacements`, validReplacementBody({ size: -1 })],
     [
       'an oversized replacement',
       `/files/${FILE_ID}/replacements`,
-      validReplacementBody({ size: 100 * 1024 * 1024 + 1 }),
+      { contentType: 'application/octet-stream', size: MAX_UPLOAD_SIZE_BYTES + 1 },
+    ],
+    [
+      'a missing checksum for single-part replacement',
+      `/files/${FILE_ID}/replacements`,
+      { contentType: 'application/pdf', size: 24 },
     ],
     [
       'an invalid checksum',

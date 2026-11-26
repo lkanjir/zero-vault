@@ -4,8 +4,10 @@ import type { AuditRepository } from '../../src/audit/audit-repository.js';
 import type { AuthorizedEntry, EntryAuthorizer } from '../../src/authorization/entry-authorizer.js';
 import type { TransactionContext, UnitOfWork } from '../../src/db/unit-of-work.js';
 import { AppError } from '../../src/shared/errors/api/app-error.js';
+import { StorageInvalidPartsError } from '../../src/shared/errors/storage/storage-invalid-parts-error.js';
 import { StorageObjectNotFoundError } from '../../src/shared/errors/storage/storage-object-not-found-error.js';
 import { StorageUnavailableError } from '../../src/shared/errors/storage/storage-unavailable-error.js';
+import { computeCompositeSha256 } from '../../src/shared/utils/sha256-convert.js';
 import type { ObjectMetadata, ObjectStorage } from '../../src/storage/object-storage.js';
 import type {
   CompletedUploadFile,
@@ -13,6 +15,10 @@ import type {
 } from '../../src/upload/upload-intent-repository.js';
 import type { UploadIntent } from '../../src/upload/upload-intent.js';
 import { UploadService } from '../../src/upload/upload-service.js';
+import {
+  MULTIPART_STANDARD_PART_SIZE_BYTES,
+  SINGLE_PART_MAX_BYTES,
+} from '../../src/upload/upload-sizing.js';
 import type { User } from '../../src/user/user.js';
 import { createFakeUnitOfWork } from '../helpers/fake-unit-of-work.js';
 
@@ -77,6 +83,7 @@ describe('UploadService', () => {
     });
 
     expect(result).toStrictEqual({
+      uploadMode: 'single',
       uploadId: result.uploadId,
       uploadUrl: SIGNED_URL,
       expiresInSeconds: 600,
@@ -210,6 +217,7 @@ describe('UploadService', () => {
     });
     expect(savedTx).toBe(tx);
     expect(result).toStrictEqual({
+      uploadMode: 'single',
       uploadId: result.uploadId,
       uploadUrl: SIGNED_URL,
       expiresInSeconds: 600,
@@ -269,6 +277,10 @@ describe('UploadService', () => {
       {
         intent,
         userId: USER.id,
+        verifiedChecksum: {
+          type: 'full_sha256',
+          value: EXPECTED_SHA256,
+        },
         completedAt: NOW,
       },
       tx,
@@ -590,7 +602,367 @@ describe('UploadService', () => {
 
     expect(storage.headObject).not.toHaveBeenCalled();
   });
+
+  it('creates a single-part upload intent for a 0-byte empty file', async () => {
+    storage.createPresignedUploadUrl.mockResolvedValue(SIGNED_URL);
+
+    const result = await service.createUpload(USER, {
+      fileName: 'empty.txt',
+      contentType: 'text/plain',
+      size: 0,
+      sha256: EXPECTED_SHA256,
+    });
+
+    expect(result).toMatchObject({
+      uploadMode: 'single',
+      uploadUrl: SIGNED_URL,
+    });
+    expect(storage.createPresignedUploadUrl.mock.lastCall![0]).toMatchObject({
+      sizeBytes: 0,
+      sha256Hex: EXPECTED_SHA256,
+    });
+  });
+
+  it('creates a multipart upload intent for files larger than 16 MiB', async () => {
+    storage.createMultipartUpload.mockResolvedValue('s3-upload-id-1');
+    const size = SINGLE_PART_MAX_BYTES + 123;
+
+    const result = await service.createUpload(USER, {
+      fileName: 'archive.tar',
+      contentType: 'application/x-tar',
+      size,
+    });
+
+    expect(result).toStrictEqual({
+      uploadMode: 'multipart',
+      uploadId: result.uploadId,
+      partSizeBytes: MULTIPART_STANDARD_PART_SIZE_BYTES,
+      partCount: 2,
+      finalizeDeadline: new Date(NOW.getTime() + 48 * 60 * 60_000).toISOString(),
+    });
+    expect(storage.createMultipartUpload).toHaveBeenCalledOnce();
+    expect(storage.createPresignedUploadUrl).not.toHaveBeenCalled();
+    expect(repo.save).toHaveBeenCalledOnce();
+    expect(repo.save.mock.lastCall![0]).toMatchObject({
+      fileName: 'archive.tar',
+      upload: {
+        uploadMode: 'multipart',
+        s3UploadId: 's3-upload-id-1',
+        partSizeBytes: MULTIPART_STANDARD_PART_SIZE_BYTES,
+        partCount: 2,
+        expectedSha256: null,
+        checksumType: 'composite_sha256',
+        uploadUrlExpiresAt: null,
+        finalizeDeadline: new Date(NOW.getTime() + 48 * 60 * 60_000),
+      },
+    });
+  });
+
+  it('aborts the newly created S3 multipart upload if saving the intent fails', async () => {
+    storage.createMultipartUpload.mockResolvedValue('s3-upload-orphan');
+    storage.abortMultipartUpload.mockResolvedValue();
+    repo.save.mockRejectedValue(new Error('db write failed'));
+
+    await expect(
+      service.createUpload(USER, {
+        fileName: 'archive.tar',
+        contentType: 'application/x-tar',
+        size: SINGLE_PART_MAX_BYTES + 1,
+      }),
+    ).rejects.toThrow('db write failed');
+
+    expect(storage.abortMultipartUpload).toHaveBeenCalledExactlyOnceWith(
+      expect.stringMatching(new RegExp(`^users/${USER.publicId}/objects/[0-9a-f-]{36}$`)),
+      's3-upload-orphan',
+    );
+  });
+
+  it('creates a multipart replacement intent for files larger than 16 MiB', async () => {
+    storage.createMultipartUpload.mockResolvedValue('s3-replace-upload-1');
+    const filePublicId = '20000000-0000-4000-8000-000000000001';
+
+    const result = await service.createReplacementUpload(USER, filePublicId, {
+      contentType: 'application/octet-stream',
+      size: SINGLE_PART_MAX_BYTES + 50,
+    });
+
+    expect(result).toStrictEqual({
+      uploadMode: 'multipart',
+      uploadId: result.uploadId,
+      partSizeBytes: MULTIPART_STANDARD_PART_SIZE_BYTES,
+      partCount: 2,
+      finalizeDeadline: new Date(NOW.getTime() + 48 * 60 * 60_000).toISOString(),
+    });
+    expect(repo.saveReplacement).toHaveBeenCalledOnce();
+    expect(repo.saveReplacement.mock.lastCall![0]).toMatchObject({
+      targetFileId: 10,
+      upload: {
+        uploadMode: 'multipart',
+        s3UploadId: 's3-replace-upload-1',
+        partSizeBytes: MULTIPART_STANDARD_PART_SIZE_BYTES,
+        partCount: 2,
+      },
+    });
+  });
+
+  it('presigns a batch of multipart parts with exact expected part sizes and deadline cap', async () => {
+    const intent = makePendingMultipartIntent({
+      expectedSizeBytes: SINGLE_PART_MAX_BYTES + 512,
+      finalizeDeadline: new Date(NOW.getTime() + 300_000),
+    });
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
+    storage.createPresignedUploadPartUrl
+      .mockResolvedValueOnce('https://storage.example.test/part-1')
+      .mockResolvedValueOnce('https://storage.example.test/part-2');
+
+    const result = await service.presignParts(USER, intent.uploadId, {
+      parts: [
+        { partNumber: 1, sha256: EXPECTED_SHA256 },
+        { partNumber: 2, sha256: OTHER_SHA256 },
+      ],
+    });
+
+    expect(result).toStrictEqual({
+      uploadId: intent.uploadId,
+      parts: [
+        {
+          partNumber: 1,
+          uploadUrl: 'https://storage.example.test/part-1',
+          expiresInSeconds: 300,
+          requiredHeaders: {
+            'x-amz-checksum-sha256': EXPECTED_SHA256_BASE64,
+          },
+        },
+        {
+          partNumber: 2,
+          uploadUrl: 'https://storage.example.test/part-2',
+          expiresInSeconds: 300,
+          requiredHeaders: {
+            'x-amz-checksum-sha256': Buffer.from(OTHER_SHA256, 'hex').toString('base64'),
+          },
+        },
+      ],
+    });
+    expect(storage.createPresignedUploadPartUrl).toHaveBeenNthCalledWith(1, {
+      objectKey: intent.objectKey,
+      s3UploadId: intent.s3UploadId,
+      partNumber: 1,
+      sizeBytes: MULTIPART_STANDARD_PART_SIZE_BYTES,
+      expiresInSeconds: 300,
+      sha256Hex: EXPECTED_SHA256,
+    });
+    expect(storage.createPresignedUploadPartUrl).toHaveBeenNthCalledWith(2, {
+      objectKey: intent.objectKey,
+      s3UploadId: intent.s3UploadId,
+      partNumber: 2,
+      sizeBytes: 512,
+      expiresInSeconds: 300,
+      sha256Hex: OTHER_SHA256,
+    });
+  });
+
+  it('rejects presignParts for single-part, out-of-range, aborted, or expired intents', async () => {
+    repo.findByUserAndUploadId.mockResolvedValueOnce(makePendingIntent());
+    await expect(
+      service.presignParts(USER, 'upload-1', {
+        parts: [{ partNumber: 1, sha256: EXPECTED_SHA256 }],
+      }),
+    ).rejects.toMatchObject({ code: 'upload_mode_mismatch' });
+
+    repo.findByUserAndUploadId.mockResolvedValueOnce(makePendingMultipartIntent({ partCount: 2 }));
+    await expect(
+      service.presignParts(USER, 'upload-1', {
+        parts: [{ partNumber: 3, sha256: EXPECTED_SHA256 }],
+      }),
+    ).rejects.toMatchObject({ code: 'upload_parts_invalid' });
+
+    repo.findByUserAndUploadId.mockResolvedValueOnce(
+      makePendingMultipartIntent({ status: 'aborted' }),
+    );
+    await expect(
+      service.presignParts(USER, 'upload-1', {
+        parts: [{ partNumber: 1, sha256: EXPECTED_SHA256 }],
+      }),
+    ).rejects.toMatchObject({ code: 'upload_aborted' });
+
+    const expiredIntent = makePendingMultipartIntent({
+      finalizeDeadline: new Date(NOW.getTime() - 1_000),
+    });
+    repo.findByUserAndUploadId.mockResolvedValueOnce(expiredIntent);
+    repo.findByUserAndUploadIdForUpdate.mockResolvedValueOnce(expiredIntent);
+    await expect(
+      service.presignParts(USER, expiredIntent.uploadId, {
+        parts: [{ partNumber: 1, sha256: EXPECTED_SHA256 }],
+      }),
+    ).rejects.toMatchObject({ code: 'upload_expired' });
+    expect(repo.expireLockedIntent).toHaveBeenCalledExactlyOnceWith(expiredIntent.id, tx);
+  });
+
+  it('completes a multipart upload, verifies composite checksum, and persists composite_sha256', async () => {
+    const intent = makePendingMultipartIntent();
+    const expectedComposite = computeCompositeSha256([EXPECTED_SHA256, OTHER_SHA256]);
+    const completedFile = makeCompletedFile({ sizeBytes: intent.expectedSizeBytes });
+
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
+    repo.findByUserAndUploadIdForUpdate.mockResolvedValue(intent);
+    storage.completeMultipartUpload.mockResolvedValue({ compositeChecksum: expectedComposite });
+    storage.headObject.mockResolvedValue({
+      objectKey: intent.objectKey,
+      sizeBytes: intent.expectedSizeBytes,
+      contentType: intent.contentType,
+      checksum: { type: 'composite_sha256', value: expectedComposite },
+    });
+    repo.completeCreateIntent.mockResolvedValue({ kind: 'completed', file: completedFile });
+
+    // Pass parts out of order to verify sorting
+    const result = await service.completeUpload(USER, intent.uploadId, {
+      parts: [
+        { partNumber: 2, etag: '"etag-2"', sha256: OTHER_SHA256 },
+        { partNumber: 1, etag: '"etag-1"', sha256: EXPECTED_SHA256 },
+      ],
+    });
+
+    expect(result.sizeBytes).toBe(intent.expectedSizeBytes);
+    expect(storage.completeMultipartUpload).toHaveBeenCalledExactlyOnceWith({
+      objectKey: intent.objectKey,
+      s3UploadId: intent.s3UploadId,
+      parts: [
+        { partNumber: 1, etag: '"etag-1"', sha256Hex: EXPECTED_SHA256 },
+        { partNumber: 2, etag: '"etag-2"', sha256Hex: OTHER_SHA256 },
+      ],
+    });
+    expect(repo.completeCreateIntent).toHaveBeenCalledExactlyOnceWith(
+      {
+        intent,
+        userId: USER.id,
+        verifiedChecksum: {
+          type: 'composite_sha256',
+          value: expectedComposite,
+        },
+        completedAt: NOW,
+      },
+      tx,
+    );
+  });
+
+  it('recovers idempotently when CompleteMultipartUpload returns NoSuchUpload because S3 already assembled the object', async () => {
+    const intent = makePendingMultipartIntent();
+    const expectedComposite = computeCompositeSha256([EXPECTED_SHA256, OTHER_SHA256]);
+    const completedFile = makeCompletedFile({ sizeBytes: intent.expectedSizeBytes });
+
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
+    repo.findByUserAndUploadIdForUpdate.mockResolvedValue(intent);
+    storage.completeMultipartUpload.mockRejectedValue(
+      new StorageObjectNotFoundError({
+        operation: 'complete_multipart_upload',
+        objectKey: intent.objectKey,
+      }),
+    );
+    storage.headObject.mockResolvedValue({
+      objectKey: intent.objectKey,
+      sizeBytes: intent.expectedSizeBytes,
+      contentType: intent.contentType,
+      checksum: { type: 'composite_sha256', value: expectedComposite },
+    });
+    repo.completeCreateIntent.mockResolvedValue({ kind: 'completed', file: completedFile });
+
+    await expect(
+      service.completeUpload(USER, intent.uploadId, {
+        parts: [
+          { partNumber: 1, etag: '"etag-1"', sha256: EXPECTED_SHA256 },
+          { partNumber: 2, etag: '"etag-2"', sha256: OTHER_SHA256 },
+        ],
+      }),
+    ).resolves.toMatchObject({ kind: 'file', sizeBytes: intent.expectedSizeBytes });
+  });
+
+  it('maps StorageInvalidPartsError or incomplete part lists to upload_parts_invalid', async () => {
+    const intent = makePendingMultipartIntent();
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
+
+    await expect(
+      service.completeUpload(USER, intent.uploadId, { parts: undefined }),
+    ).rejects.toMatchObject({ code: 'upload_parts_invalid' });
+
+    await expect(
+      service.completeUpload(USER, intent.uploadId, {
+        parts: [
+          { partNumber: 1, etag: '"etag-1"', sha256: EXPECTED_SHA256 },
+          { partNumber: 3, etag: '"etag-3"', sha256: OTHER_SHA256 },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'upload_parts_invalid' });
+
+    storage.completeMultipartUpload.mockRejectedValueOnce(
+      new StorageInvalidPartsError({
+        operation: 'complete_multipart_upload',
+        objectKey: intent.objectKey,
+      }),
+    );
+    await expect(
+      service.completeUpload(USER, intent.uploadId, {
+        parts: [
+          { partNumber: 1, etag: '"bad"', sha256: EXPECTED_SHA256 },
+          { partNumber: 2, etag: '"etag-2"', sha256: OTHER_SHA256 },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'upload_parts_invalid' });
+  });
+
+  it('rejects completing an aborted upload without reading storage', async () => {
+    const intent = makePendingMultipartIntent({ status: 'aborted' });
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
+    repo.findByUserAndUploadIdForUpdate.mockResolvedValue(intent);
+
+    await expect(service.completeUpload(USER, intent.uploadId)).rejects.toMatchObject({
+      code: 'upload_aborted',
+    });
+    expect(storage.completeMultipartUpload).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
+  });
+
+  it('aborts a pending multipart upload, queues deletion, and performs best-effort S3 abort', async () => {
+    const intent = makePendingMultipartIntent();
+    repo.findByUserAndUploadIdForUpdate.mockResolvedValue(intent);
+    storage.abortMultipartUpload.mockRejectedValue(new Error('transient s3 error'));
+
+    await expect(service.abortUpload(USER, intent.uploadId)).resolves.toBeUndefined();
+
+    expect(repo.abortLockedIntent).toHaveBeenCalledExactlyOnceWith(intent.id, tx);
+    expect(storage.abortMultipartUpload).toHaveBeenCalledExactlyOnceWith(
+      intent.objectKey,
+      intent.s3UploadId,
+    );
+  });
+
+  it('treats aborting an already aborted intent as idempotent and rejects aborting a completed intent', async () => {
+    repo.findByUserAndUploadIdForUpdate.mockResolvedValueOnce(
+      makePendingMultipartIntent({ status: 'aborted' }),
+    );
+    await expect(service.abortUpload(USER, 'upload-1')).resolves.toBeUndefined();
+    expect(repo.abortLockedIntent).not.toHaveBeenCalled();
+
+    repo.findByUserAndUploadIdForUpdate.mockResolvedValueOnce(makeCompletedIntent());
+    await expect(service.abortUpload(USER, 'upload-1')).rejects.toMatchObject({
+      code: 'upload_already_completed',
+    });
+  });
 });
+
+function makePendingMultipartIntent(overrides: Partial<UploadIntent> = {}): UploadIntent {
+  return makePendingIntent({
+    expectedSizeBytes: SINGLE_PART_MAX_BYTES + 123,
+    expectedSha256: null,
+    uploadMode: 'multipart',
+    s3UploadId: 's3-upload-id-1',
+    partSizeBytes: MULTIPART_STANDARD_PART_SIZE_BYTES,
+    partCount: 2,
+    checksumType: 'composite_sha256',
+    uploadUrlExpiresAt: null,
+    finalizeDeadline: new Date(NOW.getTime() + 48 * 60 * 60_000),
+    ...overrides,
+  });
+}
 
 function makeAuthorizedFile(entryId: number, ownerId = USER.id): AuthorizedEntry {
   return {

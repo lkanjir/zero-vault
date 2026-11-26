@@ -5,6 +5,7 @@ import type { TransactionContext } from '../db/unit-of-work.js';
 import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
 import { enqueueObjectDeletionsInTransaction } from '../object-deletion/object-deletion-helpers.js';
 import { AppError } from '../shared/errors/api/app-error.js';
+import type { ObjectChecksum } from '../storage/object-storage.js';
 import type {
   AssertUploadTargetAvailableCommand,
   CompleteCreateIntentCommand,
@@ -139,6 +140,29 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     await this.expireLockedIntents(tx, [intentId]);
   }
 
+  async abortLockedIntent(intentId: number, tx: TransactionContext): Promise<void> {
+    const [aborted] = await tx
+      .update(uploadIntents)
+      .set({ status: 'aborted' })
+      .where(and(eq(uploadIntents.id, intentId), eq(uploadIntents.status, 'pending')))
+      .returning({
+        objectKey: uploadIntents.objectKey,
+        s3UploadId: uploadIntents.s3UploadId,
+      });
+
+    if (!aborted) {
+      throw new Error('Failed to abort locked upload intent');
+    }
+
+    await enqueueObjectDeletionsInTransaction(tx, [
+      {
+        objectKey: aborted.objectKey,
+        reason: 'aborted_upload',
+        s3UploadId: aborted.s3UploadId,
+      },
+    ]);
+  }
+
   async completeCreateIntent(
     command: CompleteCreateIntentCommand,
     tx: TransactionContext,
@@ -151,7 +175,12 @@ export class PostgresIntentRepository implements UploadIntentRepository {
           throw new Error('Failed to create file entry');
         }
 
-        const file = await this.createFileForIntent(savepoint, entry.id, command.intent);
+        const file = await this.createFileForIntent(
+          savepoint,
+          entry.id,
+          command.intent,
+          command.verifiedChecksum,
+        );
 
         if (!file) {
           throw new Error('Failed to create file metadata');
@@ -179,7 +208,12 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       const mappedError = mapEntryDatabaseError(error);
 
       if (mappedError instanceof AppError && mappedError.code === 'duplicate_entry_name') {
-        await this.markIntentSuperseded(tx, command.intent.id, command.intent.objectKey);
+        await this.markIntentSuperseded(
+          tx,
+          command.intent.id,
+          command.intent.objectKey,
+          command.intent.s3UploadId,
+        );
         return { kind: 'duplicate_entry_name' };
       }
 
@@ -191,7 +225,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     command: CompleteReplaceIntentCommand,
     tx: TransactionContext,
   ): Promise<CompleteReplaceIntentResult> {
-    const { intent, targetEntryId, completedAt } = command;
+    const { intent, targetEntryId, verifiedChecksum, completedAt } = command;
     const expectedContentVersion = intent.expectedContentVersion;
 
     if (expectedContentVersion === null) {
@@ -210,12 +244,8 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       }
 
       if (currentFile.contentVersion !== expectedContentVersion) {
-        await this.markIntentSuperseded(tx, intent.id, intent.objectKey);
+        await this.markIntentSuperseded(tx, intent.id, intent.objectKey, intent.s3UploadId);
         return { kind: 'superseded' };
-      }
-
-      if (intent.expectedSha256 === null) {
-        throw new Error('Replace intent is missing verified checksum');
       }
 
       const [updatedFile] = await tx
@@ -224,8 +254,8 @@ export class PostgresIntentRepository implements UploadIntentRepository {
           objectKey: intent.objectKey,
           contentType: intent.contentType,
           sizeBytes: intent.expectedSizeBytes,
-          sha256: intent.expectedSha256,
-          checksumType: intent.checksumType,
+          sha256: verifiedChecksum.value,
+          checksumType: verifiedChecksum.type,
           contentVersion: sql`${files.contentVersion} + 1`,
         })
         .where(
@@ -239,7 +269,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         });
 
       if (!updatedFile) {
-        await this.markIntentSuperseded(tx, intent.id, intent.objectKey);
+        await this.markIntentSuperseded(tx, intent.id, intent.objectKey, intent.s3UploadId);
         return { kind: 'superseded' };
       }
 
@@ -317,7 +347,10 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       .update(uploadIntents)
       .set({ status: 'expired' })
       .where(and(inArray(uploadIntents.id, intentIds), eq(uploadIntents.status, 'pending')))
-      .returning({ objectKey: uploadIntents.objectKey });
+      .returning({
+        objectKey: uploadIntents.objectKey,
+        s3UploadId: uploadIntents.s3UploadId,
+      });
 
     if (expired.length !== intentIds.length) {
       throw new Error('Failed to expire all locked upload intents');
@@ -325,7 +358,11 @@ export class PostgresIntentRepository implements UploadIntentRepository {
 
     await enqueueObjectDeletionsInTransaction(
       tx,
-      expired.map((intent) => ({ objectKey: intent.objectKey, reason: 'expired_upload' })),
+      expired.map((intent) => ({
+        objectKey: intent.objectKey,
+        reason: 'expired_upload',
+        s3UploadId: intent.s3UploadId,
+      })),
     );
 
     return expired.length;
@@ -335,11 +372,8 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     tx: Transaction,
     entryId: number,
     intent: UploadIntent,
+    verifiedChecksum: ObjectChecksum,
   ): Promise<FileRow | null> {
-    if (intent.expectedSha256 === null) {
-      throw new Error('Create intent is missing verified checksum');
-    }
-
     const [file] = await tx
       .insert(files)
       .values({
@@ -347,8 +381,8 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         objectKey: intent.objectKey,
         contentType: intent.contentType,
         sizeBytes: intent.expectedSizeBytes,
-        sha256: intent.expectedSha256,
-        checksumType: intent.checksumType,
+        sha256: verifiedChecksum.value,
+        checksumType: verifiedChecksum.type,
       })
       .returning();
 
@@ -393,6 +427,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     tx: Transaction,
     intentId: number,
     objectKey: string,
+    s3UploadId: string | null,
   ): Promise<void> {
     const [superseded] = await tx
       .update(uploadIntents)
@@ -404,7 +439,9 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       throw new Error('Failed to supersede upload intent');
     }
 
-    await enqueueObjectDeletionsInTransaction(tx, [{ objectKey, reason: 'superseded_upload' }]);
+    await enqueueObjectDeletionsInTransaction(tx, [
+      { objectKey, reason: 'superseded_upload', s3UploadId },
+    ]);
   }
 
   private toDomain(row: typeof uploadIntents.$inferSelect): UploadIntent {

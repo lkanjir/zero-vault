@@ -21,6 +21,7 @@ import { PostgresAuthorizationContextResolver } from '../../../src/authorization
 import { PostgresEntryAuthorizer } from '../../../src/authorization/postgres-entry-authorizer.js';
 import { createDatabase, type Database } from '../../../src/db/db-client.js';
 import { DrizzleUnitOfWork } from '../../../src/db/unit-of-work.js';
+import { computeCompositeSha256 } from '../../../src/shared/utils/sha256-convert.js';
 import type { ObjectMetadata, ObjectStorage } from '../../../src/storage/object-storage.js';
 import { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
 import type {
@@ -29,6 +30,7 @@ import type {
 } from '../../../src/upload/upload-intent-repository.js';
 import type { UploadIntentInput } from '../../../src/upload/upload-intent.js';
 import { UploadService } from '../../../src/upload/upload-service.js';
+import { SINGLE_PART_MAX_BYTES } from '../../../src/upload/upload-sizing.js';
 import type { User } from '../../../src/user/user.js';
 
 const OWNER_ISSUER = 'https://issuer.example.test/realms/zero-vault';
@@ -581,6 +583,171 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
     expect(storedIntent).toMatchObject({ status: 'pending' });
     expect(await database.select().from(objectDeletionJobs)).toHaveLength(0);
     expect(await database.select().from(auditEvents)).toHaveLength(0);
+  });
+
+  it('completes a multipart create upload storing composite_sha256 and a multipart replace upload', async () => {
+    const user = await createUser();
+    const part1Sha = 'a'.repeat(64);
+    const part2Sha = 'b'.repeat(64);
+    const composite = computeCompositeSha256([part1Sha, part2Sha]);
+    const totalSize = SINGLE_PART_MAX_BYTES + 42;
+
+    const created = await uploadService.createUpload(user, {
+      parentFolderId: null,
+      fileName: 'big.bin',
+      contentType: 'application/octet-stream',
+      size: totalSize,
+    });
+    expect(created.uploadMode).toBe('multipart');
+
+    const [storedCreateIntent] = await database
+      .select()
+      .from(uploadIntents)
+      .where(eq(uploadIntents.uploadId, created.uploadId));
+    expect(storedCreateIntent).toMatchObject({
+      uploadMode: 'multipart',
+      checksumType: 'composite_sha256',
+      expectedSha256: null,
+      partCount: 2,
+      s3UploadId: 'test-s3-upload-id',
+    });
+
+    uploadedObjects.set(storedCreateIntent!.objectKey, {
+      objectKey: storedCreateIntent!.objectKey,
+      sizeBytes: totalSize,
+      contentType: 'application/octet-stream',
+      checksum: { type: 'composite_sha256', value: composite },
+    });
+
+    const completedCreate = await uploadService.completeUpload(user, created.uploadId, {
+      parts: [
+        { partNumber: 1, etag: '"e1"', sha256: part1Sha },
+        { partNumber: 2, etag: '"e2"', sha256: part2Sha },
+      ],
+    });
+    expect(completedCreate.sizeBytes).toBe(totalSize);
+
+    const [storedFile] = await database.select().from(files);
+    expect(storedFile).toMatchObject({
+      sizeBytes: totalSize,
+      sha256: composite,
+      checksumType: 'composite_sha256',
+      contentVersion: 1,
+    });
+
+    // Replace with a 0-byte empty file (transitions from composite_sha256 back to full_sha256)
+    const emptySha = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+    const replaced = await uploadService.createReplacementUpload(user, completedCreate.id, {
+      contentType: 'text/plain',
+      size: 0,
+      sha256: emptySha,
+    });
+    expect(replaced.uploadMode).toBe('single');
+
+    const [storedReplaceIntent] = await database
+      .select()
+      .from(uploadIntents)
+      .where(eq(uploadIntents.uploadId, replaced.uploadId));
+    uploadedObjects.set(storedReplaceIntent!.objectKey, {
+      objectKey: storedReplaceIntent!.objectKey,
+      sizeBytes: 0,
+      contentType: 'text/plain',
+      checksum: { type: 'full_sha256', value: emptySha },
+    });
+
+    const completedReplace = await uploadService.completeUpload(user, replaced.uploadId);
+    expect(completedReplace).toMatchObject({
+      id: completedCreate.id,
+      sizeBytes: 0,
+      contentType: 'text/plain',
+    });
+
+    const [updatedFile] = await database.select().from(files);
+    expect(updatedFile).toMatchObject({
+      sizeBytes: 0,
+      sha256: emptySha,
+      checksumType: 'full_sha256',
+      contentVersion: 2,
+    });
+  });
+
+  it('aborts a pending multipart upload and enqueues an aborted_upload deletion job with s3UploadId', async () => {
+    const user = await createUser();
+    const created = await uploadService.createUpload(user, {
+      parentFolderId: null,
+      fileName: 'aborted.bin',
+      contentType: 'application/octet-stream',
+      size: SINGLE_PART_MAX_BYTES + 10,
+    });
+
+    await uploadService.abortUpload(user, created.uploadId);
+    // Repeated abort is idempotent
+    await expect(uploadService.abortUpload(user, created.uploadId)).resolves.toBeUndefined();
+
+    const [storedIntent] = await database
+      .select()
+      .from(uploadIntents)
+      .where(eq(uploadIntents.uploadId, created.uploadId));
+    const [job] = await database.select().from(objectDeletionJobs);
+
+    expect(storedIntent?.status).toBe('aborted');
+    expect(job).toMatchObject({
+      objectKey: storedIntent?.objectKey,
+      s3UploadId: 'test-s3-upload-id',
+      reason: 'aborted_upload',
+    });
+
+    await expect(uploadService.completeUpload(user, created.uploadId)).rejects.toMatchObject({
+      code: 'upload_aborted',
+    });
+  });
+
+  it('propagates s3UploadId when expiring pending multipart upload intents', async () => {
+    const user = await createUser();
+    const createdAt = new Date('2026-07-28T08:00:00.000Z');
+    const objectKey = `integration-tests/${randomUUID()}`;
+    await unitOfWork.run((tx) =>
+      repository.save(
+        {
+          targetParentId: null,
+          fileName: 'expired-multipart.bin',
+          upload: {
+            uploadId: randomUUID(),
+            createdByUserId: user.id,
+            objectKey,
+            contentType: 'application/octet-stream',
+            expectedSizeBytes: SINGLE_PART_MAX_BYTES + 10,
+            expectedSha256: null,
+            uploadMode: 'multipart',
+            s3UploadId: 's3-expired-upload-1',
+            partSizeBytes: SINGLE_PART_MAX_BYTES,
+            partCount: 2,
+            checksumType: 'composite_sha256',
+            createdAt,
+            uploadUrlExpiresAt: null,
+            finalizeDeadline: new Date(createdAt.getTime() + 60_000),
+          },
+        },
+        tx,
+      ),
+    );
+
+    await expect(
+      repository.expirePendingIntents({
+        expiredAt: new Date(createdAt.getTime() + 120_000),
+        limit: 100,
+      }),
+    ).resolves.toBe(1);
+
+    const [job] = await database
+      .select()
+      .from(objectDeletionJobs)
+      .where(eq(objectDeletionJobs.objectKey, objectKey));
+    expect(job).toMatchObject({
+      objectKey,
+      s3UploadId: 's3-expired-upload-1',
+      reason: 'expired_upload',
+    });
   });
 
   async function saveCreateIntent(command: SaveUploadIntentCommand): Promise<void> {
