@@ -389,6 +389,7 @@ describe('PostgreSQL storage lifecycle', () => {
       const firstClaim = await deletionRepository.claimNext({
         claimedAt: now,
         leaseExpiresAt: new Date(now.getTime() + 30_000),
+        maxAttempts: 10,
       });
 
       expect(firstClaim).toMatchObject({
@@ -416,12 +417,14 @@ describe('PostgreSQL storage lifecycle', () => {
         deletionRepository.claimNext({
           claimedAt: new Date(now.getTime() + 30_000),
           leaseExpiresAt: new Date(now.getTime() + 90_000),
+          maxAttempts: 10,
         }),
       ).resolves.toBeNull();
 
       const secondClaim = await deletionRepository.claimNext({
         claimedAt: new Date(now.getTime() + 60_000),
         leaseExpiresAt: new Date(now.getTime() + 90_000),
+        maxAttempts: 10,
       });
 
       expect(secondClaim).toMatchObject({
@@ -453,8 +456,86 @@ describe('PostgreSQL storage lifecycle', () => {
         attemptCount: 2,
         leaseExpiresAt: null,
         lastErrorCode: null,
+        failedAt: null,
       });
       expect(completed?.completedAt).not.toBeNull();
+    });
+
+    it('marks exhausted deletion jobs terminally failed and unblocks subsequent jobs', async () => {
+      const now = new Date('2026-07-28T10:00:00.000Z');
+      const [exhausted] = await database
+        .insert(objectDeletionJobs)
+        .values({
+          objectKey: 'objects/poison-pill',
+          reason: 'deleted_file',
+          availableAt: new Date(now.getTime() - 60_000),
+          attemptCount: 10,
+          leaseExpiresAt: new Date(now.getTime() - 1_000),
+        })
+        .returning();
+      const [nextDue] = await database
+        .insert(objectDeletionJobs)
+        .values({
+          objectKey: 'objects/healthy',
+          reason: 'expired_upload',
+          availableAt: now,
+        })
+        .returning();
+
+      if (!exhausted || !nextDue) {
+        throw new Error('Failed to seed object deletion jobs');
+      }
+
+      const claimed = await deletionRepository.claimNext({
+        claimedAt: now,
+        leaseExpiresAt: new Date(now.getTime() + 60_000),
+        maxAttempts: 10,
+      });
+
+      expect(claimed).toMatchObject({
+        id: nextDue.id,
+        objectKey: 'objects/healthy',
+        attemptCount: 1,
+        failedAt: null,
+      });
+
+      const [storedExhausted] = await database
+        .select()
+        .from(objectDeletionJobs)
+        .where(eq(objectDeletionJobs.id, exhausted.id));
+
+      expect(storedExhausted).toMatchObject({
+        attemptCount: 10,
+        completedAt: null,
+        failedAt: now,
+        leaseExpiresAt: null,
+        lastErrorCode: 'max_attempts_exceeded',
+      });
+
+      await expect(
+        deletionRepository.markFailed({
+          id: nextDue.id,
+          attemptCount: 0,
+          failedAt: now,
+          errorCode: 'stale',
+        }),
+      ).resolves.toBe(false);
+      await expect(
+        deletionRepository.markFailed({
+          id: nextDue.id,
+          attemptCount: 1,
+          failedAt: now,
+          errorCode: 'storage_unavailable',
+        }),
+      ).resolves.toBe(true);
+
+      await expect(
+        deletionRepository.claimNext({
+          claimedAt: new Date(now.getTime() + 120_000),
+          leaseExpiresAt: new Date(now.getTime() + 180_000),
+          maxAttempts: 10,
+        }),
+      ).resolves.toBeNull();
     });
   });
 

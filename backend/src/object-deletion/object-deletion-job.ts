@@ -15,5 +15,6 @@ export type ObjectDeletionJob = {
   attemptCount: number;
   leaseExpiresAt: Date | null;
   completedAt: Date | null;
+  failedAt: Date | null;
   lastErrorCode: string | null;
 };

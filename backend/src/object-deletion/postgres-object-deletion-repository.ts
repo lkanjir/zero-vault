@@ -1,25 +1,68 @@
-import { and, eq, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import type { Database } from '../db/db-client.js';
 import { objectDeletionJobs } from '../db/schema.js';
 import type { ObjectDeletionJob } from './object-deletion-job.js';
 import type {
   ClaimNextObjectDeletionCommand,
   CompleteObjectDeletionCommand,
+  MarkObjectDeletionFailedCommand,
   ObjectDeletionRepository,
   RescheduleObjectDeletionCommand,
 } from './object-deletion-repository.js';
+
+const EXHAUSTED_FAIL_BATCH_SIZE = 100;
+const MAX_ATTEMPTS_EXCEEDED_ERROR_CODE = 'max_attempts_exceeded';
 
 export class PostgresObjectDeletionRepository implements ObjectDeletionRepository {
   constructor(private readonly db: Database) {}
 
   async claimNext(command: ClaimNextObjectDeletionCommand): Promise<ObjectDeletionJob | null> {
     return this.db.transaction(async (tx) => {
+      const exhausted = await tx
+        .select({ id: objectDeletionJobs.id })
+        .from(objectDeletionJobs)
+        .where(
+          and(
+            isNull(objectDeletionJobs.completedAt),
+            isNull(objectDeletionJobs.failedAt),
+            gte(objectDeletionJobs.attemptCount, command.maxAttempts),
+            or(
+              isNull(objectDeletionJobs.leaseExpiresAt),
+              lte(objectDeletionJobs.leaseExpiresAt, command.claimedAt),
+            ),
+          ),
+        )
+        .for('update', { skipLocked: true })
+        .limit(EXHAUSTED_FAIL_BATCH_SIZE);
+
+      if (exhausted.length > 0) {
+        await tx
+          .update(objectDeletionJobs)
+          .set({
+            failedAt: command.claimedAt,
+            leaseExpiresAt: null,
+            lastErrorCode: sql`coalesce(${objectDeletionJobs.lastErrorCode}, ${MAX_ATTEMPTS_EXCEEDED_ERROR_CODE})`,
+          })
+          .where(
+            and(
+              inArray(
+                objectDeletionJobs.id,
+                exhausted.map((item) => item.id),
+              ),
+              isNull(objectDeletionJobs.completedAt),
+              isNull(objectDeletionJobs.failedAt),
+            ),
+          );
+      }
+
       const [candidate] = await tx
         .select({ id: objectDeletionJobs.id })
         .from(objectDeletionJobs)
         .where(
           and(
             isNull(objectDeletionJobs.completedAt),
+            isNull(objectDeletionJobs.failedAt),
+            lt(objectDeletionJobs.attemptCount, command.maxAttempts),
             lte(objectDeletionJobs.availableAt, command.claimedAt),
             or(
               isNull(objectDeletionJobs.leaseExpiresAt),
@@ -41,7 +84,13 @@ export class PostgresObjectDeletionRepository implements ObjectDeletionRepositor
           leaseExpiresAt: command.leaseExpiresAt,
           attemptCount: sql`${objectDeletionJobs.attemptCount} + 1`,
         })
-        .where(and(eq(objectDeletionJobs.id, candidate.id), isNull(objectDeletionJobs.completedAt)))
+        .where(
+          and(
+            eq(objectDeletionJobs.id, candidate.id),
+            isNull(objectDeletionJobs.completedAt),
+            isNull(objectDeletionJobs.failedAt),
+          ),
+        )
         .returning();
 
       if (!claimed) {
@@ -80,10 +129,25 @@ export class PostgresObjectDeletionRepository implements ObjectDeletionRepositor
     return rescheduled !== undefined;
   }
 
+  async markFailed(command: MarkObjectDeletionFailedCommand): Promise<boolean> {
+    const [failed] = await this.db
+      .update(objectDeletionJobs)
+      .set({
+        failedAt: command.failedAt,
+        leaseExpiresAt: null,
+        lastErrorCode: command.errorCode,
+      })
+      .where(this.activeAttemptCondition(command.id, command.attemptCount))
+      .returning({ id: objectDeletionJobs.id });
+
+    return failed !== undefined;
+  }
+
   private activeAttemptCondition(id: number, attemptCount: number) {
     return and(
       eq(objectDeletionJobs.id, id),
       isNull(objectDeletionJobs.completedAt),
+      isNull(objectDeletionJobs.failedAt),
       eq(objectDeletionJobs.attemptCount, attemptCount),
     );
   }
@@ -98,6 +162,7 @@ export class PostgresObjectDeletionRepository implements ObjectDeletionRepositor
       attemptCount: updatedRow.attemptCount,
       leaseExpiresAt: updatedRow.leaseExpiresAt,
       completedAt: updatedRow.completedAt,
+      failedAt: updatedRow.failedAt,
       lastErrorCode: updatedRow.lastErrorCode,
     };
   }

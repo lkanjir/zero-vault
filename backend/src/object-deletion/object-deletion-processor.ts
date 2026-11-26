@@ -7,6 +7,7 @@ import { StorageUnavailableError } from '../shared/errors/storage/storage-unavai
 const LEASE_DURATION_MS = 60 * 1000;
 const BASE_RETRY_DELAY_MS = 30 * 1000;
 const MAX_RETRY_DELAY_MS = 60 * 60 * 1000;
+const MAX_ATTEMPTS = 10;
 
 export class ObjectDeletionProcessor {
   constructor(
@@ -14,12 +15,17 @@ export class ObjectDeletionProcessor {
     private readonly storage: ObjectStorage,
   ) {}
 
-  async processNext(): Promise<boolean> {
+  async processNext(signal?: AbortSignal): Promise<boolean> {
+    if (signal?.aborted) {
+      return false;
+    }
+
     const claimedAt = new Date();
 
     const job = await this.repository.claimNext({
       claimedAt,
       leaseExpiresAt: new Date(claimedAt.getTime() + LEASE_DURATION_MS),
+      maxAttempts: MAX_ATTEMPTS,
     });
 
     if (!job) {
@@ -36,7 +42,11 @@ export class ObjectDeletionProcessor {
     } catch (error) {
       const errorCode =
         error instanceof StorageUnavailableError ? 'storage_unavailable' : 'unexpected_error';
-      await this.reschedule(job, errorCode, error);
+      if (job.attemptCount >= MAX_ATTEMPTS) {
+        await this.markFailed(job, errorCode, error);
+      } else {
+        await this.reschedule(job, errorCode, error);
+      }
       return;
     }
 
@@ -52,6 +62,28 @@ export class ObjectDeletionProcessor {
         attemptCount: job.attemptCount,
       });
     }
+  }
+
+  private async markFailed(
+    job: ObjectDeletionJob,
+    errorCode: string,
+    error: unknown,
+  ): Promise<void> {
+    const markedFailed = await this.repository.markFailed({
+      id: job.id,
+      attemptCount: job.attemptCount,
+      failedAt: new Date(),
+      errorCode,
+    });
+
+    console.error('Object deletion permanently failed after max attempts', {
+      jobId: job.id,
+      reason: job.reason,
+      attemptCount: job.attemptCount,
+      errorCode,
+      markedFailed,
+      error,
+    });
   }
 
   private async reschedule(

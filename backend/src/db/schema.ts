@@ -323,6 +323,7 @@ export const objectDeletionJobs = pgTable(
     attemptCount: integer('attempt_count').default(0).notNull(),
     leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true, mode: 'date' }),
     completedAt: timestamp('completed_at', { withTimezone: true, mode: 'date' }),
+    failedAt: timestamp('failed_at', { withTimezone: true, mode: 'date' }),
     lastErrorCode: text('last_error_code'),
   },
   (table) => [
@@ -332,9 +333,13 @@ export const objectDeletionJobs = pgTable(
       sql`char_length(btrim(${table.objectKey})) > 0`,
     ),
     check('object_deletion_jobs_attempt_count_check', sql`${table.attemptCount} >= 0`),
+    check(
+      'object_deletion_jobs_terminal_state_check',
+      sql`not (${table.completedAt} is not null and ${table.failedAt} is not null)`,
+    ),
     index('object_deletion_jobs_claim_idx')
       .on(table.availableAt, table.id)
-      .where(sql`${table.completedAt} is null`),
+      .where(sql`${table.completedAt} is null and ${table.failedAt} is null`),
   ],
 );
 

@@ -1,0 +1,4 @@
+DROP INDEX "object_deletion_jobs_claim_idx";--> statement-breakpoint
+ALTER TABLE "object_deletion_jobs" ADD COLUMN "failed_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "object_deletion_jobs_claim_idx" ON "object_deletion_jobs" USING btree ("available_at","id") WHERE "object_deletion_jobs"."completed_at" is null and "object_deletion_jobs"."failed_at" is null;--> statement-breakpoint
+ALTER TABLE "object_deletion_jobs" ADD CONSTRAINT "object_deletion_jobs_terminal_state_check" CHECK (not ("object_deletion_jobs"."completed_at" is not null and "object_deletion_jobs"."failed_at" is not null));

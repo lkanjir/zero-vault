@@ -113,6 +113,13 @@
       "when": 1795692260712,
       "tag": "0015_sync_schema_and_add_query_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1795712062042,
+      "tag": "0016_object_deletion_jobs_failed_at",
+      "breakpoints": true
     }
   ]
 }

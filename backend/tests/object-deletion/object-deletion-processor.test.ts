@@ -33,8 +33,17 @@ describe('ObjectDeletionProcessor', () => {
     expect(repository.claimNext).toHaveBeenCalledExactlyOnceWith({
       claimedAt: NOW,
       leaseExpiresAt: new Date(NOW.getTime() + 60_000),
+      maxAttempts: 10,
     });
     expect(storage.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it('does not claim work when the signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(processor.processNext(controller.signal)).resolves.toBe(false);
+    expect(repository.claimNext).not.toHaveBeenCalled();
   });
 
   it('deletes the object and completes the active attempt', async () => {
@@ -92,8 +101,8 @@ describe('ObjectDeletionProcessor', () => {
     });
   });
 
-  it('caps deletion retry backoff at one hour', async () => {
-    const job = makeJob({ attemptCount: 100 });
+  it('caps deletion retry backoff at one hour before maxAttempts', async () => {
+    const job = makeJob({ attemptCount: 9 });
     repository.claimNext.mockResolvedValue(job);
     repository.reschedule.mockResolvedValue(true);
     storage.deleteObject.mockRejectedValue(new Error('unexpected'));
@@ -107,6 +116,30 @@ describe('ObjectDeletionProcessor', () => {
       availableAt: new Date(NOW.getTime() + 60 * 60_000),
       errorCode: 'unexpected_error',
     });
+    expect(repository.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('marks a deletion job permanently failed once maxAttempts is reached', async () => {
+    const job = makeJob({ attemptCount: 10 });
+    const storageError = new StorageUnavailableError(
+      { operation: 'delete_object', objectKey: job.objectKey },
+      { cause: new Error('persistent storage failure') },
+    );
+    repository.claimNext.mockResolvedValue(job);
+    repository.markFailed.mockResolvedValue(true);
+    storage.deleteObject.mockRejectedValue(storageError);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(processor.processNext()).resolves.toBe(true);
+
+    expect(repository.markFailed).toHaveBeenCalledExactlyOnceWith({
+      id: job.id,
+      attemptCount: 10,
+      failedAt: NOW,
+      errorCode: 'storage_unavailable',
+    });
+    expect(repository.reschedule).not.toHaveBeenCalled();
+    expect(repository.complete).not.toHaveBeenCalled();
   });
 });
 
@@ -120,6 +153,7 @@ function makeJob(overrides: Partial<ObjectDeletionJob> = {}): ObjectDeletionJob 
     attemptCount: 1,
     leaseExpiresAt: new Date(NOW.getTime() + 60_000),
     completedAt: null,
+    failedAt: null,
     lastErrorCode: null,
     ...overrides,
   };
