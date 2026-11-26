@@ -1,4 +1,4 @@
-const UNITS = ['B', 'KB', 'MB', 'GB'];
+const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
 
 export function formatFileSize(value: number): string {
   if (!Number.isFinite(value) || value < 0) return '-';

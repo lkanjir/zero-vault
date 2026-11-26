@@ -12,7 +12,10 @@ import {
   UploadContentRequest,
   UploadIntentResponse,
 } from '../../../data-access/uploads/upload-models';
-import { MAX_SINGLE_PART_UPLOAD_SIZE_BYTES } from '../../../data-access/uploads/upload-constraints';
+import {
+  MAX_UPLOAD_SIZE_BYTES,
+  SINGLE_PART_MAX_BYTES,
+} from '../../../data-access/uploads/upload-constraints';
 
 type FailureContext = 'preparing' | 'presigning' | 'uploading' | 'finalizing';
 
@@ -96,11 +99,11 @@ export class TransferStore {
     let failureContext: FailureContext = 'preparing';
 
     try {
-      if (file.size > MAX_SINGLE_PART_UPLOAD_SIZE_BYTES) {
+      if (file.size > MAX_UPLOAD_SIZE_BYTES) {
         const failure: TransferFailure = {
           status: -1,
           code: 'file_too_large',
-          message: 'Datoteka ne može biti veća od 100 MB.',
+          message: 'Datoteka ne može biti veća od 512 GB.',
         };
 
         this.patch(transferId, {
@@ -114,34 +117,20 @@ export class TransferStore {
         };
       }
 
-      if (file.size === 0) {
-        const failure: TransferFailure = {
-          status: -1,
-          code: 'empty_file',
-          message: 'Nije moguće prenijeti praznu datoteku.',
-        };
-
-        this.patch(transferId, {
-          phase: 'failed',
-          error: failure,
-        });
-
-        return {
-          ok: false,
-          error: failure,
-        };
-      }
-
-      const sha256 = await calculateSha256(file);
+      const isSinglePart = file.size <= SINGLE_PART_MAX_BYTES;
+      const sha256 = isSinglePart ? await calculateSha256(file) : undefined;
 
       failureContext = 'presigning';
       const content: UploadContentRequest = {
         contentType,
         size: file.size,
-        sha256,
+        ...(sha256 !== undefined ? { sha256 } : {}),
       };
 
       const intent = await firstValueFrom(createIntent(content));
+      if (intent.uploadMode !== 'single') {
+        throw new Error('Multipart upload executor not yet wired');
+      }
 
       this.patch(transferId, { uploadId: intent.uploadId, phase: 'uploading', progress: 0 });
       failureContext = 'uploading';
