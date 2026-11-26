@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { CreateBucketCommand, S3Client, type BucketLocationConstraint } from '@aws-sdk/client-s3';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { eq } from 'drizzle-orm';
@@ -50,6 +51,7 @@ describe('LocalStack storage round-trip', () => {
   let deletionRepository: PostgresObjectDeletionRepository;
   let deletionProcessor: ObjectDeletionProcessor;
   let storage: S3ObjectStorage;
+  let localstackEndpoint: string;
 
   beforeAll(async () => {
     [postgres, localstack] = await Promise.all([
@@ -71,6 +73,7 @@ describe('LocalStack storage round-trip', () => {
     ]);
 
     const endpoint = `http://${localstack.getHost()}:${localstack.getMappedPort(4566)}`;
+    localstackEndpoint = endpoint;
 
     const client = new S3Client({
       endpoint,
@@ -280,6 +283,53 @@ describe('LocalStack storage round-trip', () => {
     }
 
     await expect(storage.headObject(intent.objectKey)).rejects.toBeInstanceOf(
+      StorageObjectNotFoundError,
+    );
+  });
+
+  it('signs URLs against publicOrigin while running internal operations against S3_ENDPOINT', async () => {
+    const splitStorage = new S3ObjectStorage({
+      endpoint: localstackEndpoint,
+      publicOrigin: 'https://storage.example.test',
+      region: REGION,
+      forcePathStyle: true,
+      accessKeyId: ACCESS_KEY,
+      secretAccessKey: SECRET_KEY,
+      bucket: BUCKET,
+    });
+    const content = Buffer.from('split endpoint payload');
+    const sha256 = createHash('sha256').update(content).digest('hex');
+    const objectKey = `split-endpoint/${randomUUID()}.txt`;
+
+    const uploadUrl = await splitStorage.createPresignedUploadUrl({
+      objectKey,
+      contentType: 'text/plain',
+      sizeBytes: content.length,
+      expiresInSeconds: 600,
+      sha256Hex: sha256,
+    });
+    const downloadUrl = await splitStorage.createPresignedDownloadUrl({
+      objectKey,
+      fileName: 'split.txt',
+      contentType: 'text/plain',
+      expiresInSeconds: 60,
+    });
+
+    expect(new URL(uploadUrl).origin).toBe('https://storage.example.test');
+    expect(new URL(downloadUrl).origin).toBe('https://storage.example.test');
+
+    await splitStorage.uploadObjectStream({
+      objectKey,
+      contentType: 'text/plain',
+      body: Readable.from([content]),
+    });
+    await expect(splitStorage.headObject(objectKey)).resolves.toMatchObject({
+      objectKey,
+      sizeBytes: content.length,
+      contentType: 'text/plain',
+    });
+    await splitStorage.deleteObject(objectKey);
+    await expect(splitStorage.headObject(objectKey)).rejects.toBeInstanceOf(
       StorageObjectNotFoundError,
     );
   });

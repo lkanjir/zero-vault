@@ -28,22 +28,54 @@ import { Upload } from '@aws-sdk/lib-storage';
 const MULTIPART_PART_SIZE_BYTES = 32 * 1024 * 1024;
 const MULTIPART_QUEUE_SIZE = 2;
 
+function createS3Client(s3Config: S3Config, endpoint: string): S3Client {
+  return new S3Client({
+    region: s3Config.region,
+    endpoint,
+    forcePathStyle: s3Config.forcePathStyle,
+    credentials: {
+      accessKeyId: s3Config.accessKeyId,
+      secretAccessKey: s3Config.secretAccessKey,
+    },
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+  });
+}
+
+function resolvePresignEndpoint(s3Config: S3Config): string {
+  const endpointUrl = new URL(s3Config.endpoint);
+  const publicOriginUrl = new URL(s3Config.publicOrigin);
+
+  if (endpointUrl.origin === publicOriginUrl.origin) {
+    return s3Config.endpoint;
+  }
+
+  if (
+    !s3Config.forcePathStyle &&
+    publicOriginUrl.protocol === endpointUrl.protocol &&
+    publicOriginUrl.port === endpointUrl.port &&
+    publicOriginUrl.hostname.toLowerCase() ===
+      `${s3Config.bucket.toLowerCase()}.${endpointUrl.hostname.toLowerCase()}`
+  ) {
+    return s3Config.endpoint;
+  }
+
+  return s3Config.publicOrigin;
+}
+
 export class S3ObjectStorage implements ObjectStorage {
   private readonly client: S3Client;
+  private readonly presignClient: S3Client;
   private readonly bucket: string;
 
   constructor(s3Config: S3Config) {
     this.bucket = s3Config.bucket;
-    this.client = new S3Client({
-      region: s3Config.region,
-      endpoint: s3Config.endpoint,
-      forcePathStyle: s3Config.forcePathStyle,
-      credentials: {
-        accessKeyId: s3Config.accessKeyId,
-        secretAccessKey: s3Config.secretAccessKey,
-      },
-      requestChecksumCalculation: 'WHEN_REQUIRED',
-    });
+    this.client = createS3Client(s3Config, s3Config.endpoint);
+
+    const presignEndpoint = resolvePresignEndpoint(s3Config);
+    this.presignClient =
+      presignEndpoint === s3Config.endpoint
+        ? this.client
+        : createS3Client(s3Config, presignEndpoint);
   }
 
   private async executeStorageOperation<T>(
@@ -97,7 +129,7 @@ export class S3ObjectStorage implements ObjectStorage {
         ChecksumAlgorithm: 'SHA256',
       });
 
-      return getSignedUrl(this.client, command, {
+      return getSignedUrl(this.presignClient, command, {
         expiresIn: params.expiresInSeconds,
         signableHeaders: new Set(['content-length']),
         unhoistableHeaders: new Set(['x-amz-checksum-sha256']),
@@ -151,7 +183,7 @@ export class S3ObjectStorage implements ObjectStorage {
         ResponseContentDisposition: contentDisposition,
       });
 
-      return getSignedUrl(this.client, command, { expiresIn: params.expiresInSeconds });
+      return getSignedUrl(this.presignClient, command, { expiresIn: params.expiresInSeconds });
     });
   }
 

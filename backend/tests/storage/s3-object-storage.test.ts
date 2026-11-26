@@ -24,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   uploadDone: vi.fn(),
   uploadAbort: vi.fn(),
   uploadOptions: [] as unknown[],
+  s3ClientConfigs: [] as Array<{ endpoint?: string; forcePathStyle?: boolean }>,
+  s3Clients: [] as Array<{ config: { endpoint?: string; forcePathStyle?: boolean } }>,
 }));
 
 vi.mock('@aws-sdk/client-s3', async (importOriginal) => {
@@ -33,6 +35,13 @@ vi.mock('@aws-sdk/client-s3', async (importOriginal) => {
     ...actual,
     S3Client: class {
       readonly send = mocks.send;
+      readonly config: { endpoint?: string; forcePathStyle?: boolean };
+
+      constructor(config: { endpoint?: string; forcePathStyle?: boolean }) {
+        this.config = config;
+        mocks.s3ClientConfigs.push(config);
+        mocks.s3Clients.push(this);
+      }
     },
   };
 });
@@ -58,8 +67,10 @@ describe('S3ObjectStorage errors', () => {
   let storage: S3ObjectStorage;
 
   beforeEach(() => {
-    storage = new S3ObjectStorage(TEST_S3_CONFIG);
+    mocks.s3ClientConfigs.length = 0;
+    mocks.s3Clients.length = 0;
     mocks.uploadOptions.length = 0;
+    storage = new S3ObjectStorage(TEST_S3_CONFIG);
   });
 
   it('maps a HEAD 404 to StorageObjectNotFoundError', async () => {
@@ -311,5 +322,79 @@ describe('S3ObjectStorage errors', () => {
 
     await expect(uploadPromise).rejects.toBe(abortError);
     expect(mocks.uploadAbort).toHaveBeenCalledOnce();
+  });
+
+  it('reuses a single S3Client when endpoint and publicOrigin share the same origin', async () => {
+    expect(mocks.s3ClientConfigs).toHaveLength(1);
+    expect(mocks.s3ClientConfigs[0]?.endpoint).toBe(TEST_S3_CONFIG.endpoint);
+
+    getSignedUrlMock.mockResolvedValueOnce('http://localhost:4566/test-live/object-key');
+    await storage.createPresignedDownloadUrl({
+      objectKey: 'object-key',
+      fileName: 'document.txt',
+      contentType: 'text/plain',
+      expiresInSeconds: 60,
+    });
+
+    expect(getSignedUrlMock.mock.lastCall![0]).toBe(mocks.s3Clients[0]);
+  });
+
+  it('uses a dedicated presigner client configured with publicOrigin when endpoints differ', async () => {
+    mocks.s3ClientConfigs.length = 0;
+    mocks.s3Clients.length = 0;
+
+    const splitStorage = new S3ObjectStorage({
+      ...TEST_S3_CONFIG,
+      endpoint: 'http://minio:9000',
+      publicOrigin: 'https://storage.example.com',
+    });
+
+    expect(mocks.s3ClientConfigs).toHaveLength(2);
+    expect(mocks.s3ClientConfigs[0]?.endpoint).toBe('http://minio:9000');
+    expect(mocks.s3ClientConfigs[1]?.endpoint).toBe('https://storage.example.com');
+
+    const [internalClient, presignClient] = mocks.s3Clients;
+
+    getSignedUrlMock.mockResolvedValueOnce('https://storage.example.com/test-live/object-key');
+    await splitStorage.createPresignedUploadUrl({
+      objectKey: 'object-key',
+      contentType: 'text/plain',
+      sizeBytes: 12,
+      expiresInSeconds: 600,
+      sha256Hex: 'a'.repeat(64),
+    });
+    expect(getSignedUrlMock.mock.lastCall![0]).toBe(presignClient);
+
+    getSignedUrlMock.mockResolvedValueOnce('https://storage.example.com/test-live/object-key');
+    await splitStorage.createPresignedDownloadUrl({
+      objectKey: 'object-key',
+      fileName: 'document.txt',
+      contentType: 'text/plain',
+      expiresInSeconds: 60,
+    });
+    expect(getSignedUrlMock.mock.lastCall![0]).toBe(presignClient);
+
+    mocks.uploadDone.mockResolvedValueOnce(undefined);
+    await splitStorage.uploadObjectStream({
+      objectKey: 'archive.zip',
+      contentType: 'application/zip',
+      body: Readable.from(['content']),
+    });
+    expect((mocks.uploadOptions[0] as { client: unknown }).client).toBe(internalClient);
+  });
+
+  it('reuses the internal endpoint client for virtual-hosted bucket publicOrigin when forcePathStyle is false', () => {
+    mocks.s3ClientConfigs.length = 0;
+    mocks.s3Clients.length = 0;
+
+    new S3ObjectStorage({
+      ...TEST_S3_CONFIG,
+      endpoint: 'https://s3.eu-central-1.amazonaws.com',
+      publicOrigin: 'https://test-live.s3.eu-central-1.amazonaws.com',
+      forcePathStyle: false,
+    });
+
+    expect(mocks.s3ClientConfigs).toHaveLength(1);
+    expect(mocks.s3ClientConfigs[0]?.endpoint).toBe('https://s3.eu-central-1.amazonaws.com');
   });
 });
