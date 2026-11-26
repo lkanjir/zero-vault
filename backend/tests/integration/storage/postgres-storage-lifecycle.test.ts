@@ -272,14 +272,17 @@ describe('PostgreSQL storage lifecycle', () => {
       const firstClaim = await folderRepository.claimNext({
         claimedAt: now,
         leaseExpiresAt: new Date(now.getTime() + 60_000),
+        maxAttempts: 3,
       });
       const whileLeased = await folderRepository.claimNext({
         claimedAt: new Date(now.getTime() + 30_000),
         leaseExpiresAt: new Date(now.getTime() + 90_000),
+        maxAttempts: 3,
       });
       const reclaimed = await folderRepository.claimNext({
         claimedAt: new Date(now.getTime() + 60_000),
         leaseExpiresAt: new Date(now.getTime() + 120_000),
+        maxAttempts: 3,
       });
 
       expect(firstClaim).toMatchObject({
@@ -292,6 +295,41 @@ describe('PostgreSQL storage lifecycle', () => {
         id: fixture.download.id,
         status: 'processing',
         attemptCount: 2,
+      });
+    });
+
+    it('fails expired processing downloads that reached maxAttempts and unblocks subsequent queued work', async () => {
+      const now = new Date('2026-07-28T10:00:00.000Z');
+      const exhausted = await createFolderDownload({ status: 'processing', attemptCount: 3 });
+      await database
+        .update(folderDownloads)
+        .set({ leaseExpiresAt: new Date(now.getTime() - 1_000) })
+        .where(eq(folderDownloads.id, exhausted.download.id));
+      const nextQueued = await createFolderDownload({ status: 'queued', attemptCount: 0 });
+
+      const claimed = await folderRepository.claimNext({
+        claimedAt: now,
+        leaseExpiresAt: new Date(now.getTime() + 60_000),
+        maxAttempts: 3,
+      });
+
+      expect(claimed).toMatchObject({
+        id: nextQueued.download.id,
+        status: 'processing',
+        attemptCount: 1,
+      });
+
+      const [storedExhausted] = await database
+        .select()
+        .from(folderDownloads)
+        .where(eq(folderDownloads.id, exhausted.download.id));
+
+      expect(storedExhausted).toMatchObject({
+        status: 'failed',
+        attemptCount: 3,
+        failureCode: 'max_attempts_exceeded',
+        finishedAt: now,
+        leaseExpiresAt: null,
       });
     });
 

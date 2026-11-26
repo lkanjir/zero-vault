@@ -44,6 +44,7 @@ describe('FolderDownloadProcessor', () => {
     expect(repository.claimNext).toHaveBeenCalledExactlyOnceWith({
       claimedAt: NOW,
       leaseExpiresAt: new Date(NOW.getTime() + 15 * 60 * 1_000),
+      maxAttempts: 3,
     });
     expect(repository.getArchiveManifest).not.toHaveBeenCalled();
     expect(archiver.create).not.toHaveBeenCalled();
@@ -64,10 +65,11 @@ describe('FolderDownloadProcessor', () => {
       rootFolderId: download.folderId,
       rootFolderName: download.folderName,
     });
-    expect(archiver.create).toHaveBeenCalledExactlyOnceWith({
-      entries: MANIFEST,
-      archiveObjectKey,
-    });
+    expect(archiver.create).toHaveBeenCalledOnce();
+    const [createCommand] = archiver.create.mock.lastCall!;
+    expect(createCommand.entries).toBe(MANIFEST);
+    expect(createCommand.archiveObjectKey).toBe(archiveObjectKey);
+    expect(createCommand.signal).toBeInstanceOf(AbortSignal);
     expect(repository.completeArchiveAttempt).toHaveBeenCalledExactlyOnceWith({
       id: download.id,
       attemptCount: download.attemptCount,
@@ -118,8 +120,146 @@ describe('FolderDownloadProcessor', () => {
     expect(log).toHaveBeenCalledWith('Folder download processing failed', {
       downloadId: download.downloadId,
       attemptCount: download.attemptCount,
+      failureCode: 'archive_creation_failed',
       markedFailed: true,
       error: archiveError,
+    });
+  });
+
+  it('marks the download as folder_unavailable when the archive manifest is empty', async () => {
+    const download = makeDownload();
+    repository.claimNext.mockResolvedValue(download);
+    repository.getArchiveManifest.mockResolvedValue([]);
+    repository.markFailed.mockResolvedValue(true);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(processor.processNext()).resolves.toBe(true);
+
+    expect(archiver.create).not.toHaveBeenCalled();
+    expect(repository.completeArchiveAttempt).not.toHaveBeenCalled();
+    expect(repository.markFailed).toHaveBeenCalledExactlyOnceWith({
+      id: download.id,
+      attemptCount: download.attemptCount,
+      failureCode: 'folder_unavailable',
+      finishedAt: NOW,
+    });
+    expect(log).toHaveBeenCalledWith('Folder download processing failed', {
+      downloadId: download.downloadId,
+      attemptCount: download.attemptCount,
+      failureCode: 'folder_unavailable',
+      markedFailed: true,
+    });
+  });
+
+  it('renews the lease periodically while archiving and stops after completion', async () => {
+    const download = makeDownload();
+    let resolveArchive!: (result: { sizeBytes: number }) => void;
+
+    repository.claimNext.mockResolvedValue(download);
+    repository.getArchiveManifest.mockResolvedValue(MANIFEST);
+    repository.renewLease.mockResolvedValue(true);
+    repository.completeArchiveAttempt.mockResolvedValue('ready');
+    archiver.create.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveArchive = resolve;
+        }),
+    );
+
+    const processPromise = processor.processNext();
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+    expect(repository.renewLease).toHaveBeenCalledTimes(1);
+    expect(repository.renewLease).toHaveBeenNthCalledWith(1, {
+      id: download.id,
+      attemptCount: download.attemptCount,
+      leaseExpiresAt: new Date(NOW.getTime() + 20 * 60 * 1_000),
+    });
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+    expect(repository.renewLease).toHaveBeenCalledTimes(2);
+    expect(repository.renewLease).toHaveBeenNthCalledWith(2, {
+      id: download.id,
+      attemptCount: download.attemptCount,
+      leaseExpiresAt: new Date(NOW.getTime() + 25 * 60 * 1_000),
+    });
+
+    resolveArchive({ sizeBytes: 512 });
+    await expect(processPromise).resolves.toBe(true);
+
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
+    expect(repository.renewLease).toHaveBeenCalledTimes(2);
+  });
+
+  it('aborts archiving immediately without marking failed when lease renewal returns false', async () => {
+    const download = makeDownload();
+    let capturedSignal: AbortSignal | undefined;
+
+    repository.claimNext.mockResolvedValue(download);
+    repository.getArchiveManifest.mockResolvedValue(MANIFEST);
+    repository.renewLease.mockResolvedValue(false);
+    archiver.create.mockImplementationOnce(({ signal }) => {
+      capturedSignal = signal;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener(
+          'abort',
+          () => reject(signal.reason instanceof Error ? signal.reason : new Error('aborted')),
+          { once: true },
+        );
+      });
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const processPromise = processor.processNext();
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+    await expect(processPromise).resolves.toBe(true);
+
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(repository.markFailed).not.toHaveBeenCalled();
+    expect(repository.completeArchiveAttempt).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('Folder download lease lost; aborting archive creation', {
+      downloadId: download.downloadId,
+      attemptCount: download.attemptCount,
+    });
+  });
+
+  it('does not claim work when the external signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(processor.processNext(controller.signal)).resolves.toBe(false);
+    expect(repository.claimNext).not.toHaveBeenCalled();
+  });
+
+  it('aborts in-flight archiving on shutdown without marking the download permanently failed', async () => {
+    const download = makeDownload();
+    const shutdownController = new AbortController();
+    let capturedSignal: AbortSignal | undefined;
+
+    repository.claimNext.mockResolvedValue(download);
+    repository.getArchiveManifest.mockResolvedValue(MANIFEST);
+    archiver.create.mockImplementationOnce(({ signal }) => {
+      capturedSignal = signal;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new Error('shutdown')), { once: true });
+      });
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const processPromise = processor.processNext(shutdownController.signal);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    shutdownController.abort(new Error('SIGTERM'));
+
+    await expect(processPromise).resolves.toBe(true);
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(repository.markFailed).not.toHaveBeenCalled();
+    expect(repository.completeArchiveAttempt).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('Folder download processing aborted due to worker shutdown', {
+      downloadId: download.downloadId,
+      attemptCount: download.attemptCount,
     });
   });
 

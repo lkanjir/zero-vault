@@ -13,6 +13,7 @@ export type CreateFolderDownloadCommand = {
 export type ClaimNextFolderDownloadCommand = {
   claimedAt: Date;
   leaseExpiresAt: Date;
+  maxAttempts: number;
 };
 
 export type RenewFolderDownloadLeaseCommand = {

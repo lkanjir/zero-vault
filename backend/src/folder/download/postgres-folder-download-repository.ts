@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import type { Database } from '../../db/db-client.js';
 import type { TransactionContext } from '../../db/unit-of-work.js';
 import { folderDownloads } from '../../db/schema.js';
@@ -24,6 +24,9 @@ type FolderArchiveManifestRow = {
   objectKey: string | null;
   sizeBytes: string | null;
 };
+
+const EXHAUSTED_FAIL_BATCH_SIZE = 100;
+const MAX_ATTEMPTS_EXCEEDED_FAILURE_CODE = 'max_attempts_exceeded';
 
 export class PostgresFolderDownloadRepository implements FolderDownloadRepository {
   constructor(private readonly db: Database) {}
@@ -67,17 +70,58 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
 
   async claimNext(command: ClaimNextFolderDownloadCommand): Promise<FolderDownload | null> {
     return this.db.transaction(async (tx) => {
+      const exhausted = await tx
+        .select({ id: folderDownloads.id })
+        .from(folderDownloads)
+        .where(
+          and(
+            eq(folderDownloads.status, 'processing'),
+            gte(folderDownloads.attemptCount, command.maxAttempts),
+            or(
+              isNull(folderDownloads.leaseExpiresAt),
+              lte(folderDownloads.leaseExpiresAt, command.claimedAt),
+            ),
+          ),
+        )
+        .for('update', { skipLocked: true })
+        .limit(EXHAUSTED_FAIL_BATCH_SIZE);
+
+      if (exhausted.length > 0) {
+        await tx
+          .update(folderDownloads)
+          .set({
+            status: 'failed',
+            failureCode: MAX_ATTEMPTS_EXCEEDED_FAILURE_CODE,
+            finishedAt: command.claimedAt,
+            leaseExpiresAt: null,
+            archiveSizeBytes: null,
+            expiresAt: null,
+          })
+          .where(
+            and(
+              inArray(
+                folderDownloads.id,
+                exhausted.map((item) => item.id),
+              ),
+              eq(folderDownloads.status, 'processing'),
+            ),
+          );
+      }
+
       const [candidate] = await tx
         .select({ id: folderDownloads.id })
         .from(folderDownloads)
         .where(
-          or(
-            eq(folderDownloads.status, 'queued'),
-            and(
-              eq(folderDownloads.status, 'processing'),
-              or(
-                isNull(folderDownloads.leaseExpiresAt),
-                lte(folderDownloads.leaseExpiresAt, command.claimedAt),
+          and(
+            lt(folderDownloads.attemptCount, command.maxAttempts),
+            or(
+              eq(folderDownloads.status, 'queued'),
+              and(
+                eq(folderDownloads.status, 'processing'),
+                or(
+                  isNull(folderDownloads.leaseExpiresAt),
+                  lte(folderDownloads.leaseExpiresAt, command.claimedAt),
+                ),
               ),
             ),
           ),
