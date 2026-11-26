@@ -2,7 +2,6 @@ import express, { type Router } from 'express';
 import { completeUploadSchema, uploadRequestSchema } from './validation-schemas.js';
 import { requireUser } from '../auth/resolve-user-middleware.js';
 import type { UploadService } from './upload-service.js';
-import type { CompleteUploadUseCase } from './complete-upload-use-case.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
 import {
   uploadCompletionRateLimiter,
@@ -11,7 +10,6 @@ import {
 
 export type UploadRouterDeps = {
   uploadService: UploadService;
-  completeUploadUseCase: CompleteUploadUseCase;
 };
 
 export function createUploadRouter(deps: UploadRouterDeps): Router {
@@ -34,7 +32,7 @@ export function createUploadRouter(deps: UploadRouterDeps): Router {
     validateRequest({ params: completeUploadSchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
 
-      const result = await deps.completeUploadUseCase.execute(
+      const result = await deps.uploadService.completeUpload(
         authenticatedUser,
         validated.params.uploadId,
       );

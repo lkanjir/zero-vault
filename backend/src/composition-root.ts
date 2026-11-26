@@ -3,7 +3,6 @@ import { EntryService } from './entry/entry-service.js';
 import { PostgresEntryRepository } from './entry/postgres-entry-repository.js';
 import { PostgresFileRepository } from './files/postgres-file-repository.js';
 import { S3ObjectStorage } from './storage/s3-object-storage.js';
-import { CompleteUploadUseCase } from './upload/complete-upload-use-case.js';
 import { PostgresIntentRepository } from './upload/postgres-intent-repository.js';
 import { UploadService } from './upload/upload-service.js';
 import { PostgresUserRepository } from './user/postgres-user-repository.js';
@@ -58,9 +57,14 @@ export function createApiComposition(db: Database, s3Config: S3Config) {
   const userRepository = new PostgresUserRepository(db);
   const userService = new UserService(userRepository);
 
-  const intentRepository = new PostgresIntentRepository(db, authorizer);
-  const uploadService = new UploadService(storage, intentRepository);
-  const completeUploadUseCase = new CompleteUploadUseCase(uploadService);
+  const intentRepository = new PostgresIntentRepository(db);
+  const uploadService = new UploadService(
+    unitOfWork,
+    authorizer,
+    storage,
+    intentRepository,
+    auditRepository,
+  );
 
   const fileRepository = new PostgresFileRepository(db);
   const downloadService = new FileDownloadService(
@@ -102,7 +106,6 @@ export function createApiComposition(db: Database, s3Config: S3Config) {
   return {
     userService,
     uploadService,
-    completeUploadUseCase,
     downloadService,
     entryService,
     folderDownloadService,
@@ -136,9 +139,7 @@ export function createObjectDeletionWorkerComposition(db: Database, s3Config: S3
 }
 
 export function createMaintenanceWorkerComposition(db: Database) {
-  const { authorizer } = createAuthorizationPrimitives(db);
-
-  const intentRepository = new PostgresIntentRepository(db, authorizer);
+  const intentRepository = new PostgresIntentRepository(db);
   const uploadCleanupService = new UploadCleanupService(intentRepository);
 
   const folderDownloadRepository = new PostgresFolderDownloadRepository(db);

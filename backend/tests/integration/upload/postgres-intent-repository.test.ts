@@ -4,6 +4,8 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testconta
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
+import type { AuditRepository } from '../../../src/audit/audit-repository.js';
+import { PostgresAuditRepository } from '../../../src/audit/postgres-audit-repository.js';
 import {
   auditEvents,
   entries,
@@ -18,21 +20,30 @@ import { AuthorizationService } from '../../../src/authorization/authorization-s
 import { PostgresAuthorizationContextResolver } from '../../../src/authorization/postgres-authorization-context-resolver.js';
 import { PostgresEntryAuthorizer } from '../../../src/authorization/postgres-entry-authorizer.js';
 import { createDatabase, type Database } from '../../../src/db/db-client.js';
+import { DrizzleUnitOfWork } from '../../../src/db/unit-of-work.js';
+import type { ObjectMetadata, ObjectStorage } from '../../../src/storage/object-storage.js';
 import { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
 import type {
   SaveReplacementUploadIntentCommand,
   SaveUploadIntentCommand,
 } from '../../../src/upload/upload-intent-repository.js';
 import type { UploadIntentInput } from '../../../src/upload/upload-intent.js';
+import { UploadService } from '../../../src/upload/upload-service.js';
+import type { User } from '../../../src/user/user.js';
 
 const OWNER_ISSUER = 'https://issuer.example.test/realms/zero-vault';
 const EXPECTED_SHA256 = 'a'.repeat(64);
 
-describe('PostgresIntentRepository upload targets', () => {
+describe('PostgresIntentRepository and UploadService transactions', () => {
   let container: StartedPostgreSqlContainer;
   let database: Database;
   let closeDatabase: () => Promise<void>;
+  let unitOfWork: DrizzleUnitOfWork;
+  let entryAuthorizer: PostgresEntryAuthorizer;
+  let auditRepository: PostgresAuditRepository;
   let repository: PostgresIntentRepository;
+  let uploadService: UploadService;
+  const uploadedObjects = new Map<string, ObjectMetadata>();
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:18-alpine')
@@ -48,8 +59,17 @@ describe('PostgresIntentRepository upload targets', () => {
       new PostgresAuthorizationContextResolver(database),
       new AuthorizationPolicy(),
     );
-    const entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
-    repository = new PostgresIntentRepository(database, entryAuthorizer);
+    unitOfWork = new DrizzleUnitOfWork(database);
+    entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
+    auditRepository = new PostgresAuditRepository(database);
+    repository = new PostgresIntentRepository(database);
+    uploadService = new UploadService(
+      unitOfWork,
+      entryAuthorizer,
+      createInMemoryStorage(uploadedObjects),
+      repository,
+      auditRepository,
+    );
 
     await migrate(database, {
       migrationsFolder: path.resolve(process.cwd(), 'drizzle'),
@@ -57,6 +77,7 @@ describe('PostgresIntentRepository upload targets', () => {
   });
 
   beforeEach(async () => {
+    uploadedObjects.clear();
     await database.delete(auditEvents);
     await database.delete(objectDeletionJobs);
     await database.delete(uploadIntents);
@@ -72,29 +93,31 @@ describe('PostgresIntentRepository upload targets', () => {
   });
 
   it('precheck rejects an active case-insensitive sibling name in root', async () => {
-    const userId = await createUser();
+    const user = await createUser();
 
     await database.insert(entries).values({
-      ownerId: userId,
+      ownerId: user.id,
       parentId: null,
       kind: 'folder',
       name: 'Report.PDF',
     });
 
     await expect(
-      repository.assertUploadTargetAvailable({
-        userId,
+      uploadService.createUpload(user, {
         parentFolderId: null,
         fileName: 'report.pdf',
+        contentType: 'application/pdf',
+        size: 12,
+        sha256: EXPECTED_SHA256,
       }),
     ).rejects.toMatchObject({ code: 'duplicate_entry_name' });
   });
 
   it('precheck ignores a soft-deleted sibling', async () => {
-    const userId = await createUser();
+    const user = await createUser();
 
     await database.insert(entries).values({
-      ownerId: userId,
+      ownerId: user.id,
       parentId: null,
       kind: 'file',
       name: 'report.pdf',
@@ -102,34 +125,32 @@ describe('PostgresIntentRepository upload targets', () => {
     });
 
     await expect(
-      repository.assertUploadTargetAvailable({
-        userId,
+      uploadService.createUpload(user, {
         parentFolderId: null,
         fileName: 'REPORT.PDF',
+        contentType: 'application/pdf',
+        size: 12,
+        sha256: EXPECTED_SHA256,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({
+      uploadUrl: 'https://storage.example.test/upload',
+    });
   });
 
   it('maps a completion duplicate to duplicate_entry_name and rolls back all changes', async () => {
-    const userId = await createUser();
+    const user = await createUser();
 
     await database.insert(entries).values({
-      ownerId: userId,
+      ownerId: user.id,
       parentId: null,
       kind: 'folder',
       name: 'Report.PDF',
     });
 
-    const intent = makeIntent(userId, 'report.pdf');
-    await repository.save(intent);
+    const intent = makeIntent(user.id, 'report.pdf');
+    await saveCreateIntent(intent);
 
-    await expect(
-      repository.completeVerifiedUpload({
-        userId,
-        uploadId: intent.upload.uploadId,
-        completedAt: new Date(),
-      }),
-    ).rejects.toMatchObject({
+    await expect(uploadService.completeUpload(user, intent.upload.uploadId)).rejects.toMatchObject({
       code: 'duplicate_entry_name',
     });
 
@@ -144,32 +165,61 @@ describe('PostgresIntentRepository upload targets', () => {
       completedAt: null,
     });
 
-    const storedEntries = await database.select().from(entries).where(eq(entries.ownerId, userId));
+    const storedEntries = await database.select().from(entries).where(eq(entries.ownerId, user.id));
     const storedFiles = await database.select().from(files);
 
     expect(storedEntries).toHaveLength(1);
     expect(storedFiles).toHaveLength(0);
+    expect(await database.select().from(auditEvents)).toHaveLength(0);
+  });
+
+  it('rolls back file creation and intent completion when audit recording fails', async () => {
+    const user = await createUser();
+    const intent = makeIntent(user.id, 'report.pdf');
+    await saveCreateIntent(intent);
+
+    const failingAuditRepo: AuditRepository = {
+      record: () => Promise.reject(new Error('audit write failed')),
+      listEvents: () => Promise.resolve([]),
+      getStatistics: () =>
+        Promise.resolve({ total: 0, entryChanges: 0, downloadRequests: 0, sharingChanges: 0 }),
+    };
+    const serviceWithFailingAudit = new UploadService(
+      unitOfWork,
+      entryAuthorizer,
+      createInMemoryStorage(uploadedObjects),
+      repository,
+      failingAuditRepo,
+    );
+
+    await expect(
+      serviceWithFailingAudit.completeUpload(user, intent.upload.uploadId),
+    ).rejects.toThrow('audit write failed');
+
+    const [storedIntent] = await database
+      .select()
+      .from(uploadIntents)
+      .where(eq(uploadIntents.uploadId, intent.upload.uploadId));
+    expect(storedIntent).toMatchObject({
+      status: 'pending',
+      fileId: null,
+      completedAt: null,
+    });
+    expect(await database.select().from(entries)).toHaveLength(0);
+    expect(await database.select().from(files)).toHaveLength(0);
   });
 
   it('allows only one of two concurrent completions with the same target name', async () => {
-    const userId = await createUser();
-    const firstIntent = makeIntent(userId, 'report.pdf');
-    const secondIntent = makeIntent(userId, 'REPORT.PDF');
+    const user = await createUser();
+    const firstIntent = makeIntent(user.id, 'report.pdf');
+    const secondIntent = makeIntent(user.id, 'REPORT.PDF');
 
-    await repository.save(firstIntent);
-    await repository.save(secondIntent);
+    await saveCreateIntent(firstIntent);
+    await saveCreateIntent(secondIntent);
 
     const results = await Promise.allSettled([
-      repository.completeVerifiedUpload({
-        userId,
-        uploadId: firstIntent.upload.uploadId,
-        completedAt: new Date(),
-      }),
-      repository.completeVerifiedUpload({
-        userId,
-        uploadId: secondIntent.upload.uploadId,
-        completedAt: new Date(),
-      }),
+      uploadService.completeUpload(user, firstIntent.upload.uploadId),
+      uploadService.completeUpload(user, secondIntent.upload.uploadId),
     ]);
 
     expect(results.map((result) => result.status).sort()).toStrictEqual(['fulfilled', 'rejected']);
@@ -178,7 +228,7 @@ describe('PostgresIntentRepository upload targets', () => {
     const failedResult = results.find((result) => result.status === 'rejected');
 
     expect(successfulResult).toMatchObject({
-      value: { kind: 'completed' },
+      value: { kind: 'file' },
     });
     expect(failedResult).toMatchObject({
       reason: {
@@ -186,7 +236,7 @@ describe('PostgresIntentRepository upload targets', () => {
       },
     });
 
-    const storedEntries = await database.select().from(entries).where(eq(entries.ownerId, userId));
+    const storedEntries = await database.select().from(entries).where(eq(entries.ownerId, user.id));
     const storedFiles = await database.select().from(files);
     const storedIntents = await database
       .select({ status: uploadIntents.status })
@@ -198,31 +248,20 @@ describe('PostgresIntentRepository upload targets', () => {
       'completed',
       'pending',
     ]);
+    expect(await database.select().from(auditEvents)).toHaveLength(1);
   });
 
-  it('returns the same file when an upload is completed more than once', async () => {
-    const userId = await createUser();
-    const intent = makeIntent(userId, 'report.pdf');
-    await repository.save(intent);
+  it('returns the same file when an upload is completed more than once without duplicating audit', async () => {
+    const user = await createUser();
+    const intent = makeIntent(user.id, 'report.pdf');
+    await saveCreateIntent(intent);
 
-    const firstResult = await repository.completeVerifiedUpload({
-      userId,
-      uploadId: intent.upload.uploadId,
-      completedAt: new Date(),
-    });
-    const secondResult = await repository.completeVerifiedUpload({
-      userId,
-      uploadId: intent.upload.uploadId,
-      completedAt: new Date(),
-    });
+    const firstResult = await uploadService.completeUpload(user, intent.upload.uploadId);
+    const secondResult = await uploadService.completeUpload(user, intent.upload.uploadId);
 
-    if (firstResult.kind !== 'completed' || secondResult.kind !== 'completed') {
-      throw new Error('Expected both completion attempts to return the completed file');
-    }
+    expect(secondResult).toStrictEqual(firstResult);
 
-    expect(secondResult.file).toStrictEqual(firstResult.file);
-
-    const storedEntries = await database.select().from(entries).where(eq(entries.ownerId, userId));
+    const storedEntries = await database.select().from(entries).where(eq(entries.ownerId, user.id));
     const storedFiles = await database.select().from(files);
     const [storedIntent] = await database
       .select()
@@ -235,14 +274,15 @@ describe('PostgresIntentRepository upload targets', () => {
       status: 'completed',
       fileId: storedEntries[0]?.id,
     });
+    expect(await database.select().from(auditEvents)).toHaveLength(1);
   });
 
   it('does not complete an upload after its target folder is deleted', async () => {
-    const userId = await createUser();
+    const user = await createUser();
     const [folder] = await database
       .insert(entries)
       .values({
-        ownerId: userId,
+        ownerId: user.id,
         parentId: null,
         kind: 'folder',
         name: 'Target folder',
@@ -253,17 +293,13 @@ describe('PostgresIntentRepository upload targets', () => {
       throw new Error('Failed to create target folder');
     }
 
-    const intent = makeIntent(userId, 'report.pdf', folder.publicId);
-    await repository.save(intent);
+    const intent = makeIntent(user.id, 'report.pdf', folder.id);
+    await saveCreateIntent(intent);
     await database.update(entries).set({ deletedAt: new Date() }).where(eq(entries.id, folder.id));
 
-    await expect(
-      repository.completeVerifiedUpload({
-        userId,
-        uploadId: intent.upload.uploadId,
-        completedAt: new Date(),
-      }),
-    ).rejects.toMatchObject({ code: 'folder_not_found' });
+    await expect(uploadService.completeUpload(user, intent.upload.uploadId)).rejects.toMatchObject({
+      code: 'folder_not_found',
+    });
 
     const [storedIntent] = await database
       .select()
@@ -280,47 +316,35 @@ describe('PostgresIntentRepository upload targets', () => {
     });
     expect(storedFileEntries).toHaveLength(0);
     expect(storedFiles).toHaveLength(0);
+    expect(await database.select().from(auditEvents)).toHaveLength(0);
   });
 
   it('replaces file content without changing the entry identity and queues the old object', async () => {
-    const userId = await createUser();
-    const target = await createFile(userId, {
+    const user = await createUser();
+    const target = await createFile(user.id, {
       name: 'report.pdf',
       objectKey: 'objects/original',
       contentType: 'application/pdf',
       sizeBytes: 12,
       sha256: EXPECTED_SHA256,
     });
-    const replacement = makeReplacementIntent(userId, target.entry.publicId, {
+    const replacement = makeReplacementIntent(user.id, target.entry.id, {
       objectKey: 'objects/replacement',
       contentType: 'text/plain',
       expectedSizeBytes: 24,
       expectedSha256: 'b'.repeat(64),
     });
-    const completedAt = new Date('2026-08-08T11:05:00.000Z');
 
-    await repository.saveReplacement(replacement);
-    const firstResult = await repository.completeVerifiedUpload({
-      userId,
-      uploadId: replacement.upload.uploadId,
-      completedAt,
-    });
-    const secondResult = await repository.completeVerifiedUpload({
-      userId,
-      uploadId: replacement.upload.uploadId,
-      completedAt: new Date(completedAt.getTime() + 1_000),
-    });
+    await saveReplaceIntent(replacement);
+    const firstResult = await uploadService.completeUpload(user, replacement.upload.uploadId);
+    const secondResult = await uploadService.completeUpload(user, replacement.upload.uploadId);
 
-    expect(firstResult).toStrictEqual({
-      kind: 'completed',
-      file: {
-        entryId: target.entry.id,
-        publicId: target.entry.publicId,
-        name: 'report.pdf',
-        contentType: 'text/plain',
-        sizeBytes: 24,
-        updatedAt: completedAt,
-      },
+    expect(firstResult).toMatchObject({
+      kind: 'file',
+      id: target.entry.publicId,
+      name: 'report.pdf',
+      contentType: 'text/plain',
+      sizeBytes: 24,
     });
     expect(secondResult).toStrictEqual(firstResult);
 
@@ -337,12 +361,12 @@ describe('PostgresIntentRepository upload targets', () => {
       .from(uploadIntents)
       .where(eq(uploadIntents.uploadId, replacement.upload.uploadId));
     const deletionJobs = await database.select().from(objectDeletionJobs);
+    const events = await database.select().from(auditEvents);
 
     expect(storedEntry).toMatchObject({
       id: target.entry.id,
       publicId: target.entry.publicId,
       name: 'report.pdf',
-      updatedAt: completedAt,
     });
     expect(storedFile).toMatchObject({
       entryId: target.entry.id,
@@ -358,51 +382,45 @@ describe('PostgresIntentRepository upload targets', () => {
       fileId: target.entry.id,
       targetFileId: target.entry.id,
       expectedContentVersion: 1,
-      completedAt,
     });
     expect(deletionJobs).toHaveLength(1);
     expect(deletionJobs[0]).toMatchObject({
       objectKey: 'objects/original',
       reason: 'replaced_file',
     });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      ownerId: user.id,
+      actorUserId: user.id,
+      entryId: target.entry.id,
+      action: 'file.content_replaced',
+    });
   });
 
   it('supersedes a stale replacement and queues only its unused uploaded object', async () => {
-    const userId = await createUser();
-    const target = await createFile(userId, {
+    const user = await createUser();
+    const target = await createFile(user.id, {
       name: 'report.pdf',
       objectKey: 'objects/original',
     });
-    const first = makeReplacementIntent(userId, target.entry.publicId, {
+    const first = makeReplacementIntent(user.id, target.entry.id, {
       objectKey: 'objects/first-replacement',
     });
-    const stale = makeReplacementIntent(userId, target.entry.publicId, {
+    const stale = makeReplacementIntent(user.id, target.entry.id, {
       objectKey: 'objects/stale-replacement',
     });
 
-    await repository.saveReplacement(first);
-    await repository.saveReplacement(stale);
-    await expect(
-      repository.completeVerifiedUpload({
-        userId,
-        uploadId: first.upload.uploadId,
-        completedAt: new Date('2026-08-08T11:05:00.000Z'),
-      }),
-    ).resolves.toMatchObject({ kind: 'completed' });
-    await expect(
-      repository.completeVerifiedUpload({
-        userId,
-        uploadId: stale.upload.uploadId,
-        completedAt: new Date('2026-08-08T11:05:01.000Z'),
-      }),
-    ).resolves.toStrictEqual({ kind: 'superseded' });
-    await expect(
-      repository.completeVerifiedUpload({
-        userId,
-        uploadId: stale.upload.uploadId,
-        completedAt: new Date('2026-08-08T11:05:02.000Z'),
-      }),
-    ).resolves.toStrictEqual({ kind: 'superseded' });
+    await saveReplaceIntent(first);
+    await saveReplaceIntent(stale);
+    await expect(uploadService.completeUpload(user, first.upload.uploadId)).resolves.toMatchObject({
+      kind: 'file',
+    });
+    await expect(uploadService.completeUpload(user, stale.upload.uploadId)).rejects.toMatchObject({
+      code: 'replacement_conflict',
+    });
+    await expect(uploadService.completeUpload(user, stale.upload.uploadId)).rejects.toMatchObject({
+      code: 'replacement_conflict',
+    });
 
     const [storedFile] = await database
       .select()
@@ -439,38 +457,29 @@ describe('PostgresIntentRepository upload targets', () => {
   });
 
   it('does not complete an editor replacement after its grant is revoked', async () => {
-    const ownerId = await createUser();
-    const editorId = await createUser();
-    const target = await createFile(ownerId, {
+    const owner = await createUser();
+    const editor = await createUser();
+    const target = await createFile(owner.id, {
       name: 'shared.pdf',
       objectKey: 'objects/shared-original',
     });
-    const [editor] = await database.select().from(users).where(eq(users.id, editorId));
-
-    if (!editor) {
-      throw new Error('Failed to load integration test editor');
-    }
 
     await database.insert(fileGrants).values({
       fileId: target.entry.id,
-      recipientUserId: editorId,
+      recipientUserId: editor.id,
       recipientEmail: editor.email,
-      createdByUserId: ownerId,
+      createdByUserId: owner.id,
       permission: 'editor',
     });
 
-    const replacement = makeReplacementIntent(editorId, target.entry.publicId, {
+    const replacement = makeReplacementIntent(editor.id, target.entry.id, {
       objectKey: 'objects/editor-replacement',
     });
-    await repository.saveReplacement(replacement);
+    await saveReplaceIntent(replacement);
     await database.delete(fileGrants).where(eq(fileGrants.fileId, target.entry.id));
 
     await expect(
-      repository.completeVerifiedUpload({
-        userId: editorId,
-        uploadId: replacement.upload.uploadId,
-        completedAt: new Date('2026-08-08T11:05:00.000Z'),
-      }),
+      uploadService.completeUpload(editor, replacement.upload.uploadId),
     ).rejects.toMatchObject({ code: 'entry_not_found' });
 
     const [storedFile] = await database
@@ -488,9 +497,30 @@ describe('PostgresIntentRepository upload targets', () => {
     });
     expect(storedIntent).toMatchObject({ status: 'pending' });
     expect(await database.select().from(objectDeletionJobs)).toHaveLength(0);
+    expect(await database.select().from(auditEvents)).toHaveLength(0);
   });
 
-  async function createUser(): Promise<number> {
+  async function saveCreateIntent(command: SaveUploadIntentCommand): Promise<void> {
+    uploadedObjects.set(command.upload.objectKey, {
+      objectKey: command.upload.objectKey,
+      sizeBytes: command.upload.expectedSizeBytes,
+      contentType: command.upload.contentType,
+      sha256Hex: command.upload.expectedSha256,
+    });
+    await unitOfWork.run((tx) => repository.save(command, tx));
+  }
+
+  async function saveReplaceIntent(command: SaveReplacementUploadIntentCommand): Promise<void> {
+    uploadedObjects.set(command.upload.objectKey, {
+      objectKey: command.upload.objectKey,
+      sizeBytes: command.upload.expectedSizeBytes,
+      contentType: command.upload.contentType,
+      sha256Hex: command.upload.expectedSha256,
+    });
+    await unitOfWork.run((tx) => repository.saveReplacement(command, tx));
+  }
+
+  async function createUser(): Promise<User> {
     const [user] = await database
       .insert(users)
       .values({
@@ -500,13 +530,13 @@ describe('PostgresIntentRepository upload targets', () => {
         firstName: 'Test',
         lastName: 'User',
       })
-      .returning({ id: users.id });
+      .returning();
 
     if (!user) {
       throw new Error('Failed to create integration test user');
     }
 
-    return user.id;
+    return user;
   }
 
   async function createFile(
@@ -552,10 +582,27 @@ describe('PostgresIntentRepository upload targets', () => {
   }
 });
 
+function createInMemoryStorage(objects: Map<string, ObjectMetadata>): ObjectStorage {
+  return {
+    createPresignedUploadUrl: () => Promise.resolve('https://storage.example.test/upload'),
+    createPresignedDownloadUrl: () => Promise.resolve('https://storage.example.test/download'),
+    headObject: (objectKey) => {
+      const metadata = objects.get(objectKey);
+      if (!metadata) {
+        return Promise.reject(new Error(`Missing test object ${objectKey}`));
+      }
+      return Promise.resolve(metadata);
+    },
+    deleteObject: () => Promise.resolve(),
+    getObjectStream: () => Promise.reject(new Error('not implemented')),
+    uploadObjectStream: () => Promise.resolve(),
+  };
+}
+
 function makeIntent(
   userId: number,
   fileName: string,
-  parentFolderId: string | null = null,
+  targetParentId: number | null = null,
 ): SaveUploadIntentCommand {
   const createdAt = new Date();
   const upload: UploadIntentInput = {
@@ -572,20 +619,20 @@ function makeIntent(
 
   return {
     upload,
-    parentFolderId,
+    targetParentId,
     fileName,
   };
 }
 
 function makeReplacementIntent(
   userId: number,
-  filePublicId: string,
+  targetFileId: number,
   overrides: Partial<UploadIntentInput> = {},
 ): SaveReplacementUploadIntentCommand {
-  const createdAt = new Date('2026-08-08T11:00:00.000Z');
+  const createdAt = new Date();
 
   return {
-    filePublicId,
+    targetFileId,
     upload: {
       uploadId: randomUUID(),
       createdByUserId: userId,

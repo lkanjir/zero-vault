@@ -29,7 +29,6 @@ import { ObjectDeletionProcessor } from '../../../src/object-deletion/object-del
 import { PostgresObjectDeletionRepository } from '../../../src/object-deletion/postgres-object-deletion-repository.js';
 import { StorageObjectNotFoundError } from '../../../src/shared/errors/storage/storage-object-not-found-error.js';
 import { S3ObjectStorage } from '../../../src/storage/s3-object-storage.js';
-import { CompleteUploadUseCase } from '../../../src/upload/complete-upload-use-case.js';
 import { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
 import { UploadService } from '../../../src/upload/upload-service.js';
 import type { User } from '../../../src/user/user.js';
@@ -46,7 +45,6 @@ describe('LocalStack storage round-trip', () => {
   let database: Database;
   let closeDatabase: () => Promise<void>;
   let uploadService: UploadService;
-  let completeUpload: CompleteUploadUseCase;
   let fileDownloadService: FileDownloadService;
   let entryService: EntryService;
   let deletionRepository: PostgresObjectDeletionRepository;
@@ -118,9 +116,14 @@ describe('LocalStack storage round-trip', () => {
     const unitOfWork = new DrizzleUnitOfWork(database);
     const entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
     const auditRepository = new PostgresAuditRepository(database);
-    const intentRepository = new PostgresIntentRepository(database, entryAuthorizer);
-    uploadService = new UploadService(storage, intentRepository);
-    completeUpload = new CompleteUploadUseCase(uploadService);
+    const intentRepository = new PostgresIntentRepository(database);
+    uploadService = new UploadService(
+      unitOfWork,
+      entryAuthorizer,
+      storage,
+      intentRepository,
+      auditRepository,
+    );
     fileDownloadService = new FileDownloadService(
       unitOfWork,
       entryAuthorizer,
@@ -165,7 +168,7 @@ describe('LocalStack storage round-trip', () => {
     });
     expect(putResponse.status, await putResponse.text()).toBe(200);
 
-    const file = await completeUpload.execute(user, presign.uploadId);
+    const file = await uploadService.completeUpload(user, presign.uploadId);
     expect(file).toMatchObject({
       kind: 'file',
       name: 'roundtrip.txt',

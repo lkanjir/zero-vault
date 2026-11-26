@@ -35,6 +35,7 @@ import type { ObjectStorage } from '../../../src/storage/object-storage.js';
 import { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
 import type { SaveUploadIntentCommand } from '../../../src/upload/upload-intent-repository.js';
 import type { UploadIntentInput } from '../../../src/upload/upload-intent.js';
+import { UploadService } from '../../../src/upload/upload-service.js';
 import type { User } from '../../../src/user/user.js';
 
 const OWNER_ISSUER = 'https://issuer.example.test/realms/zero-vault';
@@ -49,6 +50,7 @@ describe('PostgreSQL storage lifecycle', () => {
   let entryRepository: PostgresEntryRepository;
   let entryService: EntryService;
   let intentRepository: PostgresIntentRepository;
+  let uploadService: UploadService;
   let unitOfWork: DrizzleUnitOfWork;
   let entryAuthorizer: PostgresEntryAuthorizer;
   let auditRepository: PostgresAuditRepository;
@@ -83,7 +85,14 @@ describe('PostgreSQL storage lifecycle', () => {
       auditRepository,
       new EntryAccessMapper(policy),
     );
-    intentRepository = new PostgresIntentRepository(database, entryAuthorizer);
+    intentRepository = new PostgresIntentRepository(database);
+    uploadService = new UploadService(
+      unitOfWork,
+      entryAuthorizer,
+      createStubStorage(),
+      intentRepository,
+      auditRepository,
+    );
 
     await migrate(database, {
       migrationsFolder: path.resolve(process.cwd(), 'drizzle'),
@@ -498,8 +507,8 @@ describe('PostgreSQL storage lifecycle', () => {
         uploadUrlExpiresAt: new Date(now.getTime() + 60_000),
         finalizeDeadline: new Date(now.getTime() + 120_000),
       });
-      await intentRepository.save(due);
-      await intentRepository.save(future);
+      await unitOfWork.run((tx) => intentRepository.save(due, tx));
+      await unitOfWork.run((tx) => intentRepository.save(future, tx));
 
       await expect(
         intentRepository.expirePendingIntents({ expiredAt: now, limit: 100 }),
@@ -521,21 +530,17 @@ describe('PostgreSQL storage lifecycle', () => {
 
     it('queues cleanup when an upload expires during completion', async () => {
       const owner = await createUser();
-      const now = new Date('2026-07-28T10:00:00.000Z');
+      const now = new Date();
       const intent = makeIntent(owner.id, {
         createdAt: new Date(now.getTime() - 180_000),
         uploadUrlExpiresAt: new Date(now.getTime() - 120_000),
         finalizeDeadline: new Date(now.getTime() - 60_000),
       });
-      await intentRepository.save(intent);
+      await unitOfWork.run((tx) => intentRepository.save(intent, tx));
 
       await expect(
-        intentRepository.completeVerifiedUpload({
-          userId: owner.id,
-          uploadId: intent.upload.uploadId,
-          completedAt: now,
-        }),
-      ).resolves.toStrictEqual({ kind: 'expired' });
+        uploadService.completeUpload(toDomainUser(owner), intent.upload.uploadId),
+      ).rejects.toMatchObject({ code: 'upload_expired' });
 
       const [storedIntent] = await database
         .select()
@@ -977,7 +982,7 @@ function makeIntent(
   const createdAt = new Date('2026-07-28T09:00:00.000Z');
 
   return {
-    parentFolderId: null,
+    targetParentId: null,
     fileName: `${randomUUID()}.txt`,
     upload: {
       uploadId: randomUUID(),

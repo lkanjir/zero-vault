@@ -10,7 +10,6 @@ import type { ErrorResponse } from '../../src/shared/errors/api/error-response.j
 import { errorHandler } from '../../src/shared/http/error-handler.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
 import type { User } from '../../src/user/user.js';
-import type { CompleteUploadUseCase } from '../../src/upload/complete-upload-use-case.js';
 import { createUploadRouter } from '../../src/upload/upload-routes.js';
 import type { UploadService } from '../../src/upload/upload-service.js';
 
@@ -50,33 +49,29 @@ const USER: User = {
 
 describe('upload routes contract', () => {
   let uploadService: MockProxy<UploadService>;
-  let completeUploadUseCase: MockProxy<CompleteUploadUseCase>;
 
   beforeEach(() => {
     uploadService = mock<UploadService>();
-    completeUploadUseCase = mock<CompleteUploadUseCase>();
   });
 
   it('returns duplicate_entry_name when presign precheck finds an existing sibling', async () => {
     uploadService.createUpload.mockRejectedValue(new AppError('duplicate_entry_name'));
 
-    const response = await request(createTestApp(uploadService, completeUploadUseCase))
-      .post('/uploads/presign')
-      .send({
-        parentFolderId: null,
-        fileName: 'document.txt',
-        contentType: 'text/plain',
-        size: 12,
-        sha256: EXPECTED_SHA256,
-      });
+    const response = await request(createTestApp(uploadService)).post('/uploads/presign').send({
+      parentFolderId: null,
+      fileName: 'document.txt',
+      contentType: 'text/plain',
+      size: 12,
+      sha256: EXPECTED_SHA256,
+    });
 
     expectErrorResponse(response, 'duplicate_entry_name');
   });
 
   it('returns duplicate_entry_name when completion loses a database race', async () => {
-    completeUploadUseCase.execute.mockRejectedValue(new AppError('duplicate_entry_name'));
+    uploadService.completeUpload.mockRejectedValue(new AppError('duplicate_entry_name'));
 
-    const response = await request(createTestApp(uploadService, completeUploadUseCase))
+    const response = await request(createTestApp(uploadService))
       .post(`/uploads/${UPLOAD_ID}/complete`)
       .send();
 
@@ -86,29 +81,25 @@ describe('upload routes contract', () => {
   it('returns storage_unavailable when upload presigning fails', async () => {
     uploadService.createUpload.mockRejectedValue(new AppError('storage_unavailable'));
 
-    const response = await request(createTestApp(uploadService, completeUploadUseCase))
-      .post('/uploads/presign')
-      .send({
-        parentFolderId: null,
-        fileName: 'document.txt',
-        contentType: 'text/plain',
-        size: 12,
-        sha256: EXPECTED_SHA256,
-      });
+    const response = await request(createTestApp(uploadService)).post('/uploads/presign').send({
+      parentFolderId: null,
+      fileName: 'document.txt',
+      contentType: 'text/plain',
+      size: 12,
+      sha256: EXPECTED_SHA256,
+    });
 
     expectErrorResponse(response, 'storage_unavailable');
   });
 
   it('rejects a content type that becomes empty after normalization', async () => {
-    const response = await request(createTestApp(uploadService, completeUploadUseCase))
-      .post('/uploads/presign')
-      .send({
-        parentFolderId: null,
-        fileName: 'document.txt',
-        contentType: '; charset=utf-8',
-        size: 12,
-        sha256: EXPECTED_SHA256,
-      });
+    const response = await request(createTestApp(uploadService)).post('/uploads/presign').send({
+      parentFolderId: null,
+      fileName: 'document.txt',
+      contentType: '; charset=utf-8',
+      size: 12,
+      sha256: EXPECTED_SHA256,
+    });
 
     const body = response.body as ErrorResponse;
 
@@ -129,15 +120,13 @@ describe('upload routes contract', () => {
   it.each(['.', '..', 'a/b.txt', 'a\\b.txt', 'bad\0.txt', 'bad\n.txt'])(
     'rejects unsafe upload fileName %j before resolving the user',
     async (fileName) => {
-      const response = await request(createTestApp(uploadService, completeUploadUseCase))
-        .post('/uploads/presign')
-        .send({
-          parentFolderId: null,
-          fileName,
-          contentType: 'text/plain',
-          size: 12,
-          sha256: EXPECTED_SHA256,
-        });
+      const response = await request(createTestApp(uploadService)).post('/uploads/presign').send({
+        parentFolderId: null,
+        fileName,
+        contentType: 'text/plain',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+      });
 
       expect(response.status).toBe(400);
       expect((response.body as ErrorResponse).code).toBe('invalid_request_body');
@@ -156,15 +145,13 @@ describe('upload routes contract', () => {
       },
     });
 
-    const response = await request(createTestApp(uploadService, completeUploadUseCase))
-      .post('/uploads/presign')
-      .send({
-        parentFolderId: null,
-        fileName: 'document.txt',
-        contentType: ' Text/Plain; charset=utf-8 ',
-        size: 12,
-        sha256: EXPECTED_SHA256,
-      });
+    const response = await request(createTestApp(uploadService)).post('/uploads/presign').send({
+      parentFolderId: null,
+      fileName: 'document.txt',
+      contentType: ' Text/Plain; charset=utf-8 ',
+      size: 12,
+      sha256: EXPECTED_SHA256,
+    });
 
     expect(response.status).toBe(201);
     expect(response.headers['ratelimit-policy']).toContain('"upload-intent"');
@@ -190,15 +177,13 @@ describe('upload routes contract', () => {
       },
     });
 
-    const response = await request(createTestApp(uploadService, completeUploadUseCase))
-      .post('/uploads/presign')
-      .send({
-        parentFolderId: null,
-        fileName: 'maximum.bin',
-        contentType: 'application/octet-stream',
-        size: MAX_SINGLE_PART_UPLOAD_SIZE_BYTES,
-        sha256: EXPECTED_SHA256,
-      });
+    const response = await request(createTestApp(uploadService)).post('/uploads/presign').send({
+      parentFolderId: null,
+      fileName: 'maximum.bin',
+      contentType: 'application/octet-stream',
+      size: MAX_SINGLE_PART_UPLOAD_SIZE_BYTES,
+      sha256: EXPECTED_SHA256,
+    });
 
     expect(response.status).toBe(201);
     expect(uploadService.createUpload).toHaveBeenCalledExactlyOnceWith(USER, {
@@ -211,7 +196,7 @@ describe('upload routes contract', () => {
   });
 
   it('rejects an upload larger than the single-part limit', async () => {
-    const response = await request(createTestApp(uploadService, completeUploadUseCase))
+    const response = await request(createTestApp(uploadService))
       .post('/uploads/presign')
       .send({
         parentFolderId: null,
@@ -246,9 +231,9 @@ describe('upload routes contract', () => {
     'replacement_conflict',
     'storage_unavailable',
   ] as const)('returns the %s completion error contract', async (code) => {
-    completeUploadUseCase.execute.mockRejectedValue(new AppError(code));
+    uploadService.completeUpload.mockRejectedValue(new AppError(code));
 
-    const response = await request(createTestApp(uploadService, completeUploadUseCase))
+    const response = await request(createTestApp(uploadService))
       .post(`/uploads/${UPLOAD_ID}/complete`)
       .send();
 
@@ -256,9 +241,9 @@ describe('upload routes contract', () => {
   });
 
   it('returns the completed upload using the FileResponse contract', async () => {
-    completeUploadUseCase.execute.mockResolvedValue(COMPLETED_FILE);
+    uploadService.completeUpload.mockResolvedValue(COMPLETED_FILE);
 
-    const response = await request(createTestApp(uploadService, completeUploadUseCase))
+    const response = await request(createTestApp(uploadService))
       .post(`/uploads/${UPLOAD_ID}/complete`)
       .send();
 
@@ -267,11 +252,11 @@ describe('upload routes contract', () => {
     expect(response.headers['ratelimit-policy']).toContain('q=120');
     expect(response.headers['ratelimit-policy']).toContain('w=60');
     expect(response.body).toStrictEqual(COMPLETED_FILE);
-    expect(completeUploadUseCase.execute).toHaveBeenCalledExactlyOnceWith(USER, UPLOAD_ID);
+    expect(uploadService.completeUpload).toHaveBeenCalledExactlyOnceWith(USER, UPLOAD_ID);
   });
 });
 
-function createTestApp(uploadService: UploadService, completeUploadUseCase: CompleteUploadUseCase) {
+function createTestApp(uploadService: UploadService) {
   const app = express();
 
   app.use(requestContext);
@@ -285,7 +270,6 @@ function createTestApp(uploadService: UploadService, completeUploadUseCase: Comp
     '/uploads',
     createUploadRouter({
       uploadService,
-      completeUploadUseCase,
     }),
   );
   app.use(errorHandler);

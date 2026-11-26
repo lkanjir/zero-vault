@@ -1,10 +1,5 @@
-import type { UploadIntentInput, UploadIntent } from './upload-intent.js';
-
-export type CompleteVerifiedUploadCommand = {
-  userId: number;
-  uploadId: string;
-  completedAt: Date;
-};
+import type { TransactionContext } from '../db/unit-of-work.js';
+import type { UploadIntent, UploadIntentInput } from './upload-intent.js';
 
 export type CompletedUploadFile = {
   entryId: number;
@@ -15,15 +10,30 @@ export type CompletedUploadFile = {
   updatedAt: Date;
 };
 
-export type CompletedVerifiedUploadResult =
-  | { kind: 'completed'; file: CompletedUploadFile }
-  | { kind: 'not_found' }
-  | { kind: 'expired' }
+export type CompleteCreateIntentCommand = {
+  intent: UploadIntent;
+  userId: number;
+  completedAt: Date;
+};
+
+export type CompleteReplaceIntentCommand = {
+  intent: UploadIntent;
+  targetEntryId: number;
+  completedAt: Date;
+};
+
+export type CompleteReplaceIntentResult =
+  | {
+      kind: 'completed';
+      file: CompletedUploadFile;
+      previousContentVersion: number;
+      newContentVersion: number;
+    }
   | { kind: 'superseded' };
 
 export type SaveUploadIntentCommand = {
   upload: UploadIntentInput;
-  parentFolderId: string | null;
+  targetParentId: number | null;
   fileName: string;
 };
 
@@ -34,28 +44,43 @@ export type ExpirePendingIntentsCommand = {
 
 export type AssertUploadTargetAvailableCommand = {
   userId: number;
-  parentFolderId: string | null;
+  targetParentId: number | null;
   fileName: string;
-};
-
-export type AssertReplacementTargetAvailableCommand = {
-  userId: number;
-  filePublicId: string;
 };
 
 export type SaveReplacementUploadIntentCommand = {
   upload: UploadIntentInput;
-  filePublicId: string;
+  targetFileId: number;
 };
 
 export interface UploadIntentRepository {
   findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null>;
-  save(intent: SaveUploadIntentCommand): Promise<void>;
-  completeVerifiedUpload(
-    command: CompleteVerifiedUploadCommand,
-  ): Promise<CompletedVerifiedUploadResult>;
+  findByUserAndUploadIdForUpdate(
+    userId: number,
+    uploadId: string,
+    tx: TransactionContext,
+  ): Promise<UploadIntent | null>;
+  findCompletedFileByIntentId(
+    intentId: number,
+    tx: TransactionContext,
+  ): Promise<CompletedUploadFile>;
+  save(intent: SaveUploadIntentCommand, tx: TransactionContext): Promise<void>;
+  saveReplacement(
+    command: SaveReplacementUploadIntentCommand,
+    tx: TransactionContext,
+  ): Promise<void>;
+  assertUploadTargetAvailable(
+    command: AssertUploadTargetAvailableCommand,
+    tx: TransactionContext,
+  ): Promise<void>;
+  expireLockedIntent(intentId: number, tx: TransactionContext): Promise<void>;
+  completeCreateIntent(
+    command: CompleteCreateIntentCommand,
+    tx: TransactionContext,
+  ): Promise<CompletedUploadFile>;
+  completeReplaceIntent(
+    command: CompleteReplaceIntentCommand,
+    tx: TransactionContext,
+  ): Promise<CompleteReplaceIntentResult>;
   expirePendingIntents(command: ExpirePendingIntentsCommand): Promise<number>;
-  assertUploadTargetAvailable(command: AssertUploadTargetAvailableCommand): Promise<void>;
-  assertReplacementTargetAvailable(command: AssertReplacementTargetAvailableCommand): Promise<void>;
-  saveReplacement(command: SaveReplacementUploadIntentCommand): Promise<void>;
 }

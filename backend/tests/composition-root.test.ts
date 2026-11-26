@@ -26,7 +26,6 @@ describe('entrypoint composition roots', () => {
 
     expect(Object.keys(composition).sort()).toStrictEqual([
       'auditService',
-      'completeUploadUseCase',
       'downloadService',
       'entryService',
       'folderDownloadService',

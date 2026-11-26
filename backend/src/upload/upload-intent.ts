@@ -3,11 +3,11 @@ export type UploadIntentStatus = 'pending' | 'completed' | 'expired' | 'supersed
 export type UploadIntentOperation = 'create' | 'replace';
 
 export type UploadIntent = {
-  id?: number;
+  id: number;
   uploadId: string;
-  fileId?: number | null;
+  fileId: number | null;
   createdByUserId: number;
-  targetParentId?: number | null;
+  targetParentId: number | null;
   fileName: string | null;
   objectKey: string;
   contentType: string;
@@ -16,7 +16,7 @@ export type UploadIntent = {
   status: UploadIntentStatus;
   createdAt: Date;
   uploadUrlExpiresAt: Date;
-  completedAt?: Date | null;
+  completedAt: Date | null;
   finalizeDeadline: Date;
   operation: UploadIntentOperation;
   targetFileId: number | null;

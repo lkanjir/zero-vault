@@ -1,34 +1,28 @@
+import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import type { Database, Transaction } from '../db/db-client.js';
+import { entries, files, uploadIntents } from '../db/schema.js';
+import { requireTransaction, type TransactionContext } from '../db/unit-of-work.js';
+import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
+import { enqueueObjectDeletionsInTransaction } from '../object-deletion/object-deletion-helpers.js';
+import { AppError } from '../shared/errors/api/app-error.js';
 import type {
-  AssertReplacementTargetAvailableCommand,
   AssertUploadTargetAvailableCommand,
+  CompleteCreateIntentCommand,
   CompletedUploadFile,
-  CompletedVerifiedUploadResult,
-  CompleteVerifiedUploadCommand,
+  CompleteReplaceIntentCommand,
+  CompleteReplaceIntentResult,
   ExpirePendingIntentsCommand,
   SaveReplacementUploadIntentCommand,
   SaveUploadIntentCommand,
   UploadIntentRepository,
 } from './upload-intent-repository.js';
 import type { UploadIntent, UploadIntentInput } from './upload-intent.js';
-import type { Database, Transaction } from '../db/db-client.js';
-import { toTransactionContext } from '../db/unit-of-work.js';
-import { entries, files, uploadIntents } from '../db/schema.js';
-import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
-import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
-import { AppError } from '../shared/errors/api/app-error.js';
-import { enqueueObjectDeletionsInTransaction } from '../object-deletion/object-deletion-helpers.js';
-import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
-import { recordAuditEventInTransaction } from '../audit/record-audit-event-in-transaction.js';
 
-type UploadIntentRow = typeof uploadIntents.$inferSelect;
 type EntryRow = typeof entries.$inferSelect;
 type FileRow = typeof files.$inferSelect;
 
 export class PostgresIntentRepository implements UploadIntentRepository {
-  constructor(
-    private readonly db: Database,
-    private readonly authorizer: PostgresEntryAuthorizer,
-  ) {}
+  constructor(private readonly db: Database) {}
 
   async findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null> {
     const [row] = await this.db
@@ -40,90 +34,28 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     return row ? this.toDomain(row) : null;
   }
 
-  async save(command: SaveUploadIntentCommand): Promise<void> {
-    const upload = command.upload;
-
-    await this.db.transaction(async (tx) => {
-      const targetParentDbId = await this.authorizer.authorizeParentForCreate(
-        {
-          actorUserId: upload.createdByUserId,
-          ownerId: upload.createdByUserId,
-          parentPublicId: command.parentFolderId,
-        },
-        toTransactionContext(tx),
-      );
-
-      await tx.insert(uploadIntents).values({
-        ...this.toPendingInsert(upload),
-        operation: 'create',
-        fileName: command.fileName,
-        targetParentId: targetParentDbId,
-      });
-    });
-  }
-
-  async completeVerifiedUpload(
-    command: CompleteVerifiedUploadCommand,
-  ): Promise<CompletedVerifiedUploadResult> {
-    try {
-      return await this.db.transaction(async (tx) => {
-        const intent = await this.findIntentForCompletion(tx, command);
-
-        if (!intent) {
-          return { kind: 'not_found' };
-        }
-
-        return this.completeLockedIntent(tx, intent, command);
-      });
-    } catch (error) {
-      throw mapEntryDatabaseError(error);
-    }
-  }
-
-  private async findIntentForCompletion(
-    tx: Transaction,
-    command: CompleteVerifiedUploadCommand,
-  ): Promise<UploadIntentRow | null> {
-    const [intent] = await tx
+  async findByUserAndUploadIdForUpdate(
+    userId: number,
+    uploadId: string,
+    tx: TransactionContext,
+  ): Promise<UploadIntent | null> {
+    const drizzleTx = requireTransaction(tx);
+    const [row] = await drizzleTx
       .select()
       .from(uploadIntents)
-      .where(
-        and(
-          eq(uploadIntents.uploadId, command.uploadId),
-          eq(uploadIntents.createdByUserId, command.userId),
-        ),
-      )
+      .where(and(eq(uploadIntents.uploadId, uploadId), eq(uploadIntents.createdByUserId, userId)))
       .for('update')
       .limit(1);
 
-    return intent ?? null;
+    return row ? this.toDomain(row) : null;
   }
 
-  private async completeLockedIntent(
-    tx: Transaction,
-    intent: UploadIntentRow,
-    command: CompleteVerifiedUploadCommand,
-  ): Promise<CompletedVerifiedUploadResult> {
-    switch (intent.status) {
-      case 'completed':
-        return {
-          kind: 'completed',
-          file: await this.findCompletedFileInTransaction(tx, intent.id),
-        };
-      case 'expired':
-        return { kind: 'expired' };
-      case 'superseded':
-        return { kind: 'superseded' };
-      case 'pending':
-        return this.completePendingIntent(tx, intent, command);
-    }
-  }
-
-  private async findCompletedFileInTransaction(
-    tx: Transaction,
+  async findCompletedFileByIntentId(
     intentId: number,
+    tx: TransactionContext,
   ): Promise<CompletedUploadFile> {
-    const [row] = await tx
+    const drizzleTx = requireTransaction(tx);
+    const [row] = await drizzleTx
       .select({
         entryId: entries.id,
         publicId: entries.publicId,
@@ -145,180 +77,224 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     return row;
   }
 
-  private async completePendingIntent(
-    tx: Transaction,
-    intent: UploadIntentRow,
-    command: CompleteVerifiedUploadCommand,
-  ): Promise<CompletedVerifiedUploadResult> {
-    if (this.isPastFinalizeDeadline(intent, command.completedAt)) {
-      await this.expireLockedIntents(tx, [intent.id]);
-      return { kind: 'expired' };
-    }
+  async save(command: SaveUploadIntentCommand, tx: TransactionContext): Promise<void> {
+    const drizzleTx = requireTransaction(tx);
 
-    switch (intent.operation) {
-      case 'create':
-        return this.completePendingCreateIntent(tx, intent, command);
-      case 'replace':
-        return this.completePendingReplaceIntent(tx, intent, command);
-    }
-  }
-
-  private async completePendingCreateIntent(
-    tx: Transaction,
-    intent: UploadIntentRow,
-    command: CompleteVerifiedUploadCommand,
-  ): Promise<CompletedVerifiedUploadResult> {
-    await this.authorizer.reauthorizeParentForCreate(
-      {
-        actorUserId: command.userId,
-        ownerId: command.userId,
-        parentId: intent.targetParentId,
-      },
-      toTransactionContext(tx),
-    );
-    const entry = await this.createEntryForIntent(tx, command.userId, intent);
-
-    if (!entry) {
-      throw new Error('Greška kod kreiranja zapisa');
-    }
-
-    const file = await this.createFileForIntent(tx, entry.id, intent);
-
-    if (!file) {
-      throw new Error('Greška kod kreiranja datoteke');
-    }
-
-    await this.markIntentCompleted(tx, intent.id, file.entryId, command.completedAt);
-    await recordAuditEventInTransaction(tx, {
-      ownerId: entry.ownerId,
-      actorUserId: command.userId,
-      entryId: entry.id,
-      entryNameSnapshot: entry.name,
-      action: 'file.uploaded',
-      details: {
-        contentType: file.contentType,
-        sizeBytes: file.sizeBytes,
-      },
-      occurredAt: command.completedAt,
+    await drizzleTx.insert(uploadIntents).values({
+      ...this.toPendingInsert(command.upload),
+      operation: 'create',
+      fileName: command.fileName,
+      targetParentId: command.targetParentId,
     });
-
-    const completedFile: CompletedUploadFile = {
-      entryId: file.entryId,
-      publicId: entry.publicId,
-      name: entry.name,
-      contentType: file.contentType,
-      sizeBytes: file.sizeBytes,
-      updatedAt: entry.updatedAt,
-    };
-
-    return { kind: 'completed', file: completedFile };
   }
 
-  private async completePendingReplaceIntent(
-    tx: Transaction,
-    intent: UploadIntentRow,
-    command: CompleteVerifiedUploadCommand,
-  ): Promise<CompletedVerifiedUploadResult> {
-    const targetFileId = intent.targetFileId;
-    const expectedContentVersion = intent.expectedContentVersion;
-
-    if (targetFileId === null || expectedContentVersion === null) {
-      throw new Error('Replace intent is missing replacement metadata');
-    }
-
-    const { entry: target } = await this.authorizer.authorizeForUpdateByDbId(
-      {
-        actorUserId: command.userId,
-        entryDbId: targetFileId,
-        actions: ['file:replace'],
-      },
-      toTransactionContext(tx),
-    );
-
-    const [currentFile] = await tx
-      .select({ objectKey: files.objectKey, contentVersion: files.contentVersion })
+  async saveReplacement(
+    command: SaveReplacementUploadIntentCommand,
+    tx: TransactionContext,
+  ): Promise<void> {
+    const drizzleTx = requireTransaction(tx);
+    const [file] = await drizzleTx
+      .select({ contentVersion: files.contentVersion })
       .from(files)
-      .where(eq(files.entryId, target.id))
+      .where(eq(files.entryId, command.targetFileId))
       .limit(1);
 
-    if (!currentFile) {
+    if (!file) {
       throw new Error('Replacement target is missing file metadata');
     }
 
-    if (currentFile.contentVersion !== expectedContentVersion) {
-      await this.markIntentSuperseded(tx, intent.id, intent.objectKey);
-      return { kind: 'superseded' };
-    }
-
-    const [updatedFile] = await tx
-      .update(files)
-      .set({
-        objectKey: intent.objectKey,
-        contentType: intent.contentType,
-        sizeBytes: intent.expectedSizeBytes,
-        sha256: intent.expectedSha256,
-        contentVersion: sql`${files.contentVersion} + 1`,
-      })
-      .where(and(eq(files.entryId, target.id), eq(files.contentVersion, expectedContentVersion)))
-      .returning({
-        entryId: files.entryId,
-        contentType: files.contentType,
-        sizeBytes: files.sizeBytes,
-        contentVersion: files.contentVersion,
-      });
-
-    if (!updatedFile) {
-      await this.markIntentSuperseded(tx, intent.id, intent.objectKey);
-      return { kind: 'superseded' };
-    }
-
-    const [updatedEntry] = await tx
-      .update(entries)
-      .set({ updatedAt: command.completedAt })
-      .where(eq(entries.id, target.id))
-      .returning({ publicId: entries.publicId, name: entries.name, updatedAt: entries.updatedAt });
-
-    if (!updatedEntry) {
-      throw new Error('Replacement target entry could not be updated');
-    }
-
-    await this.markIntentCompleted(tx, intent.id, updatedFile.entryId, command.completedAt);
-
-    await enqueueObjectDeletionsInTransaction(tx, [
-      {
-        objectKey: currentFile.objectKey,
-        reason: 'replaced_file',
-      },
-    ]);
-    await recordAuditEventInTransaction(tx, {
-      ownerId: target.ownerId,
-      actorUserId: command.userId,
-      entryId: target.id,
-      entryNameSnapshot: updatedEntry.name,
-      action: 'file.content_replaced',
-      details: {
-        previousContentVersion: currentFile.contentVersion,
-        newContentVersion: updatedFile.contentVersion,
-        contentType: updatedFile.contentType,
-        sizeBytes: updatedFile.sizeBytes,
-      },
-      occurredAt: command.completedAt,
+    await drizzleTx.insert(uploadIntents).values({
+      ...this.toPendingInsert(command.upload),
+      operation: 'replace',
+      fileName: null,
+      targetFileId: command.targetFileId,
+      expectedContentVersion: file.contentVersion,
     });
-
-    const completedFile: CompletedUploadFile = {
-      entryId: updatedFile.entryId,
-      publicId: updatedEntry.publicId,
-      name: updatedEntry.name,
-      contentType: updatedFile.contentType,
-      sizeBytes: updatedFile.sizeBytes,
-      updatedAt: updatedEntry.updatedAt,
-    };
-
-    return { kind: 'completed', file: completedFile };
   }
 
-  private isPastFinalizeDeadline(intent: UploadIntentRow, completedAt: Date): boolean {
-    return intent.finalizeDeadline.getTime() < completedAt.getTime();
+  async assertUploadTargetAvailable(
+    command: AssertUploadTargetAvailableCommand,
+    tx: TransactionContext,
+  ): Promise<void> {
+    const drizzleTx = requireTransaction(tx);
+    const parentCondition =
+      command.targetParentId === null
+        ? isNull(entries.parentId)
+        : eq(entries.parentId, command.targetParentId);
+
+    const [existingEntry] = await drizzleTx
+      .select({ id: entries.id })
+      .from(entries)
+      .where(
+        and(
+          eq(entries.ownerId, command.userId),
+          parentCondition,
+          isNull(entries.deletedAt),
+          sql`lower(${entries.name}) = lower(${command.fileName})`,
+        ),
+      )
+      .limit(1);
+
+    if (existingEntry) {
+      throw new AppError('duplicate_entry_name');
+    }
+  }
+
+  async expireLockedIntent(intentId: number, tx: TransactionContext): Promise<void> {
+    await this.expireLockedIntents(requireTransaction(tx), [intentId]);
+  }
+
+  async completeCreateIntent(
+    command: CompleteCreateIntentCommand,
+    tx: TransactionContext,
+  ): Promise<CompletedUploadFile> {
+    const drizzleTx = requireTransaction(tx);
+
+    try {
+      const entry = await this.createEntryForIntent(drizzleTx, command.userId, command.intent);
+
+      if (!entry) {
+        throw new Error('Failed to create file entry');
+      }
+
+      const file = await this.createFileForIntent(drizzleTx, entry.id, command.intent);
+
+      if (!file) {
+        throw new Error('Failed to create file metadata');
+      }
+
+      await this.markIntentCompleted(
+        drizzleTx,
+        command.intent.id,
+        file.entryId,
+        command.completedAt,
+      );
+
+      return {
+        entryId: file.entryId,
+        publicId: entry.publicId,
+        name: entry.name,
+        contentType: file.contentType,
+        sizeBytes: file.sizeBytes,
+        updatedAt: entry.updatedAt,
+      };
+    } catch (error) {
+      throw mapEntryDatabaseError(error);
+    }
+  }
+
+  async completeReplaceIntent(
+    command: CompleteReplaceIntentCommand,
+    tx: TransactionContext,
+  ): Promise<CompleteReplaceIntentResult> {
+    const drizzleTx = requireTransaction(tx);
+    const { intent, targetEntryId, completedAt } = command;
+    const expectedContentVersion = intent.expectedContentVersion;
+
+    if (expectedContentVersion === null) {
+      throw new Error('Replace intent is missing expected content version');
+    }
+
+    try {
+      const [currentFile] = await drizzleTx
+        .select({ objectKey: files.objectKey, contentVersion: files.contentVersion })
+        .from(files)
+        .where(eq(files.entryId, targetEntryId))
+        .limit(1);
+
+      if (!currentFile) {
+        throw new Error('Replacement target is missing file metadata');
+      }
+
+      if (currentFile.contentVersion !== expectedContentVersion) {
+        await this.markIntentSuperseded(drizzleTx, intent.id, intent.objectKey);
+        return { kind: 'superseded' };
+      }
+
+      const [updatedFile] = await drizzleTx
+        .update(files)
+        .set({
+          objectKey: intent.objectKey,
+          contentType: intent.contentType,
+          sizeBytes: intent.expectedSizeBytes,
+          sha256: intent.expectedSha256,
+          contentVersion: sql`${files.contentVersion} + 1`,
+        })
+        .where(
+          and(eq(files.entryId, targetEntryId), eq(files.contentVersion, expectedContentVersion)),
+        )
+        .returning({
+          entryId: files.entryId,
+          contentType: files.contentType,
+          sizeBytes: files.sizeBytes,
+          contentVersion: files.contentVersion,
+        });
+
+      if (!updatedFile) {
+        await this.markIntentSuperseded(drizzleTx, intent.id, intent.objectKey);
+        return { kind: 'superseded' };
+      }
+
+      const [updatedEntry] = await drizzleTx
+        .update(entries)
+        .set({ updatedAt: completedAt })
+        .where(eq(entries.id, targetEntryId))
+        .returning({
+          publicId: entries.publicId,
+          name: entries.name,
+          updatedAt: entries.updatedAt,
+        });
+
+      if (!updatedEntry) {
+        throw new Error('Replacement target entry could not be updated');
+      }
+
+      await this.markIntentCompleted(drizzleTx, intent.id, updatedFile.entryId, completedAt);
+      await enqueueObjectDeletionsInTransaction(drizzleTx, [
+        {
+          objectKey: currentFile.objectKey,
+          reason: 'replaced_file',
+        },
+      ]);
+
+      return {
+        kind: 'completed',
+        previousContentVersion: currentFile.contentVersion,
+        newContentVersion: updatedFile.contentVersion,
+        file: {
+          entryId: updatedFile.entryId,
+          publicId: updatedEntry.publicId,
+          name: updatedEntry.name,
+          contentType: updatedFile.contentType,
+          sizeBytes: updatedFile.sizeBytes,
+          updatedAt: updatedEntry.updatedAt,
+        },
+      };
+    } catch (error) {
+      throw mapEntryDatabaseError(error);
+    }
+  }
+
+  async expirePendingIntents(command: ExpirePendingIntentsCommand): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      const candidates = await tx
+        .select({ id: uploadIntents.id })
+        .from(uploadIntents)
+        .where(
+          and(
+            eq(uploadIntents.status, 'pending'),
+            lt(uploadIntents.finalizeDeadline, command.expiredAt),
+          ),
+        )
+        .orderBy(uploadIntents.finalizeDeadline, uploadIntents.id)
+        .for('update', { skipLocked: true })
+        .limit(command.limit);
+
+      return this.expireLockedIntents(
+        tx,
+        candidates.map((candidate) => candidate.id),
+      );
+    });
   }
 
   private async expireLockedIntents(
@@ -350,12 +326,12 @@ export class PostgresIntentRepository implements UploadIntentRepository {
   private async createFileForIntent(
     tx: Transaction,
     entryId: number,
-    intent: UploadIntentRow,
+    intent: UploadIntent,
   ): Promise<FileRow | null> {
     const [file] = await tx
       .insert(files)
       .values({
-        entryId: entryId,
+        entryId,
         objectKey: intent.objectKey,
         contentType: intent.contentType,
         sizeBytes: intent.expectedSizeBytes,
@@ -369,7 +345,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
   private async createEntryForIntent(
     tx: Transaction,
     userId: number,
-    intent: UploadIntentRow,
+    intent: UploadIntent,
   ): Promise<EntryRow | null> {
     if (intent.operation !== 'create' || intent.fileName === null) {
       throw new Error('Create upload intent is missing create metadata');
@@ -396,7 +372,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
   ): Promise<void> {
     await tx
       .update(uploadIntents)
-      .set({ status: 'completed', fileId: entryId, completedAt: completedAt })
+      .set({ status: 'completed', fileId: entryId, completedAt })
       .where(eq(uploadIntents.id, intentId));
   }
 
@@ -416,54 +392,6 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     }
 
     await enqueueObjectDeletionsInTransaction(tx, [{ objectKey, reason: 'superseded_upload' }]);
-  }
-
-  async assertReplacementTargetAvailable(
-    command: AssertReplacementTargetAvailableCommand,
-  ): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      await this.authorizer.authorizeForUpdate(
-        {
-          actorUserId: command.userId,
-          entryPublicId: command.filePublicId,
-          actions: ['file:replace'],
-        },
-        toTransactionContext(tx),
-      );
-    });
-  }
-
-  async saveReplacement(command: SaveReplacementUploadIntentCommand): Promise<void> {
-    const upload = command.upload;
-
-    await this.db.transaction(async (tx) => {
-      const { entry: target } = await this.authorizer.authorizeForUpdate(
-        {
-          actorUserId: upload.createdByUserId,
-          entryPublicId: command.filePublicId,
-          actions: ['file:replace'],
-        },
-        toTransactionContext(tx),
-      );
-
-      const [file] = await tx
-        .select({ contentVersion: files.contentVersion })
-        .from(files)
-        .where(eq(files.entryId, target.id))
-        .limit(1);
-
-      if (!file) {
-        throw new Error('Replacement target is missing file metadata');
-      }
-
-      await tx.insert(uploadIntents).values({
-        ...this.toPendingInsert(upload),
-        operation: 'replace',
-        fileName: null,
-        targetFileId: target.id,
-        expectedContentVersion: file.contentVersion,
-      });
-    });
   }
 
   private toDomain(row: typeof uploadIntents.$inferSelect): UploadIntent {
@@ -502,62 +430,5 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       uploadUrlExpiresAt: upload.uploadUrlExpiresAt,
       finalizeDeadline: upload.finalizeDeadline,
     };
-  }
-
-  async expirePendingIntents(command: ExpirePendingIntentsCommand): Promise<number> {
-    return this.db.transaction(async (tx) => {
-      const candidates = await tx
-        .select({ id: uploadIntents.id })
-        .from(uploadIntents)
-        .where(
-          and(
-            eq(uploadIntents.status, 'pending'),
-            lt(uploadIntents.finalizeDeadline, command.expiredAt),
-          ),
-        )
-        .orderBy(uploadIntents.finalizeDeadline, uploadIntents.id)
-        .for('update', { skipLocked: true })
-        .limit(command.limit);
-
-      return this.expireLockedIntents(
-        tx,
-        candidates.map((candidate) => candidate.id),
-      );
-    });
-  }
-
-  async assertUploadTargetAvailable(command: AssertUploadTargetAvailableCommand): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      const targetParentDbId = await this.authorizer.authorizeParentForCreate(
-        {
-          actorUserId: command.userId,
-          ownerId: command.userId,
-          parentPublicId: command.parentFolderId,
-        },
-        toTransactionContext(tx),
-      );
-
-      const parentCondition =
-        targetParentDbId === null
-          ? isNull(entries.parentId)
-          : eq(entries.parentId, targetParentDbId);
-
-      const [existingEntry] = await tx
-        .select({ id: entries.id })
-        .from(entries)
-        .where(
-          and(
-            eq(entries.ownerId, command.userId),
-            parentCondition,
-            isNull(entries.deletedAt),
-            sql`lower(${entries.name}) = lower(${command.fileName})`,
-          ),
-        )
-        .limit(1);
-
-      if (existingEntry) {
-        throw new AppError('duplicate_entry_name');
-      }
-    });
   }
 }
