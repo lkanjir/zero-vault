@@ -26,6 +26,7 @@ import { EntryService } from '../../../src/entry/entry-service.js';
 import { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
 import { FileDownloadService } from '../../../src/files/file-download-service.js';
 import { PostgresFileRepository } from '../../../src/files/postgres-file-repository.js';
+import { StreamingFolderArchiver } from '../../../src/folder/download/streaming-folder-archiver.js';
 import { ObjectDeletionProcessor } from '../../../src/object-deletion/object-deletion-processor.js';
 import { PostgresObjectDeletionRepository } from '../../../src/object-deletion/postgres-object-deletion-repository.js';
 import { StorageObjectNotFoundError } from '../../../src/shared/errors/storage/storage-object-not-found-error.js';
@@ -332,6 +333,44 @@ describe('LocalStack storage round-trip', () => {
     await expect(splitStorage.headObject(objectKey)).rejects.toBeInstanceOf(
       StorageObjectNotFoundError,
     );
+  });
+
+  it('aborts ZIP upload cleanly in LocalStack when a source object fails mid-archive', async () => {
+    const firstKey = `archive-source/${randomUUID()}.txt`;
+    const missingKey = `archive-source/${randomUUID()}-missing.txt`;
+    const archiveKey = `folder-downloads/${randomUUID()}/1.zip`;
+
+    await storage.uploadObjectStream({
+      objectKey: firstKey,
+      contentType: 'text/plain',
+      body: Readable.from([Buffer.from('first file content')]),
+    });
+
+    const archiver = new StreamingFolderArchiver(storage);
+
+    await expect(
+      archiver.create({
+        archiveObjectKey: archiveKey,
+        entries: [
+          { kind: 'folder', pathParts: ['Docs'] },
+          {
+            kind: 'file',
+            pathParts: ['Docs', 'first.txt'],
+            objectKey: firstKey,
+            sizeBytes: 18,
+          },
+          {
+            kind: 'file',
+            pathParts: ['Docs', 'missing.txt'],
+            objectKey: missingKey,
+            sizeBytes: 10,
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(StorageObjectNotFoundError);
+
+    await expect(storage.headObject(archiveKey)).rejects.toBeInstanceOf(StorageObjectNotFoundError);
+    await storage.deleteObject(firstKey);
   });
 
   async function createUser(userLabel: string): Promise<User> {

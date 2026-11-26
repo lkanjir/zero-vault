@@ -303,7 +303,7 @@ describe('S3ObjectStorage errors', () => {
   it('aborts an in-flight multipart upload when the signal aborts', async () => {
     const controller = new AbortController();
     const abortError = new Error('upload aborted');
-    mocks.uploadAbort.mockResolvedValueOnce(undefined);
+    mocks.uploadAbort.mockRejectedValueOnce(new Error('abort cleanup failed'));
     mocks.uploadDone.mockImplementationOnce(
       () =>
         new Promise((_resolve, reject) => {

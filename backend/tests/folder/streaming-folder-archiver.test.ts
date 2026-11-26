@@ -156,9 +156,13 @@ describe('StreamingFolderArchiver', () => {
     const controller = new AbortController();
     const activeSource = new PassThrough();
     const destroySpy = vi.spyOn(activeSource, 'destroy');
+    let capturedGetSignal: AbortSignal | undefined;
     let capturedUploadBody!: Readable;
 
-    storage.getObjectStream.mockResolvedValueOnce(activeSource);
+    storage.getObjectStream.mockImplementationOnce((_objectKey, signal) => {
+      capturedGetSignal = signal;
+      return Promise.resolve(activeSource);
+    });
     storage.uploadObjectStream.mockImplementationOnce(({ body, signal }) => {
       capturedUploadBody = body;
       return new Promise<void>((_resolve, reject) => {
@@ -182,25 +186,71 @@ describe('StreamingFolderArchiver', () => {
     });
 
     await vi.waitFor(() => {
-      expect(storage.getObjectStream).toHaveBeenCalledWith('objects/stalled', controller.signal);
+      expect(storage.getObjectStream).toHaveBeenCalledOnce();
     });
+    expect(capturedGetSignal?.aborted).toBe(false);
 
     const abortReason = new Error('Folder download lease lost');
     controller.abort(abortReason);
 
     await expect(archivePromise).rejects.toBe(abortReason);
+    expect(capturedGetSignal?.aborted).toBe(true);
     expect(destroySpy).toHaveBeenCalled();
     expect(activeSource.destroyed).toBe(true);
     expect(capturedUploadBody.destroyed).toBe(true);
   });
 
-  it('cleans up streams when the active source stream emits an error', async () => {
+  it('aborts an in-flight getObjectStream when the upload fails before the source opens', async () => {
+    let capturedGetSignal: AbortSignal | undefined;
+    let rejectUpload!: (error: Error) => void;
+
+    storage.getObjectStream.mockImplementationOnce((_objectKey, signal) => {
+      capturedGetSignal = signal;
+      return new Promise<Readable>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new Error('getObject aborted')), {
+          once: true,
+        });
+      });
+    });
+    storage.uploadObjectStream.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectUpload = reject;
+        }),
+    );
+
+    const archivePromise = archiver.create({
+      archiveObjectKey: 'folder-downloads/user/download/1.zip',
+      entries: [
+        {
+          kind: 'file',
+          pathParts: ['Documents', 'slow.bin'],
+          objectKey: 'objects/slow',
+          sizeBytes: 100,
+        },
+      ],
+    });
+
+    await vi.waitFor(() => {
+      expect(storage.getObjectStream).toHaveBeenCalledOnce();
+    });
+
+    const uploadError = new Error('S3 upload failed early');
+    rejectUpload(uploadError);
+
+    await expect(archivePromise).rejects.toBe(uploadError);
+    expect(capturedGetSignal?.aborted).toBe(true);
+  });
+
+  it('cleans up streams and aborts upload when the active source stream emits an error', async () => {
     const activeSource = new PassThrough();
     let capturedUploadBody!: Readable;
+    let capturedUploadSignal: AbortSignal | undefined;
 
     storage.getObjectStream.mockResolvedValueOnce(activeSource);
-    storage.uploadObjectStream.mockImplementationOnce(async ({ body }) => {
+    storage.uploadObjectStream.mockImplementationOnce(async ({ body, signal }) => {
       capturedUploadBody = body;
+      capturedUploadSignal = signal;
       for await (const _chunk of body as AsyncIterable<unknown>) {
         // drain until destroyed
       }
@@ -228,5 +278,49 @@ describe('StreamingFolderArchiver', () => {
     await expect(archivePromise).rejects.toBe(readError);
     expect(activeSource.destroyed).toBe(true);
     expect(capturedUploadBody.destroyed).toBe(true);
+    expect(capturedUploadSignal?.aborted).toBe(true);
+  });
+
+  it('rejects promptly and aborts upload when the active source stream closes prematurely without an error', async () => {
+    const activeSource = new PassThrough();
+    let capturedUploadBody!: Readable;
+    let capturedUploadSignal: AbortSignal | undefined;
+
+    storage.getObjectStream.mockResolvedValueOnce(activeSource);
+    storage.uploadObjectStream.mockImplementationOnce(({ body, signal }) => {
+      capturedUploadBody = body;
+      capturedUploadSignal = signal;
+      return new Promise<void>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new Error('upload aborted')), {
+          once: true,
+        });
+      });
+    });
+
+    const archivePromise = archiver.create({
+      archiveObjectKey: 'folder-downloads/user/download/1.zip',
+      entries: [
+        {
+          kind: 'file',
+          pathParts: ['Documents', 'truncated.bin'],
+          objectKey: 'objects/truncated',
+          sizeBytes: 100,
+        },
+      ],
+    });
+
+    await vi.waitFor(() => {
+      expect(storage.getObjectStream).toHaveBeenCalledOnce();
+    });
+
+    activeSource.write(Buffer.from('partial'));
+    activeSource.destroy();
+
+    await expect(archivePromise).rejects.toThrow(
+      'Folder archive source stream closed before completing',
+    );
+    expect(activeSource.destroyed).toBe(true);
+    expect(capturedUploadBody.destroyed).toBe(true);
+    expect(capturedUploadSignal?.aborted).toBe(true);
   });
 });

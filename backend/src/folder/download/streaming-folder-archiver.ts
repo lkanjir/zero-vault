@@ -24,6 +24,7 @@ export class StreamingFolderArchiver implements FolderArchiver {
       throw this.toAbortError(command.signal);
     }
 
+    const pipelineController = new AbortController();
     const uploadBody = new PassThrough();
     const archive = new ZipArchive({ forceZip64: true, store: true });
     let activeSource: Readable | null = null;
@@ -38,30 +39,40 @@ export class StreamingFolderArchiver implements FolderArchiver {
     });
     archive.pipe(uploadBody);
 
-    const onAbort = () => {
+    const onExternalAbort = () => {
       const abortError = this.toAbortError(command.signal!);
       streamState.error ??= abortError;
-      this.destroySource(activeSource);
-      activeSource = null;
-      archive.destroy(abortError);
-      uploadBody.destroy();
+      pipelineController.abort(abortError);
     };
 
-    command.signal?.addEventListener('abort', onAbort, { once: true });
+    const onPipelineAbort = () => {
+      const abortError = this.toAbortError(pipelineController.signal);
+      this.destroySource(activeSource);
+      activeSource = null;
+      if (!archive.destroyed) {
+        archive.destroy(abortError);
+      }
+      if (!uploadBody.destroyed) {
+        uploadBody.destroy(abortError);
+      }
+    };
+
+    pipelineController.signal.addEventListener('abort', onPipelineAbort, { once: true });
+    command.signal?.addEventListener('abort', onExternalAbort, { once: true });
 
     const uploadPromise = this.storage.uploadObjectStream({
       objectKey: command.archiveObjectKey,
       contentType: 'application/zip',
       body: uploadBody,
-      ...(command.signal !== undefined ? { signal: command.signal } : {}),
+      signal: pipelineController.signal,
     });
 
     uploadPromise.catch((error) => {
       const normalized = this.toError(error);
       streamState.error ??= normalized;
-      this.destroySource(activeSource);
-      activeSource = null;
-      archive.destroy(normalized);
+      if (!pipelineController.signal.aborted) {
+        pipelineController.abort(normalized);
+      }
     });
 
     try {
@@ -83,15 +94,15 @@ export class StreamingFolderArchiver implements FolderArchiver {
               name: `${path}/`,
               type: 'directory',
             },
-            command.signal,
+            pipelineController.signal,
           );
           continue;
         }
 
-        const source =
-          command.signal !== undefined
-            ? await this.storage.getObjectStream(entry.objectKey, command.signal)
-            : await this.storage.getObjectStream(entry.objectKey);
+        const source = await this.storage.getObjectStream(
+          entry.objectKey,
+          pipelineController.signal,
+        );
         activeSource = source;
 
         if (command.signal?.aborted) {
@@ -103,7 +114,12 @@ export class StreamingFolderArchiver implements FolderArchiver {
           throw streamErrorAfterOpen;
         }
 
-        await this.appendAndWait(archive, source, { name: path, type: 'file' }, command.signal);
+        await this.appendAndWait(
+          archive,
+          source,
+          { name: path, type: 'file' },
+          pipelineController.signal,
+        );
         activeSource = null;
       }
 
@@ -119,17 +135,26 @@ export class StreamingFolderArchiver implements FolderArchiver {
     } catch (error) {
       const normalizedError = command.signal?.aborted
         ? this.toAbortError(command.signal)
-        : this.toError(error);
+        : (getStreamError() ?? this.toError(error));
+
+      if (!pipelineController.signal.aborted) {
+        pipelineController.abort(normalizedError);
+      }
 
       this.destroySource(activeSource);
       activeSource = null;
-      archive.destroy();
-      uploadBody.destroy();
+      if (!archive.destroyed) {
+        archive.destroy(normalizedError);
+      }
+      if (!uploadBody.destroyed) {
+        uploadBody.destroy(normalizedError);
+      }
 
       await uploadPromise.catch(() => undefined);
       throw normalizedError;
     } finally {
-      command.signal?.removeEventListener('abort', onAbort);
+      command.signal?.removeEventListener('abort', onExternalAbort);
+      pipelineController.signal.removeEventListener('abort', onPipelineAbort);
     }
   }
 
@@ -166,6 +191,7 @@ export class StreamingFolderArchiver implements FolderArchiver {
         archive.off('close', onClose);
         if (source instanceof Readable) {
           source.off('error', onError);
+          source.off('close', onSourceClose);
         }
         signal?.removeEventListener('abort', onAbort);
       };
@@ -203,6 +229,16 @@ export class StreamingFolderArchiver implements FolderArchiver {
         settleReject(error);
       };
 
+      const onSourceClose = () => {
+        if (source instanceof Readable && !source.readableEnded) {
+          const error =
+            source.errored instanceof Error
+              ? source.errored
+              : new Error('Folder archive source stream closed before completing');
+          settleReject(error);
+        }
+      };
+
       const onAbort = () => {
         settleReject(this.toAbortError(signal!));
       };
@@ -217,11 +253,21 @@ export class StreamingFolderArchiver implements FolderArchiver {
         return;
       }
 
+      if (
+        source instanceof Readable &&
+        (source.destroyed || source.closed) &&
+        !source.readableEnded
+      ) {
+        onSourceClose();
+        return;
+      }
+
       archive.once('entry', onEntry);
       archive.once('error', onError);
       archive.once('close', onClose);
       if (source instanceof Readable) {
         source.once('error', onError);
+        source.once('close', onSourceClose);
       }
       signal?.addEventListener('abort', onAbort, { once: true });
       archive.append(source, data);

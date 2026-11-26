@@ -276,7 +276,7 @@ export class S3ObjectStorage implements ObjectStorage {
         });
 
         const onAbort = () => {
-          void upload.abort();
+          void upload.abort().catch(() => undefined);
         };
 
         params.signal?.addEventListener('abort', onAbort, { once: true });
