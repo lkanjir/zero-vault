@@ -40,29 +40,21 @@ export class FolderDownloadProcessor {
     download: FolderDownload,
     externalSignal?: AbortSignal,
   ): Promise<void> {
-    const attemptController = new AbortController();
+    const leaseController = new AbortController();
+    const attemptSignal = externalSignal
+      ? AbortSignal.any([externalSignal, leaseController.signal])
+      : leaseController.signal;
+
     const state: {
-      leaseLost: boolean;
       finalizing: boolean;
       activeRenewal: Promise<void> | null;
     } = {
-      leaseLost: false,
       finalizing: false,
       activeRenewal: null,
     };
 
-    const onExternalAbort = () => {
-      attemptController.abort(externalSignal?.reason);
-    };
-
-    if (externalSignal?.aborted) {
-      attemptController.abort(externalSignal.reason);
-    } else {
-      externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
-    }
-
     const leaseTimer = setInterval(() => {
-      if (state.finalizing || state.activeRenewal !== null || attemptController.signal.aborted) {
+      if (state.finalizing || state.activeRenewal !== null || attemptSignal.aborted) {
         return;
       }
 
@@ -75,12 +67,11 @@ export class FolderDownloadProcessor {
         })
         .then((renewed) => {
           if (!renewed && !state.finalizing) {
-            state.leaseLost = true;
             console.warn('Folder download lease lost; aborting archive creation', {
               downloadId: download.downloadId,
               attemptCount: download.attemptCount,
             });
-            attemptController.abort(new Error('Folder download lease lost'));
+            leaseController.abort(new Error('Folder download lease lost'));
           }
         })
         .catch((error: unknown) => {
@@ -105,6 +96,14 @@ export class FolderDownloadProcessor {
       clearInterval(leaseTimer);
     };
 
+    const releaseOnShutdown = async () => {
+      stopLeaseRenewal();
+      await state.activeRenewal?.catch(() => undefined);
+      if (!leaseController.signal.aborted) {
+        await this.releaseLeaseOnShutdown(download);
+      }
+    };
+
     try {
       const archiveObjectKey = `${download.archiveObjectKey}/${download.attemptCount}.zip`;
       const entries = await this.repository.getArchiveManifest({
@@ -113,16 +112,12 @@ export class FolderDownloadProcessor {
         rootFolderName: download.folderName,
       });
 
-      if (state.leaseLost) {
+      if (leaseController.signal.aborted) {
         return;
       }
 
       if (externalSignal?.aborted) {
-        stopLeaseRenewal();
-        await state.activeRenewal?.catch(() => undefined);
-        if (!state.leaseLost) {
-          await this.releaseLeaseOnShutdown(download);
-        }
+        await releaseOnShutdown();
         return;
       }
 
@@ -138,19 +133,15 @@ export class FolderDownloadProcessor {
         archiveResult = await this.archiver.create({
           entries,
           archiveObjectKey,
-          signal: attemptController.signal,
+          signal: attemptSignal,
         });
       } catch (error) {
-        if (state.leaseLost) {
+        if (leaseController.signal.aborted) {
           return;
         }
 
         if (externalSignal?.aborted) {
-          stopLeaseRenewal();
-          await state.activeRenewal?.catch(() => undefined);
-          if (!state.leaseLost) {
-            await this.releaseLeaseOnShutdown(download);
-          }
+          await releaseOnShutdown();
           console.warn('Folder download processing aborted due to worker shutdown', {
             downloadId: download.downloadId,
             attemptCount: download.attemptCount,
@@ -184,7 +175,6 @@ export class FolderDownloadProcessor {
       }
     } finally {
       stopLeaseRenewal();
-      externalSignal?.removeEventListener('abort', onExternalAbort);
       await state.activeRenewal?.catch(() => undefined);
     }
   }

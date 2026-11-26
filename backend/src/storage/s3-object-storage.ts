@@ -224,9 +224,7 @@ export class S3ObjectStorage implements ObjectStorage {
     return this.executeStorageOperation(
       context,
       async () => {
-        if (signal?.aborted) {
-          throw this.toAbortError(signal);
-        }
+        signal?.throwIfAborted();
 
         const command = new GetObjectCommand({
           Bucket: this.bucket,
@@ -258,9 +256,7 @@ export class S3ObjectStorage implements ObjectStorage {
     await this.executeStorageOperation(
       context,
       async () => {
-        if (params.signal?.aborted) {
-          throw this.toAbortError(params.signal);
-        }
+        params.signal?.throwIfAborted();
 
         const upload = new Upload({
           client: this.client,
@@ -289,15 +285,5 @@ export class S3ObjectStorage implements ObjectStorage {
       },
       params.signal,
     );
-  }
-
-  private toAbortError(signal: AbortSignal): Error {
-    if (signal.reason instanceof Error) {
-      return signal.reason;
-    }
-
-    const error = new Error('Storage operation aborted', { cause: signal.reason });
-    error.name = 'AbortError';
-    return error;
   }
 }
