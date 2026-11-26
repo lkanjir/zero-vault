@@ -439,6 +439,30 @@ describe('S3ObjectStorage errors', () => {
     });
   });
 
+  it('maps HTTP 400 infrastructure errors on CompleteMultipartUpload to StorageUnavailableError', async () => {
+    const providerError = new S3ServiceException({
+      name: 'ExpiredToken',
+      $fault: 'client',
+      $metadata: { httpStatusCode: 400 },
+    });
+    mocks.send.mockRejectedValueOnce(providerError);
+
+    await expect(
+      storage.completeMultipartUpload({
+        objectKey: 'object-key',
+        s3UploadId: 'upload-123',
+        parts: [{ partNumber: 1, etag: '"etag-1"', sha256Hex: 'a'.repeat(64) }],
+      }),
+    ).rejects.toMatchObject({
+      name: StorageUnavailableError.name,
+      cause: providerError,
+      context: {
+        operation: 'complete_multipart_upload',
+        objectKey: 'object-key',
+      },
+    });
+  });
+
   it('maps NoSuchUpload on CompleteMultipartUpload to StorageObjectNotFoundError', async () => {
     const providerError = new S3ServiceException({
       name: 'NoSuchUpload',
@@ -460,6 +484,38 @@ describe('S3ObjectStorage errors', () => {
         operation: 'complete_multipart_upload',
         objectKey: 'object-key',
       },
+    });
+  });
+
+  it('maps NoSuchBucket (404) on CompleteMultipartUpload and AbortMultipartUpload to StorageUnavailableError', async () => {
+    const completeError = new S3ServiceException({
+      name: 'NoSuchBucket',
+      $fault: 'client',
+      $metadata: { httpStatusCode: 404 },
+    });
+    mocks.send.mockRejectedValueOnce(completeError);
+
+    await expect(
+      storage.completeMultipartUpload({
+        objectKey: 'object-key',
+        s3UploadId: 'upload-123',
+        parts: [{ partNumber: 1, etag: '"etag-1"', sha256Hex: 'a'.repeat(64) }],
+      }),
+    ).rejects.toMatchObject({
+      name: StorageUnavailableError.name,
+      cause: completeError,
+    });
+
+    const abortError = new S3ServiceException({
+      name: 'NoSuchBucket',
+      $fault: 'client',
+      $metadata: { httpStatusCode: 404 },
+    });
+    mocks.send.mockRejectedValueOnce(abortError);
+
+    await expect(storage.abortMultipartUpload('object-key', 'upload-123')).rejects.toMatchObject({
+      name: StorageUnavailableError.name,
+      cause: abortError,
     });
   });
 

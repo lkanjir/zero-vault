@@ -48,6 +48,7 @@ const INVALID_MULTIPART_PART_ERROR_NAMES = new Set([
   'BadDigest',
   'InvalidDigest',
   'InvalidRequest',
+  'InvalidArgument',
   'MalformedXML',
 ]);
 
@@ -146,16 +147,12 @@ export class S3ObjectStorage implements ObjectStorage {
   }
 
   private isNoSuchUploadError(error: unknown): boolean {
-    return (
-      error instanceof S3ServiceException &&
-      (error.name === 'NoSuchUpload' || error.$metadata.httpStatusCode === 404)
-    );
+    return error instanceof S3ServiceException && error.name === 'NoSuchUpload';
   }
 
   private isInvalidMultipartPartsError(error: unknown): boolean {
     return (
-      error instanceof S3ServiceException &&
-      (INVALID_MULTIPART_PART_ERROR_NAMES.has(error.name) || error.$metadata.httpStatusCode === 400)
+      error instanceof S3ServiceException && INVALID_MULTIPART_PART_ERROR_NAMES.has(error.name)
     );
   }
 

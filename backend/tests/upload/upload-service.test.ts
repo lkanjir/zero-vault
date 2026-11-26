@@ -658,10 +658,18 @@ describe('UploadService', () => {
     });
   });
 
-  it('aborts the newly created S3 multipart upload if saving the intent fails', async () => {
+  it('aborts the newly created S3 multipart upload outside the transaction when saving or committing fails', async () => {
+    const callOrder: string[] = [];
     storage.createMultipartUpload.mockResolvedValue('s3-upload-orphan');
-    storage.abortMultipartUpload.mockResolvedValue();
-    repo.save.mockRejectedValue(new Error('db write failed'));
+    storage.abortMultipartUpload.mockImplementation(() => {
+      callOrder.push('abort');
+      return Promise.resolve();
+    });
+    vi.spyOn(unitOfWork, 'run').mockImplementationOnce(async (work) => {
+      await work(tx);
+      callOrder.push('commit-failed');
+      throw new Error('db commit failed');
+    });
 
     await expect(
       service.createUpload(USER, {
@@ -669,11 +677,33 @@ describe('UploadService', () => {
         contentType: 'application/x-tar',
         size: SINGLE_PART_MAX_BYTES + 1,
       }),
-    ).rejects.toThrow('db write failed');
+    ).rejects.toThrow('db commit failed');
 
+    expect(callOrder).toStrictEqual(['commit-failed', 'abort']);
     expect(storage.abortMultipartUpload).toHaveBeenCalledExactlyOnceWith(
       expect.stringMatching(new RegExp(`^users/${USER.publicId}/objects/[0-9a-f-]{36}$`)),
       's3-upload-orphan',
+    );
+  });
+
+  it('aborts the newly created S3 multipart replacement upload when committing fails', async () => {
+    storage.createMultipartUpload.mockResolvedValue('s3-replace-orphan');
+    storage.abortMultipartUpload.mockResolvedValue();
+    vi.spyOn(unitOfWork, 'run').mockImplementationOnce(async (work) => {
+      await work(tx);
+      throw new Error('replace commit failed');
+    });
+
+    await expect(
+      service.createReplacementUpload(USER, '20000000-0000-4000-8000-000000000001', {
+        contentType: 'application/octet-stream',
+        size: SINGLE_PART_MAX_BYTES + 1,
+      }),
+    ).rejects.toThrow('replace commit failed');
+
+    expect(storage.abortMultipartUpload).toHaveBeenCalledExactlyOnceWith(
+      expect.stringMatching(new RegExp(`^users/${USER.publicId}/objects/[0-9a-f-]{36}$`)),
+      's3-replace-orphan',
     );
   });
 
@@ -933,6 +963,27 @@ describe('UploadService', () => {
       intent.objectKey,
       intent.s3UploadId,
     );
+  });
+
+  it('treats finalizeDeadline === now as expired in completeUpload without throwing 500', async () => {
+    const intent = makePendingMultipartIntent({
+      finalizeDeadline: new Date(NOW.getTime()),
+    });
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
+    repo.findByUserAndUploadIdForUpdate.mockResolvedValue(intent);
+
+    await expect(
+      service.completeUpload(USER, intent.uploadId, {
+        parts: [
+          { partNumber: 1, etag: '"etag-1"', sha256: EXPECTED_SHA256 },
+          { partNumber: 2, etag: '"etag-2"', sha256: OTHER_SHA256 },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'upload_expired' });
+
+    expect(storage.completeMultipartUpload).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
+    expect(repo.expireLockedIntent).toHaveBeenCalledExactlyOnceWith(intent.id, tx);
   });
 
   it('treats aborting an already aborted intent as idempotent and rejects aborting a completed intent', async () => {

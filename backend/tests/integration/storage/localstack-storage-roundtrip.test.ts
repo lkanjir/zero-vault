@@ -447,6 +447,18 @@ describe('LocalStack storage round-trip', () => {
       }),
     ).rejects.toBeInstanceOf(StorageInvalidPartsError);
 
+    // Completing with a tampered per-part SHA-256 fails with StorageInvalidPartsError
+    await expect(
+      storage.completeMultipartUpload({
+        objectKey,
+        s3UploadId,
+        parts: [
+          { partNumber: 1, etag: part1Etag!, sha256Hex: '0'.repeat(64) },
+          { partNumber: 2, etag: part2Etag!, sha256Hex: part2Sha256 },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(StorageInvalidPartsError);
+
     const completion = await storage.completeMultipartUpload({
       objectKey,
       s3UploadId,

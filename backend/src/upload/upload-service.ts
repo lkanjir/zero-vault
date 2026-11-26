@@ -96,41 +96,44 @@ export class UploadService {
       return this.toSinglePartUploadResponse(upload, uploadUrl);
     }
 
-    const upload = await this.unitOfWork.run(async (tx) => {
-      const targetParentId = await this.entryAuthorizer.authorizeParentForCreate(
-        {
-          actorUserId: user.id,
-          ownerId: user.id,
-          parentPublicId: parentFolderId,
-        },
-        tx,
-      );
+    const objectKey = this.createObjectKey(user);
+    let createdS3UploadId: string | null = null;
 
-      await this.intentRepo.assertUploadTargetAvailable(
-        {
-          userId: user.id,
-          targetParentId,
-          fileName: requestBody.fileName,
-        },
-        tx,
-      );
+    try {
+      const upload = await this.unitOfWork.run(async (tx) => {
+        const targetParentId = await this.entryAuthorizer.authorizeParentForCreate(
+          {
+            actorUserId: user.id,
+            ownerId: user.id,
+            parentPublicId: parentFolderId,
+          },
+          tx,
+        );
 
-      const objectKey = this.createObjectKey(user);
-      const s3UploadId = await this.storage.createMultipartUpload({
-        objectKey,
-        contentType: requestBody.contentType,
-      });
+        await this.intentRepo.assertUploadTargetAvailable(
+          {
+            userId: user.id,
+            targetParentId,
+            fileName: requestBody.fileName,
+          },
+          tx,
+        );
 
-      const multipartIntent = this.createMultipartIntentInput(
-        user,
-        requestBody,
-        objectKey,
-        s3UploadId,
-        plan.partSizeBytes,
-        plan.partCount,
-      );
+        const s3UploadId = await this.storage.createMultipartUpload({
+          objectKey,
+          contentType: requestBody.contentType,
+        });
+        createdS3UploadId = s3UploadId;
 
-      try {
+        const multipartIntent = this.createMultipartIntentInput(
+          user,
+          requestBody,
+          objectKey,
+          s3UploadId,
+          plan.partSizeBytes,
+          plan.partCount,
+        );
+
         await this.intentRepo.save(
           {
             upload: multipartIntent,
@@ -139,15 +142,19 @@ export class UploadService {
           },
           tx,
         );
-      } catch (error) {
-        await this.storage.abortMultipartUpload(objectKey, s3UploadId).catch(() => undefined);
-        throw error;
+
+        return multipartIntent;
+      });
+
+      return this.toMultipartUploadResponse(upload);
+    } catch (error) {
+      if (createdS3UploadId !== null) {
+        await this.storage
+          .abortMultipartUpload(objectKey, createdS3UploadId)
+          .catch(() => undefined);
       }
-
-      return multipartIntent;
-    });
-
-    return this.toMultipartUploadResponse(upload);
+      throw error;
+    }
   }
 
   async createReplacementUpload(
@@ -185,32 +192,35 @@ export class UploadService {
       return this.toSinglePartUploadResponse(upload, uploadUrl);
     }
 
-    const upload = await this.unitOfWork.run(async (tx) => {
-      const { entry: target } = await this.entryAuthorizer.authorizeForUpdate(
-        {
-          actorUserId: user.id,
-          entryPublicId: filePublicId,
-          actions: ['file:replace'],
-        },
-        tx,
-      );
+    const objectKey = this.createObjectKey(user);
+    let createdS3UploadId: string | null = null;
 
-      const objectKey = this.createObjectKey(user);
-      const s3UploadId = await this.storage.createMultipartUpload({
-        objectKey,
-        contentType: request.contentType,
-      });
+    try {
+      const upload = await this.unitOfWork.run(async (tx) => {
+        const { entry: target } = await this.entryAuthorizer.authorizeForUpdate(
+          {
+            actorUserId: user.id,
+            entryPublicId: filePublicId,
+            actions: ['file:replace'],
+          },
+          tx,
+        );
 
-      const multipartIntent = this.createMultipartIntentInput(
-        user,
-        request,
-        objectKey,
-        s3UploadId,
-        plan.partSizeBytes,
-        plan.partCount,
-      );
+        const s3UploadId = await this.storage.createMultipartUpload({
+          objectKey,
+          contentType: request.contentType,
+        });
+        createdS3UploadId = s3UploadId;
 
-      try {
+        const multipartIntent = this.createMultipartIntentInput(
+          user,
+          request,
+          objectKey,
+          s3UploadId,
+          plan.partSizeBytes,
+          plan.partCount,
+        );
+
         await this.intentRepo.saveReplacement(
           {
             upload: multipartIntent,
@@ -218,15 +228,19 @@ export class UploadService {
           },
           tx,
         );
-      } catch (error) {
-        await this.storage.abortMultipartUpload(objectKey, s3UploadId).catch(() => undefined);
-        throw error;
+
+        return multipartIntent;
+      });
+
+      return this.toMultipartUploadResponse(upload);
+    } catch (error) {
+      if (createdS3UploadId !== null) {
+        await this.storage
+          .abortMultipartUpload(objectKey, createdS3UploadId)
+          .catch(() => undefined);
       }
-
-      return multipartIntent;
-    });
-
-    return this.toMultipartUploadResponse(upload);
+      throw error;
+    }
   }
 
   async presignParts(
@@ -327,13 +341,14 @@ export class UploadService {
     request?: CompleteUploadRequestBody,
   ): Promise<FileResponse> {
     const intent = await this.getUploadIntent(user.id, uploadId);
+    const checkTime = new Date();
     let verifiedChecksum: ObjectChecksum | null = null;
 
-    if (this.shouldVerifyUploadedObject(intent)) {
+    if (this.shouldVerifyUploadedObject(intent, checkTime)) {
       verifiedChecksum = await this.verifyAndFinalizeStorageObject(intent, request);
     }
 
-    const completedAt = new Date();
+    const completedAt = new Date(Math.max(Date.now(), checkTime.getTime()));
     const outcome = await this.unitOfWork.run((tx) =>
       this.completeUploadInTransaction(user, intent.uploadId, verifiedChecksum, completedAt, tx),
     );
@@ -540,7 +555,7 @@ export class UploadService {
     completedAt: Date,
     tx: TransactionContext,
   ): Promise<CompleteUploadOutcome> {
-    if (intent.finalizeDeadline.getTime() < completedAt.getTime()) {
+    if (intent.finalizeDeadline.getTime() <= completedAt.getTime()) {
       await this.intentRepo.expireLockedIntent(intent.id, tx);
       return { kind: 'expired' };
     }
@@ -687,8 +702,8 @@ export class UploadService {
     return intent;
   }
 
-  private shouldVerifyUploadedObject(intent: UploadIntent): boolean {
-    return intent.status === 'pending' && intent.finalizeDeadline.getTime() >= Date.now();
+  private shouldVerifyUploadedObject(intent: UploadIntent, now: Date): boolean {
+    return intent.status === 'pending' && intent.finalizeDeadline.getTime() > now.getTime();
   }
 
   private verifyUpload(
