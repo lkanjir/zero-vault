@@ -64,6 +64,7 @@ export class Drive implements OnInit, AfterViewInit {
   readonly dialog = inject(Dialog);
 
   private readonly router = inject(Router);
+  private readonly downloadAbortController = new AbortController();
   private readonly _downloadEntryIds = signal<ReadonlySet<string>>(new Set());
   private readonly _downloadError = signal<string | null>(null);
 
@@ -94,6 +95,10 @@ export class Drive implements OnInit, AfterViewInit {
   });
 
   constructor() {
+    this.destroyRef.onDestroy(() => {
+      this.downloadAbortController.abort();
+    });
+
     afterRenderEffect({
       write: () => {
         this.store.search();
@@ -161,8 +166,14 @@ export class Drive implements OnInit, AfterViewInit {
     });
 
     try {
-      const result = await this.entryDownloadService.prepareDownload(selectedEntry);
+      const result = await this.entryDownloadService.prepareDownload(selectedEntry, {
+        signal: this.downloadAbortController.signal,
+      });
       if (!result.ok) {
+        if (result.error.code === 'download_cancelled') {
+          return;
+        }
+
         this._downloadError.set(apiErrorMessage(result.error, 'Preuzimanje nije uspjelo.'));
         return;
       }

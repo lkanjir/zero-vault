@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpResponse } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
@@ -16,13 +16,17 @@ export class FolderApi {
     return this.http.post<FolderEntry>('/api/folders', request);
   }
 
-  createDownload(folderId: string): Observable<CreateFolderDownloadResponse> {
+  createDownload(folderId: string): Observable<HttpResponse<CreateFolderDownloadResponse>> {
     const encoded = encodeURIComponent(folderId);
-    return this.http.post<CreateFolderDownloadResponse>(`/api/folders/${encoded}/downloads`, null);
+    return this.http.post<CreateFolderDownloadResponse>(`/api/folders/${encoded}/downloads`, null, {
+      observe: 'response',
+    });
   }
 
-  getDownloadStatus(downloadId: string): Observable<FolderDownloadStatusResponse> {
+  getDownloadStatus(downloadId: string): Observable<HttpResponse<FolderDownloadStatusResponse>> {
     const encoded = encodeURIComponent(downloadId);
-    return this.http.get<FolderDownloadStatusResponse>(`/api/folders/downloads/${encoded}`);
+    return this.http.get<FolderDownloadStatusResponse>(`/api/folders/downloads/${encoded}`, {
+      observe: 'response',
+    });
   }
 }

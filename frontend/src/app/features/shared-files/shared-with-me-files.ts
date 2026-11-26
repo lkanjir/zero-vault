@@ -51,6 +51,7 @@ export class SharedWithMeFiles implements OnInit, AfterViewInit {
 
   readonly viewport = viewChild(CdkVirtualScrollViewport);
 
+  private readonly downloadAbortController = new AbortController();
   private readonly _downloadFileIds = signal<ReadonlySet<string>>(new Set());
   private readonly _downloadError = signal<string | null>(null);
 
@@ -59,6 +60,12 @@ export class SharedWithMeFiles implements OnInit, AfterViewInit {
   readonly contextMenuFile = signal<SharedWithMeFile | null>(null);
 
   readonly trackFile: TrackByFunction<SharedWithMeFile> = (_index, file) => file.id;
+
+  constructor() {
+    this.destroyRef.onDestroy(() => {
+      this.downloadAbortController.abort();
+    });
+  }
 
   ngOnInit(): void {
     this.store.load();
@@ -100,8 +107,14 @@ export class SharedWithMeFiles implements OnInit, AfterViewInit {
     });
 
     try {
-      const result = await this.entryDownloadService.prepareDownload(file);
+      const result = await this.entryDownloadService.prepareDownload(file, {
+        signal: this.downloadAbortController.signal,
+      });
       if (!result.ok) {
+        if (result.error.code === 'download_cancelled') {
+          return;
+        }
+
         this._downloadError.set(apiErrorMessage(result.error, 'Preuzimanje nije uspjelo.'));
         return;
       }
