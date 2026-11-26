@@ -3,6 +3,7 @@ import { S3ServiceException } from '@aws-sdk/client-s3';
 import type * as S3ClientModule from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { StorageInvalidPartsError } from '../../src/shared/errors/storage/storage-invalid-parts-error.js';
 import { StorageObjectNotFoundError } from '../../src/shared/errors/storage/storage-object-not-found-error.js';
 import { StorageUnavailableError } from '../../src/shared/errors/storage/storage-unavailable-error.js';
 import { S3ObjectStorage } from '../../src/storage/s3-object-storage.js';
@@ -270,7 +271,7 @@ describe('S3ObjectStorage errors', () => {
     });
   });
 
-  it('returns normalized metadata for a valid HEAD response', async () => {
+  it('returns normalized metadata for a valid HEAD response with full SHA-256', async () => {
     const checksum = Buffer.alloc(32, 0xaa).toString('base64');
     mocks.send.mockResolvedValueOnce({
       ContentLength: 12,
@@ -282,7 +283,208 @@ describe('S3ObjectStorage errors', () => {
       objectKey: 'object-key',
       sizeBytes: 12,
       contentType: 'text/plain',
-      sha256Hex: 'aa'.repeat(32),
+      checksum: {
+        type: 'full_sha256',
+        value: 'aa'.repeat(32),
+      },
+    });
+  });
+
+  it('returns normalized metadata for a valid HEAD response with composite SHA-256', async () => {
+    const compositeChecksum = `${Buffer.alloc(32, 0xbb).toString('base64')}-3`;
+    mocks.send.mockResolvedValueOnce({
+      ContentLength: 50 * 1024 * 1024,
+      ContentType: 'application/octet-stream',
+      ChecksumSHA256: compositeChecksum,
+      ChecksumType: 'COMPOSITE',
+    });
+
+    await expect(storage.headObject('object-key')).resolves.toStrictEqual({
+      objectKey: 'object-key',
+      sizeBytes: 50 * 1024 * 1024,
+      contentType: 'application/octet-stream',
+      checksum: {
+        type: 'composite_sha256',
+        value: compositeChecksum,
+      },
+    });
+  });
+
+  it('creates a multipart upload configured for composite SHA-256 checksums', async () => {
+    mocks.send.mockResolvedValueOnce({ UploadId: 'upload-123' });
+
+    await expect(
+      storage.createMultipartUpload({
+        objectKey: 'object-key',
+        contentType: 'application/octet-stream',
+      }),
+    ).resolves.toBe('upload-123');
+
+    const command = mocks.send.mock.lastCall?.[0] as { input: unknown };
+    expect(command.input).toMatchObject({
+      Bucket: TEST_S3_CONFIG.bucket,
+      Key: 'object-key',
+      ContentType: 'application/octet-stream',
+      ChecksumAlgorithm: 'SHA256',
+      ChecksumType: 'COMPOSITE',
+    });
+  });
+
+  it('rejects a CreateMultipartUpload response without an UploadId', async () => {
+    mocks.send.mockResolvedValueOnce({});
+
+    await expect(
+      storage.createMultipartUpload({
+        objectKey: 'object-key',
+        contentType: 'application/octet-stream',
+      }),
+    ).rejects.toMatchObject({
+      name: StorageUnavailableError.name,
+      context: {
+        operation: 'create_multipart_upload',
+        objectKey: 'object-key',
+      },
+    });
+  });
+
+  it('presigns a multipart part upload with exact content length and SHA-256 checksum', async () => {
+    getSignedUrlMock.mockResolvedValueOnce('https://storage.example.test/part-1');
+
+    await expect(
+      storage.createPresignedUploadPartUrl({
+        objectKey: 'object-key',
+        s3UploadId: 'upload-123',
+        partNumber: 2,
+        sizeBytes: 16 * 1024 * 1024,
+        expiresInSeconds: 900,
+        sha256Hex: 'a'.repeat(64),
+      }),
+    ).resolves.toBe('https://storage.example.test/part-1');
+
+    const [, command, options] = getSignedUrlMock.mock.lastCall!;
+    expect(command.input).toMatchObject({
+      Bucket: TEST_S3_CONFIG.bucket,
+      Key: 'object-key',
+      UploadId: 'upload-123',
+      PartNumber: 2,
+      ContentLength: 16 * 1024 * 1024,
+      ChecksumAlgorithm: 'SHA256',
+      ChecksumSHA256: Buffer.from('a'.repeat(64), 'hex').toString('base64'),
+    });
+    expect(options).toStrictEqual({
+      expiresIn: 900,
+      signableHeaders: new Set(['content-length']),
+      unhoistableHeaders: new Set(['x-amz-checksum-sha256']),
+    });
+  });
+
+  it('completes a multipart upload with part ETags and per-part SHA-256 checksums', async () => {
+    const compositeChecksum = `${Buffer.alloc(32, 0xcc).toString('base64')}-2`;
+    mocks.send.mockResolvedValueOnce({ ChecksumSHA256: compositeChecksum });
+
+    await expect(
+      storage.completeMultipartUpload({
+        objectKey: 'object-key',
+        s3UploadId: 'upload-123',
+        parts: [
+          { partNumber: 1, etag: '"etag-1"', sha256Hex: 'a'.repeat(64) },
+          { partNumber: 2, etag: '"etag-2"', sha256Hex: 'b'.repeat(64) },
+        ],
+      }),
+    ).resolves.toStrictEqual({ compositeChecksum });
+
+    const command = mocks.send.mock.lastCall?.[0] as { input: unknown };
+    expect(command.input).toMatchObject({
+      Bucket: TEST_S3_CONFIG.bucket,
+      Key: 'object-key',
+      UploadId: 'upload-123',
+      MultipartUpload: {
+        Parts: [
+          {
+            PartNumber: 1,
+            ETag: '"etag-1"',
+            ChecksumSHA256: Buffer.from('a'.repeat(64), 'hex').toString('base64'),
+          },
+          {
+            PartNumber: 2,
+            ETag: '"etag-2"',
+            ChecksumSHA256: Buffer.from('b'.repeat(64), 'hex').toString('base64'),
+          },
+        ],
+      },
+    });
+  });
+
+  it('maps InvalidPart on CompleteMultipartUpload to StorageInvalidPartsError', async () => {
+    const providerError = new S3ServiceException({
+      name: 'InvalidPart',
+      $fault: 'client',
+      $metadata: { httpStatusCode: 400 },
+    });
+    mocks.send.mockRejectedValueOnce(providerError);
+
+    await expect(
+      storage.completeMultipartUpload({
+        objectKey: 'object-key',
+        s3UploadId: 'upload-123',
+        parts: [{ partNumber: 1, etag: '"bad"', sha256Hex: 'a'.repeat(64) }],
+      }),
+    ).rejects.toMatchObject({
+      name: StorageInvalidPartsError.name,
+      cause: providerError,
+      context: {
+        operation: 'complete_multipart_upload',
+        objectKey: 'object-key',
+      },
+    });
+  });
+
+  it('maps NoSuchUpload on CompleteMultipartUpload to StorageObjectNotFoundError', async () => {
+    const providerError = new S3ServiceException({
+      name: 'NoSuchUpload',
+      $fault: 'client',
+      $metadata: { httpStatusCode: 404 },
+    });
+    mocks.send.mockRejectedValueOnce(providerError);
+
+    await expect(
+      storage.completeMultipartUpload({
+        objectKey: 'object-key',
+        s3UploadId: 'upload-123',
+        parts: [{ partNumber: 1, etag: '"etag-1"', sha256Hex: 'a'.repeat(64) }],
+      }),
+    ).rejects.toMatchObject({
+      name: StorageObjectNotFoundError.name,
+      cause: providerError,
+      context: {
+        operation: 'complete_multipart_upload',
+        objectKey: 'object-key',
+      },
+    });
+  });
+
+  it('treats NoSuchUpload on AbortMultipartUpload as idempotent success', async () => {
+    const providerError = new S3ServiceException({
+      name: 'NoSuchUpload',
+      $fault: 'client',
+      $metadata: { httpStatusCode: 404 },
+    });
+    mocks.send.mockRejectedValueOnce(providerError);
+
+    await expect(storage.abortMultipartUpload('object-key', 'upload-123')).resolves.toBeUndefined();
+  });
+
+  it('maps unexpected AbortMultipartUpload errors to StorageUnavailableError', async () => {
+    const providerError = new Error('S3 down');
+    mocks.send.mockRejectedValueOnce(providerError);
+
+    await expect(storage.abortMultipartUpload('object-key', 'upload-123')).rejects.toMatchObject({
+      name: StorageUnavailableError.name,
+      cause: providerError,
+      context: {
+        operation: 'abort_multipart_upload',
+        objectKey: 'object-key',
+      },
     });
   });
 

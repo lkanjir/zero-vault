@@ -8,15 +8,49 @@ export type SignedUploadUrlParams = {
   sha256Hex: string;
 };
 
+export type CreateMultipartUploadParams = {
+  objectKey: string;
+  contentType: string;
+};
+
+export type SignedUploadPartUrlParams = {
+  objectKey: string;
+  s3UploadId: string;
+  partNumber: number;
+  sizeBytes: number;
+  expiresInSeconds: number;
+  sha256Hex: string;
+};
+
+export type CompletedMultipartPart = {
+  partNumber: number;
+  etag: string;
+  sha256Hex: string;
+};
+
+export type CompleteMultipartUploadParams = {
+  objectKey: string;
+  s3UploadId: string;
+  parts: readonly CompletedMultipartPart[];
+};
+
+export type CompleteMultipartUploadResult = {
+  compositeChecksum: string | null;
+};
+
+export type ObjectChecksum =
+  | { type: 'full_sha256'; value: string }
+  | { type: 'composite_sha256'; value: string };
+
 export type ObjectMetadata = {
   objectKey: string;
   sizeBytes: number;
   contentType: string;
-  sha256Hex: string | null;
+  checksum: ObjectChecksum | null;
 };
 
 export type ObjectMetadataWithChecksum = ObjectMetadata & {
-  sha256Hex: string;
+  checksum: ObjectChecksum;
 };
 
 export type SignedDownloadUrlParams = {
@@ -35,6 +69,12 @@ export type UploadObjectStreamParams = {
 
 export interface ObjectStorage {
   createPresignedUploadUrl(params: SignedUploadUrlParams): Promise<string>;
+  createMultipartUpload(params: CreateMultipartUploadParams): Promise<string>;
+  createPresignedUploadPartUrl(params: SignedUploadPartUrlParams): Promise<string>;
+  completeMultipartUpload(
+    params: CompleteMultipartUploadParams,
+  ): Promise<CompleteMultipartUploadResult>;
+  abortMultipartUpload(objectKey: string, s3UploadId: string): Promise<void>;
   createPresignedDownloadUrl(params: SignedDownloadUrlParams): Promise<string>;
   headObject(objectKey: string): Promise<ObjectMetadata>;
   getObjectStream(objectKey: string, signal?: AbortSignal): Promise<Readable>;

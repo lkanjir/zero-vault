@@ -1425,6 +1425,10 @@ function toDomainUser(user: { id: number; publicId: string; email?: string }): U
 function createStubStorage(): ObjectStorage {
   return {
     createPresignedUploadUrl: () => Promise.resolve('https://storage.example.test/upload'),
+    createMultipartUpload: () => Promise.resolve('test-s3-upload-id'),
+    createPresignedUploadPartUrl: () => Promise.resolve('https://storage.example.test/part'),
+    completeMultipartUpload: () => Promise.resolve({ compositeChecksum: null }),
+    abortMultipartUpload: () => Promise.resolve(),
     createPresignedDownloadUrl: () => Promise.resolve('https://storage.example.test/download'),
     headObject: () => Promise.reject(new Error('not implemented')),
     deleteObject: () => Promise.resolve(),

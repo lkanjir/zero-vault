@@ -5,6 +5,7 @@ import type { ObjectDeletionReason } from './object-deletion-job.js';
 export type EnqueueObjectDeletionCommand = {
   objectKey: string;
   reason: ObjectDeletionReason;
+  s3UploadId?: string | null;
 };
 
 export async function enqueueObjectDeletionInTransaction(
@@ -25,7 +26,13 @@ export async function enqueueObjectDeletionsInTransaction(
 
   const inserted = await tx
     .insert(objectDeletionJobs)
-    .values(commands.map((command) => ({ objectKey: command.objectKey, reason: command.reason })))
+    .values(
+      commands.map((command) => ({
+        objectKey: command.objectKey,
+        reason: command.reason,
+        s3UploadId: command.s3UploadId ?? null,
+      })),
+    )
     .onConflictDoNothing({ target: objectDeletionJobs.objectKey })
     .returning({ id: objectDeletionJobs.id });
 

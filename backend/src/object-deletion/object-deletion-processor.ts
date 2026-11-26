@@ -38,6 +38,9 @@ export class ObjectDeletionProcessor {
 
   private async processClaimedJob(job: ObjectDeletionJob): Promise<void> {
     try {
+      if (job.s3UploadId !== null) {
+        await this.storage.abortMultipartUpload(job.objectKey, job.s3UploadId);
+      }
       await this.storage.deleteObject(job.objectKey);
     } catch (error) {
       const errorCode =

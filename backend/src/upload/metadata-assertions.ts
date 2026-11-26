@@ -1,5 +1,9 @@
 import { AppError } from '../shared/errors/api/app-error.js';
-import type { ObjectMetadata, ObjectMetadataWithChecksum } from '../storage/object-storage.js';
+import type {
+  ObjectChecksum,
+  ObjectMetadata,
+  ObjectMetadataWithChecksum,
+} from '../storage/object-storage.js';
 import type { UploadIntent } from './upload-intent.js';
 
 export function assertObjectKeyMatches(intent: UploadIntent, object: ObjectMetadata) {
@@ -18,7 +22,7 @@ export function assertChecksumExists(
   intent: UploadIntent,
   object: ObjectMetadata,
 ): asserts object is ObjectMetadataWithChecksum {
-  if (!object.sha256Hex) {
+  if (!object.checksum) {
     throw new AppError('upload_checksum_missing', {
       context: {
         uploadId: intent.uploadId,
@@ -28,14 +32,23 @@ export function assertChecksumExists(
   }
 }
 
-export function assertChecksumMatches(intent: UploadIntent, object: ObjectMetadata) {
-  if (object.sha256Hex !== intent.expectedSha256) {
+export function assertChecksumMatches(
+  intent: UploadIntent,
+  object: ObjectMetadataWithChecksum,
+  expectedChecksum: ObjectChecksum,
+) {
+  if (
+    object.checksum.type !== expectedChecksum.type ||
+    object.checksum.value !== expectedChecksum.value
+  ) {
     throw new AppError('upload_checksum_mismatch', {
       context: {
         uploadId: intent.uploadId,
         objectKey: intent.objectKey,
-        objectHash: object.sha256Hex,
-        intentHash: intent.expectedSha256,
+        objectChecksumType: object.checksum.type,
+        objectHash: object.checksum.value,
+        intentChecksumType: expectedChecksum.type,
+        intentHash: expectedChecksum.value,
       },
     });
   }

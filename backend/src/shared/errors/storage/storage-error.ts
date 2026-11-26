@@ -1,5 +1,9 @@
 export type StorageOperation =
   | 'create_upload_url'
+  | 'create_multipart_upload'
+  | 'create_upload_part_url'
+  | 'complete_multipart_upload'
+  | 'abort_multipart_upload'
   | 'create_download_url'
   | 'head_object'
   | 'get_object_stream'

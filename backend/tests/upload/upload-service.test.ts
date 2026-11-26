@@ -369,12 +369,17 @@ describe('UploadService', () => {
   });
 
   it.each([
-    ['missing provider checksum', { sha256Hex: null }, 'upload_checksum_missing', {}],
+    ['missing provider checksum', { checksum: null }, 'upload_checksum_missing', {}],
     [
       'checksum mismatch',
-      { sha256Hex: OTHER_SHA256 },
+      { checksum: { type: 'full_sha256' as const, value: OTHER_SHA256 } },
       'upload_checksum_mismatch',
-      { objectHash: OTHER_SHA256, intentHash: EXPECTED_SHA256 },
+      {
+        objectChecksumType: 'full_sha256',
+        objectHash: OTHER_SHA256,
+        intentChecksumType: 'full_sha256',
+        intentHash: EXPECTED_SHA256,
+      },
     ],
     [
       'size mismatch',
@@ -661,7 +666,10 @@ function makeObjectMetadata(
     objectKey: intent.objectKey,
     sizeBytes: intent.expectedSizeBytes,
     contentType: intent.contentType,
-    sha256Hex: EXPECTED_SHA256,
+    checksum: {
+      type: 'full_sha256',
+      value: EXPECTED_SHA256,
+    },
     ...overrides,
   };
 }

@@ -588,7 +588,9 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
       objectKey: command.upload.objectKey,
       sizeBytes: command.upload.expectedSizeBytes,
       contentType: command.upload.contentType,
-      sha256Hex: command.upload.expectedSha256,
+      checksum: command.upload.expectedSha256
+        ? { type: 'full_sha256', value: command.upload.expectedSha256 }
+        : null,
     });
     await unitOfWork.run((tx) => repository.save(command, tx));
   }
@@ -598,7 +600,9 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
       objectKey: command.upload.objectKey,
       sizeBytes: command.upload.expectedSizeBytes,
       contentType: command.upload.contentType,
-      sha256Hex: command.upload.expectedSha256,
+      checksum: command.upload.expectedSha256
+        ? { type: 'full_sha256', value: command.upload.expectedSha256 }
+        : null,
     });
     await unitOfWork.run((tx) => repository.saveReplacement(command, tx));
   }
@@ -668,6 +672,10 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
 function createInMemoryStorage(objects: Map<string, ObjectMetadata>): ObjectStorage {
   return {
     createPresignedUploadUrl: () => Promise.resolve('https://storage.example.test/upload'),
+    createMultipartUpload: () => Promise.resolve('test-s3-upload-id'),
+    createPresignedUploadPartUrl: () => Promise.resolve('https://storage.example.test/part'),
+    completeMultipartUpload: () => Promise.resolve({ compositeChecksum: null }),
+    abortMultipartUpload: () => Promise.resolve(),
     createPresignedDownloadUrl: () => Promise.resolve('https://storage.example.test/download'),
     headObject: (objectKey) => {
       const metadata = objects.get(objectKey);

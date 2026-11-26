@@ -53,6 +53,7 @@ describe('ObjectDeletionProcessor', () => {
 
     await expect(processor.processNext()).resolves.toBe(true);
 
+    expect(storage.abortMultipartUpload).not.toHaveBeenCalled();
     expect(storage.deleteObject).toHaveBeenCalledExactlyOnceWith(job.objectKey);
     expect(repository.complete).toHaveBeenCalledExactlyOnceWith({
       id: job.id,
@@ -60,6 +61,47 @@ describe('ObjectDeletionProcessor', () => {
       completedAt: NOW,
     });
     expect(repository.reschedule).not.toHaveBeenCalled();
+  });
+
+  it('aborts the multipart upload before deleting the object when s3UploadId is present', async () => {
+    const job = makeJob({ reason: 'aborted_upload', s3UploadId: 's3-upload-123' });
+    repository.claimNext.mockResolvedValue(job);
+    repository.complete.mockResolvedValue(true);
+
+    await expect(processor.processNext()).resolves.toBe(true);
+
+    expect(storage.abortMultipartUpload).toHaveBeenCalledExactlyOnceWith(
+      job.objectKey,
+      's3-upload-123',
+    );
+    expect(storage.deleteObject).toHaveBeenCalledExactlyOnceWith(job.objectKey);
+    expect(repository.complete).toHaveBeenCalledExactlyOnceWith({
+      id: job.id,
+      attemptCount: job.attemptCount,
+      completedAt: NOW,
+    });
+  });
+
+  it('reschedules when abortMultipartUpload fails with StorageUnavailableError', async () => {
+    const job = makeJob({ reason: 'expired_upload', s3UploadId: 's3-upload-123' });
+    const storageError = new StorageUnavailableError(
+      { operation: 'abort_multipart_upload', objectKey: job.objectKey },
+      { cause: new Error('storage down') },
+    );
+    repository.claimNext.mockResolvedValue(job);
+    repository.reschedule.mockResolvedValue(true);
+    storage.abortMultipartUpload.mockRejectedValue(storageError);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(processor.processNext()).resolves.toBe(true);
+
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+    expect(repository.reschedule).toHaveBeenCalledExactlyOnceWith({
+      id: job.id,
+      attemptCount: job.attemptCount,
+      availableAt: new Date(NOW.getTime() + 30_000),
+      errorCode: 'storage_unavailable',
+    });
   });
 
   it('reschedules a storage failure with the initial backoff', async () => {

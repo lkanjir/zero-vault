@@ -29,7 +29,12 @@ import { PostgresFileRepository } from '../../../src/files/postgres-file-reposit
 import { StreamingFolderArchiver } from '../../../src/folder/download/streaming-folder-archiver.js';
 import { ObjectDeletionProcessor } from '../../../src/object-deletion/object-deletion-processor.js';
 import { PostgresObjectDeletionRepository } from '../../../src/object-deletion/postgres-object-deletion-repository.js';
+import { StorageInvalidPartsError } from '../../../src/shared/errors/storage/storage-invalid-parts-error.js';
 import { StorageObjectNotFoundError } from '../../../src/shared/errors/storage/storage-object-not-found-error.js';
+import {
+  computeCompositeSha256,
+  sha256HexToBase64,
+} from '../../../src/shared/utils/sha256-convert.js';
 import { S3ObjectStorage } from '../../../src/storage/s3-object-storage.js';
 import { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
 import { UploadService } from '../../../src/upload/upload-service.js';
@@ -371,6 +376,181 @@ describe('LocalStack storage round-trip', () => {
 
     await expect(storage.headObject(archiveKey)).rejects.toBeInstanceOf(StorageObjectNotFoundError);
     await storage.deleteObject(firstKey);
+  });
+
+  it('completes a multipart upload in LocalStack with per-part SHA-256 and verifies composite checksum', async () => {
+    const part1 = Buffer.alloc(5 * 1024 * 1024, 0x61);
+    const part2 = Buffer.from('final multipart tail bytes');
+    const part1Sha256 = createHash('sha256').update(part1).digest('hex');
+    const part2Sha256 = createHash('sha256').update(part2).digest('hex');
+    const expectedComposite = computeCompositeSha256([part1Sha256, part2Sha256]);
+    const objectKey = `multipart-roundtrip/${randomUUID()}.bin`;
+
+    const s3UploadId = await storage.createMultipartUpload({
+      objectKey,
+      contentType: 'application/octet-stream',
+    });
+
+    const [part1Url, part2Url] = await Promise.all([
+      storage.createPresignedUploadPartUrl({
+        objectKey,
+        s3UploadId,
+        partNumber: 1,
+        sizeBytes: part1.length,
+        expiresInSeconds: 600,
+        sha256Hex: part1Sha256,
+      }),
+      storage.createPresignedUploadPartUrl({
+        objectKey,
+        s3UploadId,
+        partNumber: 2,
+        sizeBytes: part2.length,
+        expiresInSeconds: 600,
+        sha256Hex: part2Sha256,
+      }),
+    ]);
+
+    const part1Response = await fetch(part1Url, {
+      method: 'PUT',
+      headers: { 'x-amz-checksum-sha256': sha256HexToBase64(part1Sha256) },
+      body: part1,
+    });
+    expect(part1Response.status, await part1Response.text()).toBe(200);
+    const part1Etag = part1Response.headers.get('etag');
+    expect(part1Etag).toBeTruthy();
+
+    const part2Response = await fetch(part2Url, {
+      method: 'PUT',
+      headers: { 'x-amz-checksum-sha256': sha256HexToBase64(part2Sha256) },
+      body: part2,
+    });
+    expect(part2Response.status, await part2Response.text()).toBe(200);
+    const part2Etag = part2Response.headers.get('etag');
+    expect(part2Etag).toBeTruthy();
+
+    // Completing with a tampered ETag fails with StorageInvalidPartsError
+    await expect(
+      storage.completeMultipartUpload({
+        objectKey,
+        s3UploadId,
+        parts: [
+          { partNumber: 1, etag: '"00000000000000000000000000000000"', sha256Hex: part1Sha256 },
+          { partNumber: 2, etag: part2Etag!, sha256Hex: part2Sha256 },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(StorageInvalidPartsError);
+
+    const completion = await storage.completeMultipartUpload({
+      objectKey,
+      s3UploadId,
+      parts: [
+        { partNumber: 1, etag: part1Etag!, sha256Hex: part1Sha256 },
+        { partNumber: 2, etag: part2Etag!, sha256Hex: part2Sha256 },
+      ],
+    });
+    expect(completion.compositeChecksum).toBe(expectedComposite);
+
+    const head = await storage.headObject(objectKey);
+    expect(head).toStrictEqual({
+      objectKey,
+      sizeBytes: part1.length + part2.length,
+      contentType: 'application/octet-stream',
+      checksum: {
+        type: 'composite_sha256',
+        value: expectedComposite,
+      },
+    });
+
+    await storage.deleteObject(objectKey);
+  });
+
+  it('aborts an unfinished multipart upload via ObjectDeletionProcessor and ignores repeated aborts', async () => {
+    const objectKey = `multipart-abort/${randomUUID()}.bin`;
+    const part1 = Buffer.from('abandoned part payload');
+    const part1Sha256 = createHash('sha256').update(part1).digest('hex');
+
+    const s3UploadId = await storage.createMultipartUpload({
+      objectKey,
+      contentType: 'application/octet-stream',
+    });
+
+    const part1Url = await storage.createPresignedUploadPartUrl({
+      objectKey,
+      s3UploadId,
+      partNumber: 1,
+      sizeBytes: part1.length,
+      expiresInSeconds: 600,
+      sha256Hex: part1Sha256,
+    });
+    const partResponse = await fetch(part1Url, {
+      method: 'PUT',
+      headers: { 'x-amz-checksum-sha256': sha256HexToBase64(part1Sha256) },
+      body: part1,
+    });
+    expect(partResponse.status, await partResponse.text()).toBe(200);
+
+    await database.insert(objectDeletionJobs).values({
+      objectKey,
+      s3UploadId,
+      reason: 'aborted_upload',
+    });
+
+    await expect(deletionProcessor.processNext()).resolves.toBe(true);
+    // Repeated abort on already-aborted upload ID is idempotent
+    await expect(storage.abortMultipartUpload(objectKey, s3UploadId)).resolves.toBeUndefined();
+    await expect(storage.headObject(objectKey)).rejects.toBeInstanceOf(StorageObjectNotFoundError);
+  });
+
+  it('uploads, heads, and archives a 0-byte empty file in LocalStack', async () => {
+    const emptyContent = Buffer.alloc(0);
+    const emptySha256 = createHash('sha256').update(emptyContent).digest('hex');
+    const objectKey = `empty-file/${randomUUID()}.txt`;
+    const archiveKey = `folder-downloads/${randomUUID()}/empty.zip`;
+
+    const uploadUrl = await storage.createPresignedUploadUrl({
+      objectKey,
+      contentType: 'text/plain',
+      sizeBytes: 0,
+      expiresInSeconds: 600,
+      sha256Hex: emptySha256,
+    });
+    const putResponse = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'text/plain',
+        'x-amz-checksum-sha256': sha256HexToBase64(emptySha256),
+      },
+      body: emptyContent,
+    });
+    expect(putResponse.status, await putResponse.text()).toBe(200);
+
+    await expect(storage.headObject(objectKey)).resolves.toStrictEqual({
+      objectKey,
+      sizeBytes: 0,
+      contentType: 'text/plain',
+      checksum: {
+        type: 'full_sha256',
+        value: emptySha256,
+      },
+    });
+
+    const archiver = new StreamingFolderArchiver(storage);
+    const archiveResult = await archiver.create({
+      archiveObjectKey: archiveKey,
+      entries: [
+        { kind: 'folder', pathParts: ['EmptyFolder'] },
+        {
+          kind: 'file',
+          pathParts: ['EmptyFolder', 'empty.txt'],
+          objectKey,
+          sizeBytes: 0,
+        },
+      ],
+    });
+    expect(archiveResult.sizeBytes).toBeGreaterThan(0);
+
+    await storage.deleteObject(objectKey);
+    await storage.deleteObject(archiveKey);
   });
 
   async function createUser(userLabel: string): Promise<User> {

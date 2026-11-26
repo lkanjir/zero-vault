@@ -1,25 +1,39 @@
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
   S3ServiceException,
+  UploadPartCommand,
   type HeadObjectCommandOutput,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { S3Config } from '../config.js';
 import type {
+  CompleteMultipartUploadParams,
+  CompleteMultipartUploadResult,
+  CreateMultipartUploadParams,
+  ObjectChecksum,
   ObjectMetadata,
   ObjectStorage,
   SignedDownloadUrlParams,
+  SignedUploadPartUrlParams,
   SignedUploadUrlParams,
   UploadObjectStreamParams,
 } from './object-storage.js';
 import { headSchema } from './head-schema.js';
 import { normalizedContentType } from '../shared/utils/normalize-content-type.js';
-import { sha256Base64ToHex, sha256HexToBase64 } from '../shared/utils/sha256-convert.js';
+import {
+  isValidCompositeSha256,
+  sha256Base64ToHex,
+  sha256HexToBase64,
+} from '../shared/utils/sha256-convert.js';
 import { StorageError, type StorageErrorContext } from '../shared/errors/storage/storage-error.js';
+import { StorageInvalidPartsError } from '../shared/errors/storage/storage-invalid-parts-error.js';
 import { StorageUnavailableError } from '../shared/errors/storage/storage-unavailable-error.js';
 import { StorageObjectNotFoundError } from '../shared/errors/storage/storage-object-not-found-error.js';
 import { Readable } from 'node:stream';
@@ -27,6 +41,15 @@ import { Upload } from '@aws-sdk/lib-storage';
 
 const MULTIPART_PART_SIZE_BYTES = 32 * 1024 * 1024;
 const MULTIPART_QUEUE_SIZE = 2;
+const INVALID_MULTIPART_PART_ERROR_NAMES = new Set([
+  'InvalidPart',
+  'InvalidPartOrder',
+  'EntityTooSmall',
+  'BadDigest',
+  'InvalidDigest',
+  'InvalidRequest',
+  'MalformedXML',
+]);
 
 function createS3Client(s3Config: S3Config, endpoint: string): S3Client {
   return new S3Client({
@@ -101,6 +124,16 @@ export class S3ObjectStorage implements ObjectStorage {
         throw new StorageObjectNotFoundError(context, { cause: error });
       }
 
+      if (context.operation === 'complete_multipart_upload') {
+        if (this.isNoSuchUploadError(error)) {
+          throw new StorageObjectNotFoundError(context, { cause: error });
+        }
+
+        if (this.isInvalidMultipartPartsError(error)) {
+          throw new StorageInvalidPartsError(context, { cause: error });
+        }
+      }
+
       throw new StorageUnavailableError(context, { cause: error });
     }
   }
@@ -109,6 +142,20 @@ export class S3ObjectStorage implements ObjectStorage {
     return (
       error instanceof S3ServiceException &&
       (error.name === 'NotFound' || error.$metadata.httpStatusCode === 404)
+    );
+  }
+
+  private isNoSuchUploadError(error: unknown): boolean {
+    return (
+      error instanceof S3ServiceException &&
+      (error.name === 'NoSuchUpload' || error.$metadata.httpStatusCode === 404)
+    );
+  }
+
+  private isInvalidMultipartPartsError(error: unknown): boolean {
+    return (
+      error instanceof S3ServiceException &&
+      (INVALID_MULTIPART_PART_ERROR_NAMES.has(error.name) || error.$metadata.httpStatusCode === 400)
     );
   }
 
@@ -134,6 +181,115 @@ export class S3ObjectStorage implements ObjectStorage {
         signableHeaders: new Set(['content-length']),
         unhoistableHeaders: new Set(['x-amz-checksum-sha256']),
       });
+    });
+  }
+
+  async createMultipartUpload(params: CreateMultipartUploadParams): Promise<string> {
+    const context = {
+      operation: 'create_multipart_upload',
+      objectKey: params.objectKey,
+    } as const satisfies StorageErrorContext;
+
+    return this.executeStorageOperation(context, async () => {
+      const command = new CreateMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: params.objectKey,
+        ContentType: params.contentType,
+        ChecksumAlgorithm: 'SHA256',
+        ChecksumType: 'COMPOSITE',
+      });
+
+      const response = await this.client.send(command);
+      const uploadId = response.UploadId?.trim();
+
+      if (!uploadId) {
+        throw new StorageUnavailableError(context, {
+          cause: new Error('S3 CreateMultipartUpload response is missing UploadId'),
+        });
+      }
+
+      return uploadId;
+    });
+  }
+
+  async createPresignedUploadPartUrl(params: SignedUploadPartUrlParams): Promise<string> {
+    const context = {
+      operation: 'create_upload_part_url',
+      objectKey: params.objectKey,
+    } as const satisfies StorageErrorContext;
+
+    return this.executeStorageOperation(context, async () => {
+      const hashBase64 = sha256HexToBase64(params.sha256Hex);
+      const command = new UploadPartCommand({
+        Bucket: this.bucket,
+        Key: params.objectKey,
+        UploadId: params.s3UploadId,
+        PartNumber: params.partNumber,
+        ContentLength: params.sizeBytes,
+        ChecksumAlgorithm: 'SHA256',
+        ChecksumSHA256: hashBase64,
+      });
+
+      return getSignedUrl(this.presignClient, command, {
+        expiresIn: params.expiresInSeconds,
+        signableHeaders: new Set(['content-length']),
+        unhoistableHeaders: new Set(['x-amz-checksum-sha256']),
+      });
+    });
+  }
+
+  async completeMultipartUpload(
+    params: CompleteMultipartUploadParams,
+  ): Promise<CompleteMultipartUploadResult> {
+    const context = {
+      operation: 'complete_multipart_upload',
+      objectKey: params.objectKey,
+    } as const satisfies StorageErrorContext;
+
+    return this.executeStorageOperation(context, async () => {
+      const command = new CompleteMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: params.objectKey,
+        UploadId: params.s3UploadId,
+        MultipartUpload: {
+          Parts: params.parts.map((part) => ({
+            PartNumber: part.partNumber,
+            ETag: part.etag,
+            ChecksumSHA256: sha256HexToBase64(part.sha256Hex),
+          })),
+        },
+      });
+
+      const response = await this.client.send(command);
+      const rawChecksum = response.ChecksumSHA256?.trim();
+      const compositeChecksum =
+        rawChecksum && isValidCompositeSha256(rawChecksum) ? rawChecksum : null;
+
+      return { compositeChecksum };
+    });
+  }
+
+  async abortMultipartUpload(objectKey: string, s3UploadId: string): Promise<void> {
+    const context = {
+      operation: 'abort_multipart_upload',
+      objectKey,
+    } as const satisfies StorageErrorContext;
+
+    await this.executeStorageOperation(context, async () => {
+      try {
+        const command = new AbortMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: objectKey,
+          UploadId: s3UploadId,
+        });
+        await this.client.send(command);
+      } catch (error) {
+        if (this.isNoSuchUploadError(error)) {
+          return;
+        }
+
+        throw error;
+      }
     });
   }
 
@@ -198,15 +354,19 @@ export class S3ObjectStorage implements ObjectStorage {
     }
 
     const contentType = normalizedContentType(result.data.ContentType);
-    const sha256Hex = result.data.ChecksumSHA256
-      ? sha256Base64ToHex(result.data.ChecksumSHA256)
-      : null;
+    let checksum: ObjectChecksum | null = null;
+
+    if (result.data.ChecksumSHA256) {
+      checksum = isValidCompositeSha256(result.data.ChecksumSHA256)
+        ? { type: 'composite_sha256', value: result.data.ChecksumSHA256 }
+        : { type: 'full_sha256', value: sha256Base64ToHex(result.data.ChecksumSHA256) };
+    }
 
     return {
       objectKey,
       sizeBytes: result.data.ContentLength,
-      contentType: contentType,
-      sha256Hex,
+      contentType,
+      checksum,
     };
   }
 

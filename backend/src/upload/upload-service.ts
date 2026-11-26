@@ -316,9 +316,16 @@ export class UploadService {
   }
 
   private verifyUpload(intent: UploadIntent, object: ObjectMetadata): void {
+    if (intent.expectedSha256 === null) {
+      throw new Error('Single-part upload intent is missing expected SHA-256');
+    }
+
     assertObjectKeyMatches(intent, object);
     assertChecksumExists(intent, object);
-    assertChecksumMatches(intent, object);
+    assertChecksumMatches(intent, object, {
+      type: 'full_sha256',
+      value: intent.expectedSha256,
+    });
     assertSizeMatches(intent, object);
     assertContentTypeMatches(intent, object);
   }
