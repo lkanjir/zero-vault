@@ -1,3 +1,4 @@
+import type { TransactionContext } from '../db/unit-of-work.js';
 import type { EntryKind } from '../entry/entry.js';
 import type { AuditAction, AuditEventDetails, RecordAuditEventCommand } from './audit-event.js';
 
@@ -46,7 +47,7 @@ export type AuditStatistics = {
 };
 
 export interface AuditRepository {
-  record(command: RecordAuditEventCommand): Promise<void>;
+  record(command: RecordAuditEventCommand, tx?: TransactionContext): Promise<void>;
   listEvents(query: ListAuditEventsQuery): Promise<AuditEventRecord[]>;
   getStatistics(query: GetAuditStatisticsQuery): Promise<AuditStatistics>;
 }

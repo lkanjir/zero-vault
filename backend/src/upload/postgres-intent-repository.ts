@@ -11,6 +11,7 @@ import type {
 } from './upload-intent-repository.js';
 import type { UploadIntent, UploadIntentInput } from './upload-intent.js';
 import type { Database, Transaction } from '../db/db-client.js';
+import { toTransactionContext } from '../db/unit-of-work.js';
 import { entries, files, uploadIntents } from '../db/schema.js';
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
@@ -43,11 +44,14 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     const upload = command.upload;
 
     await this.db.transaction(async (tx) => {
-      const targetParentDbId = await this.authorizer.authorizeParentForCreate(tx, {
-        actorUserId: upload.createdByUserId,
-        ownerId: upload.createdByUserId,
-        parentPublicId: command.parentFolderId,
-      });
+      const targetParentDbId = await this.authorizer.authorizeParentForCreate(
+        {
+          actorUserId: upload.createdByUserId,
+          ownerId: upload.createdByUserId,
+          parentPublicId: command.parentFolderId,
+        },
+        toTransactionContext(tx),
+      );
 
       await tx.insert(uploadIntents).values({
         ...this.toPendingInsert(upload),
@@ -164,11 +168,14 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     intent: UploadIntentRow,
     command: CompleteVerifiedUploadCommand,
   ): Promise<CompletedVerifiedUploadResult> {
-    await this.authorizer.reauthorizeParentForCreate(tx, {
-      actorUserId: command.userId,
-      ownerId: command.userId,
-      parentId: intent.targetParentId,
-    });
+    await this.authorizer.reauthorizeParentForCreate(
+      {
+        actorUserId: command.userId,
+        ownerId: command.userId,
+        parentId: intent.targetParentId,
+      },
+      toTransactionContext(tx),
+    );
     const entry = await this.createEntryForIntent(tx, command.userId, intent);
 
     if (!entry) {
@@ -219,11 +226,14 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       throw new Error('Replace intent is missing replacement metadata');
     }
 
-    const target = await this.authorizer.authorizeForUpdateByDbId(tx, {
-      actorUserId: command.userId,
-      entryDbId: targetFileId,
-      actions: ['file:replace'],
-    });
+    const { entry: target } = await this.authorizer.authorizeForUpdateByDbId(
+      {
+        actorUserId: command.userId,
+        entryDbId: targetFileId,
+        actions: ['file:replace'],
+      },
+      toTransactionContext(tx),
+    );
 
     const [currentFile] = await tx
       .select({ objectKey: files.objectKey, contentVersion: files.contentVersion })
@@ -412,11 +422,14 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     command: AssertReplacementTargetAvailableCommand,
   ): Promise<void> {
     await this.db.transaction(async (tx) => {
-      await this.authorizer.authorizeForUpdate(tx, {
-        actorUserId: command.userId,
-        entryPublicId: command.filePublicId,
-        actions: ['file:replace'],
-      });
+      await this.authorizer.authorizeForUpdate(
+        {
+          actorUserId: command.userId,
+          entryPublicId: command.filePublicId,
+          actions: ['file:replace'],
+        },
+        toTransactionContext(tx),
+      );
     });
   }
 
@@ -424,11 +437,14 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     const upload = command.upload;
 
     await this.db.transaction(async (tx) => {
-      const target = await this.authorizer.authorizeForUpdate(tx, {
-        actorUserId: upload.createdByUserId,
-        entryPublicId: command.filePublicId,
-        actions: ['file:replace'],
-      });
+      const { entry: target } = await this.authorizer.authorizeForUpdate(
+        {
+          actorUserId: upload.createdByUserId,
+          entryPublicId: command.filePublicId,
+          actions: ['file:replace'],
+        },
+        toTransactionContext(tx),
+      );
 
       const [file] = await tx
         .select({ contentVersion: files.contentVersion })
@@ -512,11 +528,14 @@ export class PostgresIntentRepository implements UploadIntentRepository {
 
   async assertUploadTargetAvailable(command: AssertUploadTargetAvailableCommand): Promise<void> {
     await this.db.transaction(async (tx) => {
-      const targetParentDbId = await this.authorizer.authorizeParentForCreate(tx, {
-        actorUserId: command.userId,
-        ownerId: command.userId,
-        parentPublicId: command.parentFolderId,
-      });
+      const targetParentDbId = await this.authorizer.authorizeParentForCreate(
+        {
+          actorUserId: command.userId,
+          ownerId: command.userId,
+          parentPublicId: command.parentFolderId,
+        },
+        toTransactionContext(tx),
+      );
 
       const parentCondition =
         targetParentDbId === null

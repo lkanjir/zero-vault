@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import type { Database } from '../db/db-client.js';
+import { resolveDbExecutor, type TransactionContext } from '../db/unit-of-work.js';
 import { auditEvents, entries, users } from '../db/schema.js';
 import {
   downloadRequestAuditActions,
@@ -18,16 +19,18 @@ import type {
 export class PostgresAuditRepository implements AuditRepository {
   constructor(private readonly db: Database) {}
 
-  async record(command: RecordAuditEventCommand): Promise<void> {
-    await this.db.insert(auditEvents).values({
-      ownerId: command.ownerId,
-      actorUserId: command.actorUserId,
-      entryId: command.entryId,
-      entryNameSnapshot: command.entryNameSnapshot,
-      action: command.action,
-      details: command.details ?? {},
-      occurredAt: command.occurredAt,
-    });
+  async record(command: RecordAuditEventCommand, tx?: TransactionContext): Promise<void> {
+    await resolveDbExecutor(this.db, tx)
+      .insert(auditEvents)
+      .values({
+        ownerId: command.ownerId,
+        actorUserId: command.actorUserId,
+        entryId: command.entryId,
+        entryNameSnapshot: command.entryNameSnapshot,
+        action: command.action,
+        details: command.details ?? {},
+        occurredAt: command.occurredAt,
+      });
   }
 
   async listEvents(query: ListAuditEventsQuery): Promise<AuditEventRecord[]> {

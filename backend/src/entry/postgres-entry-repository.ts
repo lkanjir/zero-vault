@@ -12,6 +12,7 @@ import type {
 import { eq, isNull, sql, and, or, gt, type SQL, ilike, asc, desc, lt } from 'drizzle-orm';
 import { entries, files } from '../db/schema.js';
 import type { Database, Transaction } from '../db/db-client.js';
+import { toTransactionContext } from '../db/unit-of-work.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
 import type { Entry, EntryListSort } from './entry.js';
@@ -107,11 +108,15 @@ export class PostgresEntryRepository implements EntryRepository {
   async createFolder(command: CreateFolderCommand): Promise<Folder> {
     try {
       const folder = await this.db.transaction(async (tx) => {
-        const parentId = await this.authorizer.authorizeParentForCreate(tx, {
-          actorUserId: command.actorUserId,
-          ownerId: command.actorUserId,
-          parentPublicId: command.parentId,
-        });
+        const txContext = toTransactionContext(tx);
+        const parentId = await this.authorizer.authorizeParentForCreate(
+          {
+            actorUserId: command.actorUserId,
+            ownerId: command.actorUserId,
+            parentPublicId: command.parentId,
+          },
+          txContext,
+        );
 
         const createdFolder = await this.insertFolder(
           tx,
@@ -174,20 +179,27 @@ export class PostgresEntryRepository implements EntryRepository {
 
     try {
       return await this.db.transaction(async (tx) => {
-        const sourceEntry = await this.authorizer.authorizeForUpdate(tx, {
-          actorUserId: command.actorUserId,
-          entryPublicId: command.entryId,
-          actions,
-        });
+        const txContext = toTransactionContext(tx);
+        const { entry: sourceEntry } = await this.authorizer.authorizeForUpdate(
+          {
+            actorUserId: command.actorUserId,
+            entryPublicId: command.entryId,
+            actions,
+          },
+          txContext,
+        );
 
         const nextParentId =
           command.parentId === undefined
             ? sourceEntry.parentId
-            : await this.authorizer.authorizeParentForCreate(tx, {
-                actorUserId: command.actorUserId,
-                ownerId: sourceEntry.ownerId,
-                parentPublicId: command.parentId,
-              });
+            : await this.authorizer.authorizeParentForCreate(
+                {
+                  actorUserId: command.actorUserId,
+                  ownerId: sourceEntry.ownerId,
+                  parentPublicId: command.parentId,
+                },
+                txContext,
+              );
 
         if (sourceEntry.kind === 'folder' && command.parentId !== undefined) {
           await this.assertFolderCanMove(tx, sourceEntry.id, nextParentId);
@@ -280,11 +292,14 @@ export class PostgresEntryRepository implements EntryRepository {
   async deleteEntry(command: DeleteEntryCommand): Promise<void> {
     try {
       await this.db.transaction(async (tx) => {
-        const entry = await this.authorizer.authorizeForUpdate(tx, {
-          actorUserId: command.actorUserId,
-          entryPublicId: command.entryId,
-          actions: ['entry:delete'],
-        });
+        const { entry } = await this.authorizer.authorizeForUpdate(
+          {
+            actorUserId: command.actorUserId,
+            entryPublicId: command.entryId,
+            actions: ['entry:delete'],
+          },
+          toTransactionContext(tx),
+        );
 
         const target = await this.resolveEntryDeletionTarget(tx, entry);
         const deletedAt = new Date();

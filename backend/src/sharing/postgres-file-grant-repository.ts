@@ -1,6 +1,7 @@
 import { and, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
 import type { Database, Transaction } from '../db/db-client.js';
+import { toTransactionContext } from '../db/unit-of-work.js';
 import { entries, fileGrants, files, users } from '../db/schema.js';
 import type {
   FileGrantMaintenanceResult,
@@ -27,11 +28,14 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
 
   async save(command: SaveFileGrantCommand): Promise<FileGrant> {
     return this.db.transaction(async (tx) => {
-      const file = await this.authorizer.authorizeForUpdate(tx, {
-        actorUserId: command.actorUserId,
-        entryPublicId: command.filePublicId,
-        actions: ['share:manage'],
-      });
+      const { entry: file } = await this.authorizer.authorizeForUpdate(
+        {
+          actorUserId: command.actorUserId,
+          entryPublicId: command.filePublicId,
+          actions: ['share:manage'],
+        },
+        toTransactionContext(tx),
+      );
 
       const [recipient] = await tx
         .select({ id: users.id })
@@ -148,11 +152,14 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
 
   async revoke(command: RevokeFileGrantCommand): Promise<void> {
     await this.db.transaction(async (tx) => {
-      const file = await this.authorizer.authorizeForUpdate(tx, {
-        actorUserId: command.actorUserId,
-        entryPublicId: command.filePublicId,
-        actions: ['share:manage'],
-      });
+      const { entry: file } = await this.authorizer.authorizeForUpdate(
+        {
+          actorUserId: command.actorUserId,
+          entryPublicId: command.filePublicId,
+          actions: ['share:manage'],
+        },
+        toTransactionContext(tx),
+      );
 
       const [revokedGrant] = await tx
         .delete(fileGrants)
@@ -182,11 +189,14 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
 
   update(command: UpdateFileGrantCommand): Promise<FileGrant | null> {
     return this.db.transaction(async (tx) => {
-      const file = await this.authorizer.authorizeForUpdate(tx, {
-        actorUserId: command.actorUserId,
-        entryPublicId: command.filePublicId,
-        actions: ['share:manage'],
-      });
+      const { entry: file } = await this.authorizer.authorizeForUpdate(
+        {
+          actorUserId: command.actorUserId,
+          entryPublicId: command.filePublicId,
+          actions: ['share:manage'],
+        },
+        toTransactionContext(tx),
+      );
 
       const [grant] = await tx
         .select()

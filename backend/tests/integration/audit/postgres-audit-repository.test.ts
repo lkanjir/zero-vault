@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { AuditRepository } from '../../../src/audit/audit-repository.js';
 import { PostgresAuditRepository } from '../../../src/audit/postgres-audit-repository.js';
 import { createDatabase, type Database } from '../../../src/db/db-client.js';
+import { DrizzleUnitOfWork } from '../../../src/db/unit-of-work.js';
 import { auditEvents, entries, users } from '../../../src/db/schema.js';
 
 const ISSUER = 'https://issuer.example.test/realms/zero-vault';
@@ -226,6 +227,32 @@ describe('PostgresAuditRepository', () => {
         occurredAt: new Date('2026-08-09T10:00:00.000Z'),
       }),
     ).rejects.toBeDefined();
+
+    await expect(database.select().from(auditEvents)).resolves.toHaveLength(0);
+  });
+
+  it('rolls back an audit event recorded inside a failed UnitOfWork transaction', async () => {
+    const owner = await createUser('owner');
+    const entry = await createEntry(owner.id, 'report.txt');
+    const unitOfWork = new DrizzleUnitOfWork(database);
+
+    await expect(
+      unitOfWork.run(async (tx) => {
+        await repository.record(
+          {
+            ownerId: owner.id,
+            actorUserId: owner.id,
+            entryId: entry.id,
+            entryNameSnapshot: 'report.txt',
+            action: 'entry.renamed',
+            occurredAt: new Date('2026-08-09T10:00:00.000Z'),
+          },
+          tx,
+        );
+
+        throw new Error('force rollback');
+      }),
+    ).rejects.toThrow('force rollback');
 
     await expect(database.select().from(auditEvents)).resolves.toHaveLength(0);
   });
