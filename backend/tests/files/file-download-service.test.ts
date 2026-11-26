@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
-import type {
-  AuthorizationResult,
-  AuthorizationService,
-} from '../../src/authorization/authorization-service.js';
+import type { AuthorizedEntry, EntryAuthorizer } from '../../src/authorization/entry-authorizer.js';
 import type { AuditRepository } from '../../src/audit/audit-repository.js';
+import type { TransactionContext, UnitOfWork } from '../../src/db/unit-of-work.js';
+import { createFakeUnitOfWork } from '../helpers/fake-unit-of-work.js';
 import { FileDownloadService } from '../../src/files/file-download-service.js';
 import type { DownloadableFile } from '../../src/files/file.js';
 import type { FileRepository } from '../../src/files/file-repository.js';
@@ -31,7 +30,10 @@ const USER: User = {
 };
 
 describe('FileDownloadService', () => {
-  let authorizationService: MockProxy<AuthorizationService>;
+  let tx: TransactionContext;
+  let unitOfWork: UnitOfWork;
+  let runSpy: ReturnType<typeof createFakeUnitOfWork>['runSpy'];
+  let entryAuthorizer: MockProxy<EntryAuthorizer>;
   let repo: MockProxy<FileRepository>;
   let auditRepository: MockProxy<AuditRepository>;
   let storage: MockProxy<ObjectStorage>;
@@ -40,19 +42,20 @@ describe('FileDownloadService', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
-    authorizationService = mock<AuthorizationService>();
+    ({ tx, unitOfWork, runSpy } = createFakeUnitOfWork());
+    entryAuthorizer = mock<EntryAuthorizer>();
     repo = mock<FileRepository>();
     auditRepository = mock<AuditRepository>();
     storage = mock<ObjectStorage>();
-    authorizationService.authorizeEntryByPublicId.mockResolvedValue(makeAuthorizationResult());
-    service = new FileDownloadService(authorizationService, repo, auditRepository, storage);
+    entryAuthorizer.authorizeForRead.mockResolvedValue(makeAuthorizedEntry());
+    service = new FileDownloadService(unitOfWork, entryAuthorizer, repo, auditRepository, storage);
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('creates a short-lived download URL for an authorized available file', async () => {
+  it('authorizes, loads file metadata, signs URL, and records audit inside one transaction', async () => {
     const file = makeDownloadableFile();
 
     repo.findAvailableFileByEntryId.mockResolvedValue(file);
@@ -68,34 +71,41 @@ describe('FileDownloadService', () => {
       downloadUrl: DOWNLOAD_URL,
       expiresInSeconds: 60,
     });
-    expect(authorizationService.authorizeEntryByPublicId).toHaveBeenCalledExactlyOnceWith({
-      actorUserId: USER.id,
-      entryPublicId: file.publicId,
-      action: 'file:download',
-    });
-    expect(repo.findAvailableFileByEntryId).toHaveBeenCalledExactlyOnceWith(FILE_ENTRY_ID);
+    expect(runSpy).toHaveBeenCalledOnce();
+    expect(entryAuthorizer.authorizeForRead).toHaveBeenCalledExactlyOnceWith(
+      {
+        actorUserId: USER.id,
+        entryPublicId: file.publicId,
+        actions: ['file:download'],
+      },
+      tx,
+    );
+    expect(repo.findAvailableFileByEntryId).toHaveBeenCalledExactlyOnceWith(FILE_ENTRY_ID, tx);
     expect(storage.createPresignedDownloadUrl).toHaveBeenCalledExactlyOnceWith({
       objectKey: file.objectKey,
       contentType: file.contentType,
       fileName: file.name,
       expiresInSeconds: 60,
     });
-    expect(auditRepository.record).toHaveBeenCalledExactlyOnceWith({
-      ownerId: file.ownerId,
-      actorUserId: USER.id,
-      entryId: file.entryId,
-      entryNameSnapshot: file.name,
-      action: 'file.download_url_issued',
-      details: {
-        expiresInSeconds: 60,
+    expect(auditRepository.record).toHaveBeenCalledExactlyOnceWith(
+      {
+        ownerId: file.ownerId,
+        actorUserId: USER.id,
+        entryId: file.entryId,
+        entryNameSnapshot: file.name,
+        action: 'file.download_url_issued',
+        details: {
+          expiresInSeconds: 60,
+        },
+        occurredAt: NOW,
       },
-      occurredAt: NOW,
-    });
+      tx,
+    );
   });
 
   it('does not access file metadata or storage when authorization fails', async () => {
     const authorizationError = new AppError('entry_not_found');
-    authorizationService.authorizeEntryByPublicId.mockRejectedValue(authorizationError);
+    entryAuthorizer.authorizeForRead.mockRejectedValue(authorizationError);
 
     await expect(service.createDownloadUrl(USER, FILE_PUBLIC_ID)).rejects.toBe(authorizationError);
     expect(repo.findAvailableFileByEntryId).not.toHaveBeenCalled();
@@ -142,8 +152,19 @@ describe('FileDownloadService', () => {
   });
 });
 
-function makeAuthorizationResult(): AuthorizationResult {
+function makeAuthorizedEntry(): AuthorizedEntry {
   return {
+    entry: {
+      id: FILE_ENTRY_ID,
+      publicId: FILE_PUBLIC_ID,
+      ownerId: USER.id,
+      parentId: null,
+      kind: 'file',
+      name: 'document.txt',
+      createdAt: NOW,
+      updatedAt: NOW,
+      deletedAt: null,
+    },
     context: {
       scope: 'entry',
       actor: {
@@ -162,7 +183,6 @@ function makeAuthorizationResult(): AuthorizationResult {
         now: new Date('2026-07-30T12:00:00Z'),
       },
     },
-    accessLevel: 'owner',
   };
 }
 

@@ -29,6 +29,7 @@ import { PostgresAuditRepository } from './audit/postgres-audit-repository.js';
 import { AuditService } from './audit/audit-service.js';
 import type { S3Config } from './config.js';
 import type { Database } from './db/db-client.js';
+import { DrizzleUnitOfWork } from './db/unit-of-work.js';
 
 function createAuthorizationPrimitives(db: Database) {
   const authorizationContextResolver = new PostgresAuthorizationContextResolver(db);
@@ -48,6 +49,7 @@ function createAuthorizationPrimitives(db: Database) {
 }
 
 export function createApiComposition(db: Database, s3Config: S3Config) {
+  const unitOfWork = new DrizzleUnitOfWork(db);
   const { authorizationService, authzMapper, authorizer } = createAuthorizationPrimitives(db);
   const storage = new S3ObjectStorage(s3Config);
 
@@ -63,7 +65,8 @@ export function createApiComposition(db: Database, s3Config: S3Config) {
 
   const fileRepository = new PostgresFileRepository(db);
   const downloadService = new FileDownloadService(
-    authorizationService,
+    unitOfWork,
+    authorizer,
     fileRepository,
     auditRepository,
     storage,
@@ -75,8 +78,10 @@ export function createApiComposition(db: Database, s3Config: S3Config) {
   const folderService = new FolderService(entryRepository);
   const folderDownloadRepository = new PostgresFolderDownloadRepository(db);
   const folderDownloadService = new FolderDownloadService(
-    authorizationService,
+    unitOfWork,
+    authorizer,
     folderDownloadRepository,
+    auditRepository,
     storage,
   );
 

@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { Database } from '../../db/db-client.js';
-import { entries, folderDownloads } from '../../db/schema.js';
+import { resolveDbExecutor, type TransactionContext } from '../../db/unit-of-work.js';
+import { folderDownloads } from '../../db/schema.js';
 import type {
   ClaimNextFolderDownloadCommand,
   CompleteFolderDownloadAttemptCommand,
@@ -12,12 +13,10 @@ import type {
   RenewFolderDownloadLeaseCommand,
 } from './folder-download-repository.js';
 import type { FolderArchiveEntry, FolderDownload } from './folder-download.js';
-import { AppError } from '../../shared/errors/api/app-error.js';
 import {
   enqueueObjectDeletionInTransaction,
   enqueueObjectDeletionsInTransaction,
 } from '../../object-deletion/object-deletion-helpers.js';
-import { recordAuditEventInTransaction } from '../../audit/record-audit-event-in-transaction.js';
 
 type FolderArchiveManifestRow = {
   kind: 'folder' | 'file';
@@ -29,56 +28,28 @@ type FolderArchiveManifestRow = {
 export class PostgresFolderDownloadRepository implements FolderDownloadRepository {
   constructor(private readonly db: Database) {}
 
-  async create(command: CreateFolderDownloadCommand): Promise<FolderDownload> {
-    return this.db.transaction(async (tx) => {
-      const [folder] = await tx
-        .select({ id: entries.id, name: entries.name })
-        .from(entries)
-        .where(
-          and(
-            eq(entries.publicId, command.folderPublicId),
-            eq(entries.ownerId, command.ownerId),
-            eq(entries.kind, 'folder'),
-            isNull(entries.deletedAt),
-          ),
-        )
-        .limit(1);
-
-      if (!folder) {
-        throw new AppError('folder_not_found');
-      }
-
-      const [download] = await tx
-        .insert(folderDownloads)
-        .values({
-          downloadId: command.downloadId,
-          ownerId: command.ownerId,
-          folderId: folder.id,
-          folderName: folder.name,
-          archiveObjectKey: command.archiveObjectKey,
-          status: 'queued',
-          createdAt: command.createdAt,
-        })
-        .returning();
-
-      if (!download) {
-        throw new Error('Failed to create folder download');
-      }
-
-      await recordAuditEventInTransaction(tx, {
+  async create(
+    command: CreateFolderDownloadCommand,
+    tx?: TransactionContext,
+  ): Promise<FolderDownload> {
+    const [download] = await resolveDbExecutor(this.db, tx)
+      .insert(folderDownloads)
+      .values({
+        downloadId: command.downloadId,
         ownerId: command.ownerId,
-        actorUserId: command.ownerId,
-        entryId: folder.id,
-        entryNameSnapshot: folder.name,
-        action: 'folder.archive_requested',
-        details: {
-          downloadId: command.downloadId,
-        },
-        occurredAt: command.createdAt,
-      });
+        folderId: command.folderId,
+        folderName: command.folderName,
+        archiveObjectKey: command.archiveObjectKey,
+        status: 'queued',
+        createdAt: command.createdAt,
+      })
+      .returning();
 
-      return this.toDomain(download);
-    });
+    if (!download) {
+      throw new Error('Failed to create folder download');
+    }
+
+    return this.toDomain(download);
   }
 
   async findByOwnerAndDownloadId(

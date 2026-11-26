@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import type { AuditRepository } from '../../audit/audit-repository.js';
+import type { EntryAuthorizer } from '../../authorization/entry-authorizer.js';
+import type { UnitOfWork } from '../../db/unit-of-work.js';
 import type { User } from '../../user/user.js';
 import type {
   CreateFolderDownloadResponse,
@@ -8,41 +11,66 @@ import type {
 import type { FolderDownloadRepository } from './folder-download-repository.js';
 import { AppError } from '../../shared/errors/api/app-error.js';
 import type { ObjectStorage } from '../../storage/object-storage.js';
-import type { AuthorizationService } from '../../authorization/authorization-service.js';
 
 const DOWNLOAD_URL_EXPIRES_IN_SECONDS = 60;
 
 export class FolderDownloadService {
   constructor(
-    private readonly authz: AuthorizationService,
+    private readonly unitOfWork: UnitOfWork,
+    private readonly entryAuthorizer: EntryAuthorizer,
     private readonly repository: FolderDownloadRepository,
+    private readonly auditRepository: AuditRepository,
     private readonly storage: ObjectStorage,
   ) {}
 
   async createDownload(user: User, folderPublicId: string): Promise<CreateFolderDownloadResponse> {
-    await this.authz.authorizeEntryByPublicId({
-      actorUserId: user.id,
-      entryPublicId: folderPublicId,
-      action: 'folder:download',
+    return this.unitOfWork.run(async (tx) => {
+      const { entry: folder } = await this.entryAuthorizer.authorizeForRead(
+        {
+          actorUserId: user.id,
+          entryPublicId: folderPublicId,
+          actions: ['folder:download'],
+        },
+        tx,
+      );
+
+      const downloadId = randomUUID();
+      const createdAt = new Date();
+      const archiveObjectKey = `folder-downloads/${user.publicId}/${downloadId}`;
+
+      const download = await this.repository.create(
+        {
+          downloadId,
+          ownerId: user.id,
+          folderId: folder.id,
+          folderName: folder.name,
+          archiveObjectKey,
+          createdAt,
+        },
+        tx,
+      );
+
+      await this.auditRepository.record(
+        {
+          ownerId: folder.ownerId,
+          actorUserId: user.id,
+          entryId: folder.id,
+          entryNameSnapshot: folder.name,
+          action: 'folder.archive_requested',
+          details: {
+            downloadId,
+          },
+          occurredAt: createdAt,
+        },
+        tx,
+      );
+
+      return {
+        downloadId: download.downloadId,
+        fileName: `${download.folderName}.zip`,
+        status: 'queued',
+      };
     });
-
-    const downloadId = randomUUID();
-    const createdAt = new Date();
-    const archiveObjectKey = `folder-downloads/${user.publicId}/${downloadId}`;
-
-    const download = await this.repository.create({
-      downloadId,
-      ownerId: user.id,
-      folderPublicId,
-      archiveObjectKey,
-      createdAt,
-    });
-
-    return {
-      downloadId: download.downloadId,
-      fileName: `${download.folderName}.zip`,
-      status: 'queued',
-    };
   }
 
   async getStatus(user: User, downloadId: string): Promise<FolderDownloadStatusResponse> {

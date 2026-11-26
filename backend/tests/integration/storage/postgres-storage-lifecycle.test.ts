@@ -14,18 +14,26 @@ import {
   uploadIntents,
   users,
 } from '../../../src/db/schema.js';
+import { PostgresAuditRepository } from '../../../src/audit/postgres-audit-repository.js';
+import type { AuditRepository } from '../../../src/audit/audit-repository.js';
 import { AuthorizationPolicy } from '../../../src/authorization/authorization-policy.js';
 import { AuthorizationService } from '../../../src/authorization/authorization-service.js';
 import { PostgresAuthorizationContextResolver } from '../../../src/authorization/postgres-authorization-context-resolver.js';
 import { PostgresEntryAuthorizer } from '../../../src/authorization/postgres-entry-authorizer.js';
 import { createDatabase, type Database } from '../../../src/db/db-client.js';
+import { DrizzleUnitOfWork } from '../../../src/db/unit-of-work.js';
 import { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
 import { resolveParentIdInTransaction } from '../../../src/entry/resolve-parent-id-in-transaction.js';
+import { FileDownloadService } from '../../../src/files/file-download-service.js';
+import { PostgresFileRepository } from '../../../src/files/postgres-file-repository.js';
+import { FolderDownloadService } from '../../../src/folder/download/folder-download-service.js';
 import { PostgresFolderDownloadRepository } from '../../../src/folder/download/postgres-folder-download-repository.js';
 import { PostgresObjectDeletionRepository } from '../../../src/object-deletion/postgres-object-deletion-repository.js';
+import type { ObjectStorage } from '../../../src/storage/object-storage.js';
 import { PostgresIntentRepository } from '../../../src/upload/postgres-intent-repository.js';
 import type { SaveUploadIntentCommand } from '../../../src/upload/upload-intent-repository.js';
 import type { UploadIntentInput } from '../../../src/upload/upload-intent.js';
+import type { User } from '../../../src/user/user.js';
 
 const OWNER_ISSUER = 'https://issuer.example.test/realms/zero-vault';
 const SHA256 = 'a'.repeat(64);
@@ -38,6 +46,10 @@ describe('PostgreSQL storage lifecycle', () => {
   let deletionRepository: PostgresObjectDeletionRepository;
   let entryRepository: PostgresEntryRepository;
   let intentRepository: PostgresIntentRepository;
+  let unitOfWork: DrizzleUnitOfWork;
+  let entryAuthorizer: PostgresEntryAuthorizer;
+  let auditRepository: PostgresAuditRepository;
+  let fileRepository: PostgresFileRepository;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:18-alpine')
@@ -55,7 +67,10 @@ describe('PostgreSQL storage lifecycle', () => {
       new PostgresAuthorizationContextResolver(database),
       new AuthorizationPolicy(),
     );
-    const entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
+    unitOfWork = new DrizzleUnitOfWork(database);
+    entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
+    auditRepository = new PostgresAuditRepository(database);
+    fileRepository = new PostgresFileRepository(database);
     entryRepository = new PostgresEntryRepository(database, entryAuthorizer);
     intentRepository = new PostgresIntentRepository(database, entryAuthorizer);
 
@@ -696,6 +711,125 @@ describe('PostgreSQL storage lifecycle', () => {
     });
   });
 
+  describe('download transactional consistency', () => {
+    it('commits folder download creation and audit event atomically', async () => {
+      const owner = await createUser();
+      const folder = await createFolder(owner.id, 'Reports');
+      const service = new FolderDownloadService(
+        unitOfWork,
+        entryAuthorizer,
+        folderRepository,
+        auditRepository,
+        createStubStorage(),
+      );
+
+      const response = await service.createDownload(toDomainUser(owner), folder.publicId);
+
+      const downloads = await database.select().from(folderDownloads);
+      const events = await database.select().from(auditEvents);
+
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0]).toMatchObject({
+        downloadId: response.downloadId,
+        folderId: folder.id,
+        folderName: 'Reports',
+        status: 'queued',
+      });
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        ownerId: owner.id,
+        actorUserId: owner.id,
+        entryId: folder.id,
+        action: 'folder.archive_requested',
+      });
+    });
+
+    it('rolls back folder download creation when audit recording fails', async () => {
+      const owner = await createUser();
+      const folder = await createFolder(owner.id, 'Reports');
+      const failingAuditRepo: AuditRepository = {
+        record: () => Promise.reject(new Error('audit write failed')),
+        listEvents: () => Promise.resolve([]),
+        getStatistics: () =>
+          Promise.resolve({ total: 0, entryChanges: 0, downloadRequests: 0, sharingChanges: 0 }),
+      };
+      const service = new FolderDownloadService(
+        unitOfWork,
+        entryAuthorizer,
+        folderRepository,
+        failingAuditRepo,
+        createStubStorage(),
+      );
+
+      await expect(service.createDownload(toDomainUser(owner), folder.publicId)).rejects.toThrow(
+        'audit write failed',
+      );
+
+      expect(await database.select().from(folderDownloads)).toHaveLength(0);
+      expect(await database.select().from(auditEvents)).toHaveLength(0);
+    });
+
+    it('blocks concurrent deletion while a file download transaction holds the entry share lock', async () => {
+      const owner = await createUser();
+      const file = await createFile(owner.id, null, 'locked.txt', 'objects/locked');
+      let releaseSign!: () => void;
+      let reportSigning!: () => void;
+      const signingStarted = new Promise<void>((resolve) => {
+        reportSigning = resolve;
+      });
+      const allowSigningToFinish = new Promise<void>((resolve) => {
+        releaseSign = resolve;
+      });
+
+      const blockingStorage: ObjectStorage = {
+        ...createStubStorage(),
+        createPresignedDownloadUrl: async () => {
+          reportSigning();
+          await allowSigningToFinish;
+          return 'https://storage.example.test/download';
+        },
+      };
+      const service = new FileDownloadService(
+        unitOfWork,
+        entryAuthorizer,
+        fileRepository,
+        auditRepository,
+        blockingStorage,
+      );
+
+      const downloadPromise = service.createDownloadUrl(toDomainUser(owner), file.publicId);
+      await signingStarted;
+
+      const deletePromise = entryRepository.deleteEntry({
+        actorUserId: owner.id,
+        entryId: file.publicId,
+      });
+
+      const raceResult = await Promise.race([
+        deletePromise.then(() => 'deleted' as const),
+        delay(100).then(() => 'waiting' as const),
+      ]);
+
+      try {
+        expect(raceResult).toBe('waiting');
+      } finally {
+        releaseSign();
+      }
+
+      await expect(downloadPromise).resolves.toMatchObject({
+        fileId: file.publicId,
+        downloadUrl: 'https://storage.example.test/download',
+      });
+      await expect(deletePromise).resolves.toBeUndefined();
+
+      const events = await database.select().from(auditEvents).orderBy(asc(auditEvents.id));
+      expect(events.map((event) => event.action)).toStrictEqual([
+        'file.download_url_issued',
+        'entry.deleted',
+      ]);
+    });
+  });
+
   async function createUser() {
     const [user] = await database
       .insert(users)
@@ -810,6 +944,33 @@ describe('PostgreSQL storage lifecycle', () => {
     };
   }
 });
+
+function toDomainUser(user: { id: number; publicId: string }): User {
+  const now = new Date('2026-07-28T10:00:00.000Z');
+  return {
+    id: user.id,
+    publicId: user.publicId,
+    issuer: OWNER_ISSUER,
+    subject: 'test-subject',
+    email: 'test@example.com',
+    firstName: 'Test',
+    lastName: 'User',
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+  };
+}
+
+function createStubStorage(): ObjectStorage {
+  return {
+    createPresignedUploadUrl: () => Promise.resolve('https://storage.example.test/upload'),
+    createPresignedDownloadUrl: () => Promise.resolve('https://storage.example.test/download'),
+    headObject: () => Promise.reject(new Error('not implemented')),
+    deleteObject: () => Promise.resolve(),
+    getObjectStream: () => Promise.reject(new Error('not implemented')),
+    uploadObjectStream: () => Promise.resolve(),
+  };
+}
 
 function makeIntent(
   userId: number,

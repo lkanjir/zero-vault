@@ -19,6 +19,7 @@ import { AuthorizationService } from '../../../src/authorization/authorization-s
 import { PostgresAuthorizationContextResolver } from '../../../src/authorization/postgres-authorization-context-resolver.js';
 import { PostgresEntryAuthorizer } from '../../../src/authorization/postgres-entry-authorizer.js';
 import { createDatabase, type Database } from '../../../src/db/db-client.js';
+import { DrizzleUnitOfWork } from '../../../src/db/unit-of-work.js';
 import { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
 import { FileDownloadService } from '../../../src/files/file-download-service.js';
 import { PostgresFileRepository } from '../../../src/files/postgres-file-repository.js';
@@ -112,12 +113,14 @@ describe('LocalStack storage round-trip', () => {
       authorizationContextResolver,
       authorizationPolicy,
     );
+    const unitOfWork = new DrizzleUnitOfWork(database);
     const entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
     const intentRepository = new PostgresIntentRepository(database, entryAuthorizer);
     uploadService = new UploadService(storage, intentRepository);
     completeUpload = new CompleteUploadUseCase(uploadService);
     fileDownloadService = new FileDownloadService(
-      authorizationService,
+      unitOfWork,
+      entryAuthorizer,
       new PostgresFileRepository(database),
       new PostgresAuditRepository(database),
       storage,
