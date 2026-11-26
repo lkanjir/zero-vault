@@ -16,6 +16,10 @@ export type CompleteCreateIntentCommand = {
   completedAt: Date;
 };
 
+export type CompleteCreateIntentResult =
+  | { kind: 'completed'; file: CompletedUploadFile }
+  | { kind: 'duplicate_entry_name' };
+
 export type CompleteReplaceIntentCommand = {
   intent: UploadIntent;
   targetEntryId: number;
@@ -77,7 +81,7 @@ export interface UploadIntentRepository {
   completeCreateIntent(
     command: CompleteCreateIntentCommand,
     tx: TransactionContext,
-  ): Promise<CompletedUploadFile>;
+  ): Promise<CompleteCreateIntentResult>;
   completeReplaceIntent(
     command: CompleteReplaceIntentCommand,
     tx: TransactionContext,

@@ -24,11 +24,12 @@ type CompleteUploadOutcome =
   | { kind: 'completed'; file: CompletedUploadFile }
   | { kind: 'not_found' }
   | { kind: 'expired' }
-  | { kind: 'superseded' };
+  | { kind: 'superseded' }
+  | { kind: 'duplicate_entry_name' };
 
 export class UploadService {
-  private readonly EXPIRES_IN_SECONDS = 60;
-  private readonly FINALIZE_DEADLINE_SECONDS = this.EXPIRES_IN_SECONDS * 60;
+  private readonly EXPIRES_IN_SECONDS = 600;
+  private readonly FINALIZE_DEADLINE_SECONDS = 60 * 60;
 
   constructor(
     private readonly unitOfWork: UnitOfWork,
@@ -40,8 +41,9 @@ export class UploadService {
 
   async createUpload(user: User, requestBody: UploadRequestBody): Promise<UploadResponse> {
     const parentFolderId = requestBody.parentFolderId ?? null;
+    const upload = this.createUploadIntentInput(user, requestBody);
 
-    await this.unitOfWork.run(async (tx) => {
+    const uploadUrl = await this.unitOfWork.run(async (tx) => {
       const targetParentId = await this.entryAuthorizer.authorizeParentForCreate(
         {
           actorUserId: user.id,
@@ -59,20 +61,8 @@ export class UploadService {
         },
         tx,
       );
-    });
 
-    const upload = this.createUploadIntentInput(user, requestBody);
-    const uploadUrl = await this.createPresignedUploadUrl(upload);
-
-    await this.unitOfWork.run(async (tx) => {
-      const targetParentId = await this.entryAuthorizer.authorizeParentForCreate(
-        {
-          actorUserId: user.id,
-          ownerId: user.id,
-          parentPublicId: parentFolderId,
-        },
-        tx,
-      );
+      const presignedUrl = await this.createPresignedUploadUrl(upload);
 
       await this.intentRepo.save(
         {
@@ -82,6 +72,8 @@ export class UploadService {
         },
         tx,
       );
+
+      return presignedUrl;
     });
 
     return this.toUploadResponse(upload, uploadUrl);
@@ -92,21 +84,9 @@ export class UploadService {
     filePublicId: string,
     request: ReplacementUploadRequestBody,
   ): Promise<UploadResponse> {
-    await this.unitOfWork.run(async (tx) => {
-      await this.entryAuthorizer.authorizeForUpdate(
-        {
-          actorUserId: user.id,
-          entryPublicId: filePublicId,
-          actions: ['file:replace'],
-        },
-        tx,
-      );
-    });
-
     const upload = this.createUploadIntentInput(user, request);
-    const uploadUrl = await this.createPresignedUploadUrl(upload);
 
-    await this.unitOfWork.run(async (tx) => {
+    const uploadUrl = await this.unitOfWork.run(async (tx) => {
       const { entry: target } = await this.entryAuthorizer.authorizeForUpdate(
         {
           actorUserId: user.id,
@@ -116,6 +96,8 @@ export class UploadService {
         tx,
       );
 
+      const presignedUrl = await this.createPresignedUploadUrl(upload);
+
       await this.intentRepo.saveReplacement(
         {
           upload,
@@ -123,6 +105,8 @@ export class UploadService {
         },
         tx,
       );
+
+      return presignedUrl;
     });
 
     return this.toUploadResponse(upload, uploadUrl);
@@ -169,7 +153,9 @@ export class UploadService {
       case 'expired':
         return { kind: 'expired' };
       case 'superseded':
-        return { kind: 'superseded' };
+        return lockedIntent.operation === 'create'
+          ? { kind: 'duplicate_entry_name' }
+          : { kind: 'superseded' };
       case 'pending':
         return this.completePendingIntentInTransaction(user, lockedIntent, completedAt, tx);
     }
@@ -197,7 +183,7 @@ export class UploadService {
           tx,
         );
 
-        const completedFile = await this.intentRepo.completeCreateIntent(
+        const createResult = await this.intentRepo.completeCreateIntent(
           {
             intent,
             userId: user.id,
@@ -206,23 +192,27 @@ export class UploadService {
           tx,
         );
 
+        if (createResult.kind === 'duplicate_entry_name') {
+          return { kind: 'duplicate_entry_name' };
+        }
+
         await this.auditRepo.record(
           {
             ownerId: user.id,
             actorUserId: user.id,
-            entryId: completedFile.entryId,
-            entryNameSnapshot: completedFile.name,
+            entryId: createResult.file.entryId,
+            entryNameSnapshot: createResult.file.name,
             action: 'file.uploaded',
             details: {
-              contentType: completedFile.contentType,
-              sizeBytes: completedFile.sizeBytes,
+              contentType: createResult.file.contentType,
+              sizeBytes: createResult.file.sizeBytes,
             },
             occurredAt: completedAt,
           },
           tx,
         );
 
-        return { kind: 'completed', file: completedFile };
+        return { kind: 'completed', file: createResult.file };
       }
 
       case 'replace': {
@@ -343,6 +333,8 @@ export class UploadService {
         throw new AppError('upload_expired');
       case 'superseded':
         throw new AppError('replacement_conflict');
+      case 'duplicate_entry_name':
+        throw new AppError('duplicate_entry_name');
     }
   }
 

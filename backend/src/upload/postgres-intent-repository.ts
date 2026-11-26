@@ -8,6 +8,7 @@ import { AppError } from '../shared/errors/api/app-error.js';
 import type {
   AssertUploadTargetAvailableCommand,
   CompleteCreateIntentCommand,
+  CompleteCreateIntentResult,
   CompletedUploadFile,
   CompleteReplaceIntentCommand,
   CompleteReplaceIntentResult,
@@ -141,32 +142,48 @@ export class PostgresIntentRepository implements UploadIntentRepository {
   async completeCreateIntent(
     command: CompleteCreateIntentCommand,
     tx: TransactionContext,
-  ): Promise<CompletedUploadFile> {
+  ): Promise<CompleteCreateIntentResult> {
     try {
-      const entry = await this.createEntryForIntent(tx, command.userId, command.intent);
+      const completedFile = await tx.transaction(async (savepoint) => {
+        const entry = await this.createEntryForIntent(savepoint, command.userId, command.intent);
 
-      if (!entry) {
-        throw new Error('Failed to create file entry');
-      }
+        if (!entry) {
+          throw new Error('Failed to create file entry');
+        }
 
-      const file = await this.createFileForIntent(tx, entry.id, command.intent);
+        const file = await this.createFileForIntent(savepoint, entry.id, command.intent);
 
-      if (!file) {
-        throw new Error('Failed to create file metadata');
-      }
+        if (!file) {
+          throw new Error('Failed to create file metadata');
+        }
 
-      await this.markIntentCompleted(tx, command.intent.id, file.entryId, command.completedAt);
+        await this.markIntentCompleted(
+          savepoint,
+          command.intent.id,
+          file.entryId,
+          command.completedAt,
+        );
 
-      return {
-        entryId: file.entryId,
-        publicId: entry.publicId,
-        name: entry.name,
-        contentType: file.contentType,
-        sizeBytes: file.sizeBytes,
-        updatedAt: entry.updatedAt,
-      };
+        return {
+          entryId: file.entryId,
+          publicId: entry.publicId,
+          name: entry.name,
+          contentType: file.contentType,
+          sizeBytes: file.sizeBytes,
+          updatedAt: entry.updatedAt,
+        };
+      });
+
+      return { kind: 'completed', file: completedFile };
     } catch (error) {
-      throw mapEntryDatabaseError(error);
+      const mappedError = mapEntryDatabaseError(error);
+
+      if (mappedError instanceof AppError && mappedError.code === 'duplicate_entry_name') {
+        await this.markIntentSuperseded(tx, command.intent.id, command.intent.objectKey);
+        return { kind: 'duplicate_entry_name' };
+      }
+
+      throw mappedError;
     }
   }
 

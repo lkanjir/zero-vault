@@ -79,12 +79,22 @@ describe('UploadService', () => {
     expect(result).toStrictEqual({
       uploadId: result.uploadId,
       uploadUrl: SIGNED_URL,
-      expiresInSeconds: 60,
+      expiresInSeconds: 600,
       requiredHeaders: {
         'Content-Type': 'text/plain',
         'x-amz-checksum-sha256': EXPECTED_SHA256_BASE64,
       },
     });
+
+    expect(entryAuthorizer.authorizeParentForCreate).toHaveBeenCalledOnce();
+    expect(repo.assertUploadTargetAvailable).toHaveBeenCalledExactlyOnceWith(
+      {
+        userId: USER.id,
+        targetParentId: 7,
+        fileName: 'document.txt',
+      },
+      tx,
+    );
 
     expect(storage.createPresignedUploadUrl).toHaveBeenCalledOnce();
     const [signedRequest] = storage.createPresignedUploadUrl.mock.lastCall!;
@@ -95,7 +105,7 @@ describe('UploadService', () => {
       objectKey: signedRequest.objectKey,
       contentType: 'text/plain',
       sizeBytes: 12,
-      expiresInSeconds: 60,
+      expiresInSeconds: 600,
       sha256Hex: EXPECTED_SHA256,
     });
 
@@ -108,6 +118,8 @@ describe('UploadService', () => {
         contentType: 'text/plain',
         expectedSizeBytes: 12,
         expectedSha256: EXPECTED_SHA256,
+        uploadUrlExpiresAt: new Date(NOW.getTime() + 600_000),
+        finalizeDeadline: new Date(NOW.getTime() + 3_600_000),
       },
       fileName: 'document.txt',
       targetParentId: 7,
@@ -169,9 +181,7 @@ describe('UploadService', () => {
       sha256: EXPECTED_SHA256,
     });
 
-    expect(entryAuthorizer.authorizeForUpdate).toHaveBeenCalledTimes(2);
-    expect(entryAuthorizer.authorizeForUpdate).toHaveBeenNthCalledWith(
-      1,
+    expect(entryAuthorizer.authorizeForUpdate).toHaveBeenCalledExactlyOnceWith(
       {
         actorUserId: USER.id,
         entryPublicId: filePublicId,
@@ -183,7 +193,7 @@ describe('UploadService', () => {
     expect(storage.createPresignedUploadUrl.mock.lastCall![0]).toMatchObject({
       contentType: 'application/pdf',
       sizeBytes: 24,
-      expiresInSeconds: 60,
+      expiresInSeconds: 600,
       sha256Hex: EXPECTED_SHA256,
     });
     expect(repo.saveReplacement).toHaveBeenCalledOnce();
@@ -202,7 +212,7 @@ describe('UploadService', () => {
     expect(result).toStrictEqual({
       uploadId: result.uploadId,
       uploadUrl: SIGNED_URL,
-      expiresInSeconds: 60,
+      expiresInSeconds: 600,
       requiredHeaders: {
         'Content-Type': 'application/pdf',
         'x-amz-checksum-sha256': EXPECTED_SHA256_BASE64,
@@ -234,7 +244,7 @@ describe('UploadService', () => {
     repo.findByUserAndUploadId.mockResolvedValue(intent);
     repo.findByUserAndUploadIdForUpdate.mockResolvedValue(intent);
     storage.headObject.mockResolvedValue(makeObjectMetadata(intent));
-    repo.completeCreateIntent.mockResolvedValue(completedFile);
+    repo.completeCreateIntent.mockResolvedValue({ kind: 'completed', file: completedFile });
 
     const result = await service.completeUpload(USER, intent.uploadId);
 
@@ -542,6 +552,35 @@ describe('UploadService', () => {
 
     await expect(service.completeUpload(USER, intent.uploadId)).rejects.toMatchObject({
       code: 'replacement_conflict',
+    });
+
+    expect(storage.headObject).not.toHaveBeenCalled();
+  });
+
+  it('maps a duplicate create completion outcome to duplicate_entry_name without auditing', async () => {
+    const intent = makePendingIntent();
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
+    repo.findByUserAndUploadIdForUpdate.mockResolvedValue(intent);
+    storage.headObject.mockResolvedValue(makeObjectMetadata(intent));
+    repo.completeCreateIntent.mockResolvedValue({ kind: 'duplicate_entry_name' });
+
+    await expect(service.completeUpload(USER, intent.uploadId)).rejects.toMatchObject({
+      code: 'duplicate_entry_name',
+    });
+
+    expect(auditRepo.record).not.toHaveBeenCalled();
+  });
+
+  it('returns duplicate_entry_name for an already superseded create intent without reading storage', async () => {
+    const intent = makePendingIntent({
+      operation: 'create',
+      status: 'superseded',
+    });
+    repo.findByUserAndUploadId.mockResolvedValue(intent);
+    repo.findByUserAndUploadIdForUpdate.mockResolvedValue(intent);
+
+    await expect(service.completeUpload(USER, intent.uploadId)).rejects.toMatchObject({
+      code: 'duplicate_entry_name',
     });
 
     expect(storage.headObject).not.toHaveBeenCalled();

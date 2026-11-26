@@ -137,7 +137,7 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
     });
   });
 
-  it('maps a completion duplicate to duplicate_entry_name and rolls back all changes', async () => {
+  it('supersedes a duplicate create completion, queues object deletion, and leaves no partial file', async () => {
     const user = await createUser();
 
     await database.insert(entries).values({
@@ -153,16 +153,25 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
     await expect(uploadService.completeUpload(user, intent.upload.uploadId)).rejects.toMatchObject({
       code: 'duplicate_entry_name',
     });
+    await expect(uploadService.completeUpload(user, intent.upload.uploadId)).rejects.toMatchObject({
+      code: 'duplicate_entry_name',
+    });
 
     const [storedIntent] = await database
       .select()
       .from(uploadIntents)
       .where(eq(uploadIntents.uploadId, intent.upload.uploadId));
+    const deletionJobs = await database.select().from(objectDeletionJobs);
 
     expect(storedIntent).toMatchObject({
-      status: 'pending',
+      status: 'superseded',
       fileId: null,
       completedAt: null,
+    });
+    expect(deletionJobs).toHaveLength(1);
+    expect(deletionJobs[0]).toMatchObject({
+      objectKey: intent.upload.objectKey,
+      reason: 'superseded_upload',
     });
 
     const storedEntries = await database.select().from(entries).where(eq(entries.ownerId, user.id));
@@ -239,15 +248,22 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
     const storedEntries = await database.select().from(entries).where(eq(entries.ownerId, user.id));
     const storedFiles = await database.select().from(files);
     const storedIntents = await database
-      .select({ status: uploadIntents.status })
+      .select({ status: uploadIntents.status, objectKey: uploadIntents.objectKey })
       .from(uploadIntents);
+    const deletionJobs = await database.select().from(objectDeletionJobs);
+    const supersededIntent = storedIntents.find((intent) => intent.status === 'superseded');
 
     expect(storedEntries).toHaveLength(1);
     expect(storedFiles).toHaveLength(1);
     expect(storedIntents.map((intent) => intent.status).sort()).toStrictEqual([
       'completed',
-      'pending',
+      'superseded',
     ]);
+    expect(deletionJobs).toHaveLength(1);
+    expect(deletionJobs[0]).toMatchObject({
+      objectKey: supersededIntent?.objectKey,
+      reason: 'superseded_upload',
+    });
     expect(await database.select().from(auditEvents)).toHaveLength(1);
   });
 
