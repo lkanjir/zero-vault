@@ -1,32 +1,18 @@
 import { createObjectDeletionWorkerComposition } from '../composition-root.js';
 import { loadDbConfig, loadDotenv, loadS3Config } from '../config.js';
 import { createDatabase } from '../db/db-client.js';
-import {
-  registerGracefulShutdown,
-  scheduleManagedCronTask,
-} from '../shared/runtime/graceful-shutdown.js';
+import { registerGracefulShutdown } from '../shared/runtime/graceful-shutdown.js';
+import { startWorkerLoop } from '../shared/runtime/worker-loop.js';
 
 loadDotenv();
 
-const MAX_JOBS_PER_RUN = 100;
 const database = createDatabase(loadDbConfig());
 const composition = createObjectDeletionWorkerComposition(database.db, loadS3Config());
 
-const objectDeletionTask = scheduleManagedCronTask({
-  expression: '* * * * * *',
-  run: async () => {
-    let processedCount = 0;
-
-    while (
-      processedCount < MAX_JOBS_PER_RUN &&
-      (await composition.objectDeletionProcessor.processNext())
-    ) {
-      processedCount++;
-    }
-
-    if (processedCount > 0) {
-      console.info('Object deletion jobs processed', { processedCount });
-    }
+const objectDeletionLoop = startWorkerLoop({
+  processNext: (signal) => composition.objectDeletionProcessor.processNext(signal),
+  onIdle: (processedCount) => {
+    console.info('Object deletion jobs processed', { processedCount });
   },
   onError: (error) => {
     console.error('Object deletion worker execution failed', { error });
@@ -36,7 +22,7 @@ const objectDeletionTask = scheduleManagedCronTask({
 registerGracefulShutdown({
   name: 'Object deletion worker',
   onShutdown: async () => {
-    await objectDeletionTask.stopAndDrain();
+    await objectDeletionLoop.stopAndDrain();
     await database.close();
   },
 });
