@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
+import type { AuditRepository } from '../../src/audit/audit-repository.js';
 import { EntryAccessMapper } from '../../src/authorization/entry-access-mapper.js';
 import { AuthorizationPolicy } from '../../src/authorization/authorization-policy.js';
 import type { AuthorizationService } from '../../src/authorization/authorization-service.js';
+import type { AuthorizedEntry, EntryAuthorizer } from '../../src/authorization/entry-authorizer.js';
+import type { TransactionContext, UnitOfWork } from '../../src/db/unit-of-work.js';
 import { AppError } from '../../src/shared/errors/api/app-error.js';
 import type {
   FileGrantRepository,
@@ -19,6 +22,7 @@ import {
   encodeSharedFileListCursor,
 } from '../../src/sharing/shared-file-list-cursor.js';
 import type { User } from '../../src/user/user.js';
+import { createFakeUnitOfWork } from '../helpers/fake-unit-of-work.js';
 
 const NOW = new Date('2026-08-01T10:00:00.000Z');
 const FILE_ID = '20000000-0000-4000-8000-000000000001';
@@ -38,18 +42,29 @@ const USER: User = {
 };
 
 describe('FileSharingService', () => {
+  let tx: TransactionContext;
+  let unitOfWork: UnitOfWork;
+  let runSpy: ReturnType<typeof createFakeUnitOfWork>['runSpy'];
   let authorizationService: MockProxy<AuthorizationService>;
+  let entryAuthorizer: MockProxy<EntryAuthorizer>;
   let repository: MockProxy<FileGrantRepository>;
+  let auditRepository: MockProxy<AuditRepository>;
   let service: FileSharingService;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
+    ({ tx, unitOfWork, runSpy } = createFakeUnitOfWork());
     authorizationService = mock<AuthorizationService>();
+    entryAuthorizer = mock<EntryAuthorizer>();
     repository = mock<FileGrantRepository>();
+    auditRepository = mock<AuditRepository>();
     service = new FileSharingService(
+      unitOfWork,
       authorizationService,
+      entryAuthorizer,
       repository,
+      auditRepository,
       new EntryAccessMapper(new AuthorizationPolicy()),
     );
 
@@ -68,37 +83,79 @@ describe('FileSharingService', () => {
         environment: { now: NOW },
       },
     });
+    entryAuthorizer.authorizeForUpdate.mockResolvedValue(makeAuthorizedFile());
+    repository.save.mockResolvedValue(
+      makeGrant({
+        id: 10,
+        publicId: '30000000-0000-4000-8000-000000000001',
+        recipientEmail: 'recipient@example.com',
+      }),
+    );
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('uses the current 48-hour pending activation window', async () => {
+  it('authorizes once in transaction, saves grant with 48-hour activation window, and records audit', async () => {
     await service.shareFile(USER, FILE_ID, {
       recipientEmail: 'recipient@example.com',
       permission: 'viewer',
       expiresAt: null,
     });
 
-    expect(authorizationService.authorizeEntryByPublicId).toHaveBeenCalledExactlyOnceWith({
-      actorUserId: USER.id,
-      entryPublicId: FILE_ID,
-      action: 'share:manage',
-    });
-    expect(repository.save).toHaveBeenCalledExactlyOnceWith({
-      actorUserId: USER.id,
-      filePublicId: FILE_ID,
-      recipientEmail: 'recipient@example.com',
-      permission: 'viewer',
-      expiresAt: null,
-      submittedAt: NOW,
-      pendingActivationDeadline: new Date(NOW.getTime() + 48 * 60 * 60 * 1000),
-    });
+    expect(runSpy).toHaveBeenCalledOnce();
+    expect(authorizationService.authorizeEntryByPublicId).not.toHaveBeenCalled();
+    expect(entryAuthorizer.authorizeForUpdate).toHaveBeenCalledExactlyOnceWith(
+      {
+        actorUserId: USER.id,
+        entryPublicId: FILE_ID,
+        actions: ['share:manage'],
+      },
+      tx,
+    );
+    expect(repository.save).toHaveBeenCalledExactlyOnceWith(
+      {
+        fileId: FILE_DB_ID,
+        createdByUserId: USER.id,
+        recipientEmail: 'recipient@example.com',
+        permission: 'viewer',
+        expiresAt: null,
+        submittedAt: NOW,
+        pendingActivationDeadline: new Date(NOW.getTime() + 48 * 60 * 60 * 1000),
+      },
+      tx,
+    );
+    expect(auditRepository.record).toHaveBeenCalledExactlyOnceWith(
+      {
+        ownerId: USER.id,
+        actorUserId: USER.id,
+        entryId: FILE_DB_ID,
+        entryNameSnapshot: 'document.txt',
+        action: 'file.share_submitted',
+        details: {
+          shareId: '30000000-0000-4000-8000-000000000001',
+          recipientEmail: 'recipient@example.com',
+          permission: 'viewer',
+          expiresAt: null,
+        },
+        occurredAt: NOW,
+      },
+      tx,
+    );
   });
 
   it('uses an earlier access expiry as the pending activation deadline', async () => {
     const expiresAt = new Date(NOW.getTime() + 2 * 60 * 60 * 1000);
+    repository.save.mockResolvedValue(
+      makeGrant({
+        id: 10,
+        publicId: '30000000-0000-4000-8000-000000000001',
+        recipientEmail: 'recipient@example.com',
+        permission: 'editor',
+        expiresAt,
+      }),
+    );
 
     await service.shareFile(USER, FILE_ID, {
       recipientEmail: 'recipient@example.com',
@@ -106,15 +163,18 @@ describe('FileSharingService', () => {
       expiresAt,
     });
 
-    expect(repository.save).toHaveBeenCalledExactlyOnceWith({
-      actorUserId: USER.id,
-      filePublicId: FILE_ID,
-      recipientEmail: 'recipient@example.com',
-      permission: 'editor',
-      expiresAt,
-      submittedAt: NOW,
-      pendingActivationDeadline: expiresAt,
-    });
+    expect(repository.save).toHaveBeenCalledExactlyOnceWith(
+      {
+        fileId: FILE_DB_ID,
+        createdByUserId: USER.id,
+        recipientEmail: 'recipient@example.com',
+        permission: 'editor',
+        expiresAt,
+        submittedAt: NOW,
+        pendingActivationDeadline: expiresAt,
+      },
+      tx,
+    );
   });
 
   it.each([
@@ -131,8 +191,9 @@ describe('FileSharingService', () => {
       code: 'invalid_grant_expiry',
     });
 
-    expect(authorizationService.authorizeEntryByPublicId).not.toHaveBeenCalled();
+    expect(entryAuthorizer.authorizeForUpdate).not.toHaveBeenCalled();
     expect(repository.save).not.toHaveBeenCalled();
+    expect(auditRepository.record).not.toHaveBeenCalled();
   });
 
   it('authorizes and rejects a self-share with cannot_share_with_self', async () => {
@@ -146,17 +207,21 @@ describe('FileSharingService', () => {
       code: 'cannot_share_with_self',
     });
 
-    expect(authorizationService.authorizeEntryByPublicId).toHaveBeenCalledExactlyOnceWith({
-      actorUserId: USER.id,
-      entryPublicId: FILE_ID,
-      action: 'share:manage',
-    });
+    expect(entryAuthorizer.authorizeForUpdate).toHaveBeenCalledExactlyOnceWith(
+      {
+        actorUserId: USER.id,
+        entryPublicId: FILE_ID,
+        actions: ['share:manage'],
+      },
+      tx,
+    );
     expect(repository.save).not.toHaveBeenCalled();
+    expect(auditRepository.record).not.toHaveBeenCalled();
   });
 
-  it('does not persist when early authorization is denied', async () => {
+  it('does not persist or audit when authorization is denied', async () => {
     const error = new AppError('entry_not_found');
-    authorizationService.authorizeEntryByPublicId.mockRejectedValue(error);
+    entryAuthorizer.authorizeForUpdate.mockRejectedValue(error);
 
     await expect(
       service.shareFile(USER, FILE_ID, {
@@ -166,9 +231,10 @@ describe('FileSharingService', () => {
       }),
     ).rejects.toBe(error);
     expect(repository.save).not.toHaveBeenCalled();
+    expect(auditRepository.record).not.toHaveBeenCalled();
   });
 
-  it('propagates a repository failure after successful early authorization', async () => {
+  it('propagates a repository failure without recording audit', async () => {
     const error = new Error('repository failed');
     repository.save.mockRejectedValue(error);
 
@@ -179,6 +245,7 @@ describe('FileSharingService', () => {
         expiresAt: null,
       }),
     ).rejects.toBe(error);
+    expect(auditRepository.record).not.toHaveBeenCalled();
   });
 
   it('authorizes and maps one page of file shares', async () => {
@@ -304,44 +371,120 @@ describe('FileSharingService', () => {
     expect(repository.listByFileId).not.toHaveBeenCalled();
   });
 
-  it('delegates file share revocation to the transaction-bound repository operation', async () => {
+  it('authorizes, revokes a share, and records audit inside one transaction', async () => {
     const shareId = '30000000-0000-4000-8000-000000000001';
-
-    await service.revokeFileShare(USER, FILE_ID, shareId);
-
-    expect(repository.revoke).toHaveBeenCalledExactlyOnceWith({
-      actorUserId: USER.id,
-      filePublicId: FILE_ID,
-      grantPublicId: shareId,
-      revokedAt: NOW,
-    });
-  });
-
-  it('updates a permission while preserving an omitted expiry', async () => {
-    const shareId = '30000000-0000-4000-8000-000000000001';
-    const expiresAt = new Date('2026-08-10T10:00:00.000Z');
-    repository.update.mockResolvedValue(
+    repository.revoke.mockResolvedValue(
       makeGrant({
         id: 10,
         publicId: shareId,
         recipientEmail: 'recipient@example.com',
         permission: 'editor',
-        expiresAt,
       }),
     );
+
+    await service.revokeFileShare(USER, FILE_ID, shareId);
+
+    expect(runSpy).toHaveBeenCalledOnce();
+    expect(entryAuthorizer.authorizeForUpdate).toHaveBeenCalledExactlyOnceWith(
+      {
+        actorUserId: USER.id,
+        entryPublicId: FILE_ID,
+        actions: ['share:manage'],
+      },
+      tx,
+    );
+    expect(repository.revoke).toHaveBeenCalledExactlyOnceWith(
+      {
+        fileId: FILE_DB_ID,
+        grantPublicId: shareId,
+      },
+      tx,
+    );
+    expect(auditRepository.record).toHaveBeenCalledExactlyOnceWith(
+      {
+        ownerId: USER.id,
+        actorUserId: USER.id,
+        entryId: FILE_DB_ID,
+        entryNameSnapshot: 'document.txt',
+        action: 'file.share_revoked',
+        details: {
+          shareId,
+          recipientEmail: 'recipient@example.com',
+          permission: 'editor',
+          expiresAt: null,
+        },
+        occurredAt: NOW,
+      },
+      tx,
+    );
+  });
+
+  it('skips audit recording when revoking an already missing share', async () => {
+    const shareId = '30000000-0000-4000-8000-000000000001';
+    repository.revoke.mockResolvedValue(null);
+
+    await service.revokeFileShare(USER, FILE_ID, shareId);
+
+    expect(auditRepository.record).not.toHaveBeenCalled();
+  });
+
+  it('updates a permission while preserving an omitted expiry and records audit', async () => {
+    const shareId = '30000000-0000-4000-8000-000000000001';
+    const expiresAt = new Date('2026-08-10T10:00:00.000Z');
+    const previous = makeGrant({
+      id: 10,
+      publicId: shareId,
+      recipientEmail: 'recipient@example.com',
+      permission: 'viewer',
+      expiresAt,
+    });
+    const updated = {
+      ...previous,
+      permission: 'editor' as const,
+    };
+    repository.update.mockResolvedValue({ previous, updated });
 
     const result = await service.updateFileShare(USER, FILE_ID, shareId, {
       permission: 'editor',
     });
 
-    expect(repository.update).toHaveBeenCalledExactlyOnceWith({
-      actorUserId: USER.id,
-      filePublicId: FILE_ID,
-      grantPublicId: shareId,
-      permission: 'editor',
-      expiresAt: undefined,
-      updatedAt: NOW,
-    });
+    expect(entryAuthorizer.authorizeForUpdate).toHaveBeenCalledExactlyOnceWith(
+      {
+        actorUserId: USER.id,
+        entryPublicId: FILE_ID,
+        actions: ['share:manage'],
+      },
+      tx,
+    );
+    expect(repository.update).toHaveBeenCalledExactlyOnceWith(
+      {
+        fileId: FILE_DB_ID,
+        grantPublicId: shareId,
+        permission: 'editor',
+        expiresAt: undefined,
+        updatedAt: NOW,
+      },
+      tx,
+    );
+    expect(auditRepository.record).toHaveBeenCalledExactlyOnceWith(
+      {
+        ownerId: USER.id,
+        actorUserId: USER.id,
+        entryId: FILE_DB_ID,
+        entryNameSnapshot: 'document.txt',
+        action: 'file.share_updated',
+        details: {
+          shareId,
+          recipientEmail: 'recipient@example.com',
+          previousPermission: 'viewer',
+          newPermission: 'editor',
+          previousExpiresAt: expiresAt.toISOString(),
+          newExpiresAt: expiresAt.toISOString(),
+        },
+        occurredAt: NOW,
+      },
+      tx,
+    );
     expect(result).toStrictEqual({
       shareId,
       recipientEmail: 'recipient@example.com',
@@ -350,30 +493,51 @@ describe('FileSharingService', () => {
     });
   });
 
+  it('skips audit recording when updating a share changes neither permission nor expiry', async () => {
+    const shareId = '30000000-0000-4000-8000-000000000001';
+    const grant = makeGrant({
+      id: 10,
+      publicId: shareId,
+      recipientEmail: 'recipient@example.com',
+      permission: 'viewer',
+      expiresAt: null,
+    });
+    repository.update.mockResolvedValue({ previous: grant, updated: grant });
+
+    await service.updateFileShare(USER, FILE_ID, shareId, {
+      permission: 'viewer',
+    });
+
+    expect(auditRepository.record).not.toHaveBeenCalled();
+  });
+
   it('forwards a null expiry to clear it', async () => {
     const shareId = '30000000-0000-4000-8000-000000000001';
-    repository.update.mockResolvedValue(
-      makeGrant({
-        id: 10,
-        publicId: shareId,
-        recipientEmail: 'recipient@example.com',
-        expiresAt: null,
-      }),
-    );
+    const previous = makeGrant({
+      id: 10,
+      publicId: shareId,
+      recipientEmail: 'recipient@example.com',
+      expiresAt: new Date('2026-08-10T10:00:00.000Z'),
+    });
+    const updated = { ...previous, expiresAt: null };
+    repository.update.mockResolvedValue({ previous, updated });
 
     const result = await service.updateFileShare(USER, FILE_ID, shareId, {
       expiresAt: null,
     });
 
-    expect(repository.update).toHaveBeenCalledExactlyOnceWith({
-      actorUserId: USER.id,
-      filePublicId: FILE_ID,
-      grantPublicId: shareId,
-      permission: undefined,
-      expiresAt: null,
-      updatedAt: NOW,
-    });
+    expect(repository.update).toHaveBeenCalledExactlyOnceWith(
+      {
+        fileId: FILE_DB_ID,
+        grantPublicId: shareId,
+        permission: undefined,
+        expiresAt: null,
+        updatedAt: NOW,
+      },
+      tx,
+    );
     expect(result.expiresAt).toBeNull();
+    expect(auditRepository.record).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -388,6 +552,7 @@ describe('FileSharingService', () => {
       code: 'invalid_grant_expiry',
     });
 
+    expect(entryAuthorizer.authorizeForUpdate).not.toHaveBeenCalled();
     expect(repository.update).not.toHaveBeenCalled();
   });
 
@@ -401,6 +566,7 @@ describe('FileSharingService', () => {
     ).rejects.toMatchObject({
       code: 'file_share_not_found',
     });
+    expect(auditRepository.record).not.toHaveBeenCalled();
   });
 
   it('maps an active shared file and its viewer capabilities', async () => {
@@ -542,6 +708,34 @@ describe('FileSharingService', () => {
     expect(repository.listSharedFiles).not.toHaveBeenCalled();
   });
 });
+
+function makeAuthorizedFile(): AuthorizedEntry {
+  return {
+    entry: {
+      id: FILE_DB_ID,
+      publicId: FILE_ID,
+      ownerId: USER.id,
+      parentId: null,
+      kind: 'file',
+      name: 'document.txt',
+      createdAt: NOW,
+      updatedAt: NOW,
+      deletedAt: null,
+    },
+    context: {
+      scope: 'entry',
+      actor: { userId: USER.id },
+      resource: {
+        id: FILE_DB_ID,
+        ownerId: USER.id,
+        kind: 'file',
+        deletedAt: null,
+      },
+      relationship: { grant: null },
+      environment: { now: NOW },
+    },
+  };
+}
 
 function makeGrant(
   overrides: Pick<FileGrant, 'id' | 'publicId' | 'recipientEmail'> & Partial<FileGrant>,

@@ -1,7 +1,6 @@
 import { and, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
-import type { PostgresEntryAuthorizer } from '../authorization/postgres-entry-authorizer.js';
 import type { Database, Transaction } from '../db/db-client.js';
-import { toTransactionContext } from '../db/unit-of-work.js';
+import { requireTransaction, type TransactionContext } from '../db/unit-of-work.js';
 import { entries, fileGrants, files, users } from '../db/schema.js';
 import type {
   FileGrantMaintenanceResult,
@@ -14,120 +13,102 @@ import type {
   RevokeFileGrantCommand,
   SaveFileGrantCommand,
   SharedFileRecord,
+  UpdatedFileGrant,
   UpdateFileGrantCommand,
 } from './file-grant-repository.js';
 import type { FileGrant } from './file-grant.js';
-import type { Entry } from '../entry/entry.js';
-import { recordAuditEventInTransaction } from '../audit/record-audit-event-in-transaction.js';
 
 export class PostgresFileGrantRepository implements FileGrantRepository {
-  constructor(
-    private readonly db: Database,
-    private readonly authorizer: PostgresEntryAuthorizer,
-  ) {}
+  constructor(private readonly db: Database) {}
 
-  async save(command: SaveFileGrantCommand): Promise<FileGrant> {
-    return this.db.transaction(async (tx) => {
-      const { entry: file } = await this.authorizer.authorizeForUpdate(
-        {
-          actorUserId: command.actorUserId,
-          entryPublicId: command.filePublicId,
-          actions: ['share:manage'],
-        },
-        toTransactionContext(tx),
-      );
+  async save(command: SaveFileGrantCommand, tx: TransactionContext): Promise<FileGrant> {
+    const drizzleTx = requireTransaction(tx);
 
-      const [recipient] = await tx
-        .select({ id: users.id })
-        .from(users)
-        .where(and(sql`lower(${users.email}) = ${command.recipientEmail}`, isNull(users.deletedAt)))
-        .for('share')
-        .limit(1);
+    const [recipient] = await drizzleTx
+      .select({ id: users.id })
+      .from(users)
+      .where(and(sql`lower(${users.email}) = ${command.recipientEmail}`, isNull(users.deletedAt)))
+      .for('share')
+      .limit(1);
 
-      const recipientUserId = recipient?.id ?? null;
-      const activationDeadline =
-        recipientUserId === null ? command.pendingActivationDeadline : null;
+    const recipientUserId = recipient?.id ?? null;
+    const activationDeadline = recipientUserId === null ? command.pendingActivationDeadline : null;
 
-      const [existingRecipientGrant] =
-        recipientUserId === null
-          ? []
-          : await tx
-              .select({ id: fileGrants.id })
-              .from(fileGrants)
-              .where(
-                and(
-                  eq(fileGrants.fileId, file.id),
-                  eq(fileGrants.recipientUserId, recipientUserId),
-                ),
-              )
-              .for('update')
-              .limit(1);
+    const [existingRecipientGrant] =
+      recipientUserId === null
+        ? []
+        : await drizzleTx
+            .select({ id: fileGrants.id })
+            .from(fileGrants)
+            .where(
+              and(
+                eq(fileGrants.fileId, command.fileId),
+                eq(fileGrants.recipientUserId, recipientUserId),
+              ),
+            )
+            .for('update')
+            .limit(1);
 
-      if (existingRecipientGrant) {
-        await tx
-          .delete(fileGrants)
-          .where(
-            and(
-              eq(fileGrants.fileId, file.id),
-              eq(fileGrants.recipientEmail, command.recipientEmail),
-              isNull(fileGrants.recipientUserId),
-            ),
-          );
+    if (existingRecipientGrant) {
+      await drizzleTx
+        .delete(fileGrants)
+        .where(
+          and(
+            eq(fileGrants.fileId, command.fileId),
+            eq(fileGrants.recipientEmail, command.recipientEmail),
+            isNull(fileGrants.recipientUserId),
+          ),
+        );
 
-        const [updatedGrant] = await tx
-          .update(fileGrants)
-          .set({
-            recipientEmail: command.recipientEmail,
-            permission: command.permission,
-            activationDeadline: null,
-            expiresAt: command.expiresAt,
-            updatedAt: command.submittedAt,
-          })
-          .where(eq(fileGrants.id, existingRecipientGrant.id))
-          .returning();
+      const [updatedGrant] = await drizzleTx
+        .update(fileGrants)
+        .set({
+          recipientEmail: command.recipientEmail,
+          permission: command.permission,
+          activationDeadline: null,
+          expiresAt: command.expiresAt,
+          updatedAt: command.submittedAt,
+        })
+        .where(eq(fileGrants.id, existingRecipientGrant.id))
+        .returning();
 
-        if (!updatedGrant) {
-          throw new Error('File grant update failed');
-        }
-
-        await this.recordShareGrantSubmitted(tx, file, updatedGrant, command);
-
-        return updatedGrant;
+      if (!updatedGrant) {
+        throw new Error('File grant update failed');
       }
 
-      const [savedGrant] = await tx
-        .insert(fileGrants)
-        .values({
-          fileId: file.id,
+      return updatedGrant;
+    }
+
+    const [savedGrant] = await drizzleTx
+      .insert(fileGrants)
+      .values({
+        fileId: command.fileId,
+        recipientUserId,
+        recipientEmail: command.recipientEmail,
+        createdByUserId: command.createdByUserId,
+        permission: command.permission,
+        activationDeadline,
+        expiresAt: command.expiresAt,
+        createdAt: command.submittedAt,
+        updatedAt: command.submittedAt,
+      })
+      .onConflictDoUpdate({
+        target: [fileGrants.fileId, fileGrants.recipientEmail],
+        set: {
           recipientUserId,
-          recipientEmail: command.recipientEmail,
-          createdByUserId: file.ownerId,
           permission: command.permission,
           activationDeadline,
           expiresAt: command.expiresAt,
-          createdAt: command.submittedAt,
           updatedAt: command.submittedAt,
-        })
-        .onConflictDoUpdate({
-          target: [fileGrants.fileId, fileGrants.recipientEmail],
-          set: {
-            recipientUserId,
-            permission: command.permission,
-            activationDeadline,
-            expiresAt: command.expiresAt,
-            updatedAt: command.submittedAt,
-          },
-        })
-        .returning();
+        },
+      })
+      .returning();
 
-      if (!savedGrant) {
-        throw new Error('File grant save failed');
-      }
+    if (!savedGrant) {
+      throw new Error('File grant save failed');
+    }
 
-      await this.recordShareGrantSubmitted(tx, file, savedGrant, command);
-
-      return savedGrant;
-    });
+    return savedGrant;
   }
 
   async listByFileId(query: ListFileGrantsQuery): Promise<FileGrant[]> {
@@ -150,92 +131,65 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
       .limit(query.limit);
   }
 
-  async revoke(command: RevokeFileGrantCommand): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      const { entry: file } = await this.authorizer.authorizeForUpdate(
-        {
-          actorUserId: command.actorUserId,
-          entryPublicId: command.filePublicId,
-          actions: ['share:manage'],
-        },
-        toTransactionContext(tx),
-      );
+  async revoke(command: RevokeFileGrantCommand, tx: TransactionContext): Promise<FileGrant | null> {
+    const drizzleTx = requireTransaction(tx);
 
-      const [revokedGrant] = await tx
-        .delete(fileGrants)
-        .where(and(eq(fileGrants.fileId, file.id), eq(fileGrants.publicId, command.grantPublicId)))
-        .returning();
+    const [revokedGrant] = await drizzleTx
+      .delete(fileGrants)
+      .where(
+        and(eq(fileGrants.fileId, command.fileId), eq(fileGrants.publicId, command.grantPublicId)),
+      )
+      .returning();
 
-      if (!revokedGrant) {
-        return;
-      }
-
-      await recordAuditEventInTransaction(tx, {
-        ownerId: file.ownerId,
-        actorUserId: command.actorUserId,
-        entryId: file.id,
-        entryNameSnapshot: file.name,
-        action: 'file.share_revoked',
-        details: {
-          shareId: revokedGrant.publicId,
-          recipientEmail: revokedGrant.recipientEmail,
-          permission: revokedGrant.permission,
-          expiresAt: revokedGrant.expiresAt?.toISOString() ?? null,
-        },
-        occurredAt: command.revokedAt,
-      });
-    });
+    return revokedGrant ?? null;
   }
 
-  update(command: UpdateFileGrantCommand): Promise<FileGrant | null> {
-    return this.db.transaction(async (tx) => {
-      const { entry: file } = await this.authorizer.authorizeForUpdate(
-        {
-          actorUserId: command.actorUserId,
-          entryPublicId: command.filePublicId,
-          actions: ['share:manage'],
-        },
-        toTransactionContext(tx),
-      );
+  async update(
+    command: UpdateFileGrantCommand,
+    tx: TransactionContext,
+  ): Promise<UpdatedFileGrant | null> {
+    const drizzleTx = requireTransaction(tx);
 
-      const [grant] = await tx
-        .select()
-        .from(fileGrants)
-        .where(and(eq(fileGrants.fileId, file.id), eq(fileGrants.publicId, command.grantPublicId)))
-        .for('update')
-        .limit(1);
+    const [grant] = await drizzleTx
+      .select()
+      .from(fileGrants)
+      .where(
+        and(eq(fileGrants.fileId, command.fileId), eq(fileGrants.publicId, command.grantPublicId)),
+      )
+      .for('update')
+      .limit(1);
 
-      if (!grant) {
-        return null;
-      }
+    if (!grant) {
+      return null;
+    }
 
-      const activationDeadline =
-        grant.activationDeadline !== null &&
-        command.expiresAt !== undefined &&
-        command.expiresAt !== null &&
-        command.expiresAt.getTime() < grant.activationDeadline.getTime()
-          ? command.expiresAt
-          : grant.activationDeadline;
+    const activationDeadline =
+      grant.activationDeadline !== null &&
+      command.expiresAt !== undefined &&
+      command.expiresAt !== null &&
+      command.expiresAt.getTime() < grant.activationDeadline.getTime()
+        ? command.expiresAt
+        : grant.activationDeadline;
 
-      const [updatedGrant] = await tx
-        .update(fileGrants)
-        .set({
-          permission: command.permission,
-          expiresAt: command.expiresAt,
-          activationDeadline,
-          updatedAt: command.updatedAt,
-        })
-        .where(eq(fileGrants.id, grant.id))
-        .returning();
+    const [updatedGrant] = await drizzleTx
+      .update(fileGrants)
+      .set({
+        permission: command.permission,
+        expiresAt: command.expiresAt,
+        activationDeadline,
+        updatedAt: command.updatedAt,
+      })
+      .where(eq(fileGrants.id, grant.id))
+      .returning();
 
-      if (!updatedGrant) {
-        throw new Error('File grant update failed');
-      }
+    if (!updatedGrant) {
+      throw new Error('File grant update failed');
+    }
 
-      await this.recordShareUpdated(tx, file, grant, updatedGrant, command);
-
-      return updatedGrant;
-    });
+    return {
+      previous: grant,
+      updated: updatedGrant,
+    };
   }
 
   maintainPending(command: MaintainPendingFileGrantsCommand): Promise<FileGrantMaintenanceResult> {
@@ -419,59 +373,5 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
       .groupBy(entries.id, files.entryId)
       .orderBy(sortName, entries.id)
       .limit(query.limit);
-  }
-
-  private async recordShareGrantSubmitted(
-    tx: Transaction,
-    file: Entry,
-    grant: FileGrant,
-    command: SaveFileGrantCommand,
-  ): Promise<void> {
-    await recordAuditEventInTransaction(tx, {
-      ownerId: file.ownerId,
-      actorUserId: command.actorUserId,
-      entryId: file.id,
-      entryNameSnapshot: file.name,
-      action: 'file.share_submitted',
-      details: {
-        shareId: grant.publicId,
-        recipientEmail: grant.recipientEmail,
-        permission: grant.permission,
-        expiresAt: grant.expiresAt?.toISOString() ?? null,
-      },
-      occurredAt: command.submittedAt,
-    });
-  }
-
-  private async recordShareUpdated(
-    tx: Transaction,
-    file: Entry,
-    previousGrant: FileGrant,
-    updatedGrant: FileGrant,
-    command: UpdateFileGrantCommand,
-  ): Promise<void> {
-    const permissionChanged = previousGrant.permission !== updatedGrant.permission;
-    const expiryChanged = previousGrant.expiresAt?.getTime() !== updatedGrant.expiresAt?.getTime();
-
-    if (!permissionChanged && !expiryChanged) {
-      return;
-    }
-
-    await recordAuditEventInTransaction(tx, {
-      ownerId: file.ownerId,
-      actorUserId: command.actorUserId,
-      entryId: file.id,
-      entryNameSnapshot: file.name,
-      action: 'file.share_updated',
-      details: {
-        shareId: updatedGrant.publicId,
-        recipientEmail: updatedGrant.recipientEmail,
-        previousPermission: previousGrant.permission,
-        newPermission: updatedGrant.permission,
-        previousExpiresAt: previousGrant.expiresAt?.toISOString() ?? null,
-        newExpiresAt: updatedGrant.expiresAt?.toISOString() ?? null,
-      },
-      occurredAt: command.updatedAt,
-    });
   }
 }

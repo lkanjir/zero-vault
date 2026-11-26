@@ -1,8 +1,9 @@
+import type { TransactionContext } from '../db/unit-of-work.js';
 import type { FileGrant, FileGrantPermission } from './file-grant.js';
 
 export type SaveFileGrantCommand = {
-  actorUserId: number;
-  filePublicId: string;
+  fileId: number;
+  createdByUserId: number;
   recipientEmail: string;
   permission: FileGrantPermission;
   expiresAt: Date | null;
@@ -20,19 +21,21 @@ export type ListFileGrantsQuery = {
 };
 
 export type RevokeFileGrantCommand = {
-  actorUserId: number;
-  filePublicId: string;
+  fileId: number;
   grantPublicId: string;
-  revokedAt: Date;
 };
 
 export type UpdateFileGrantCommand = {
-  actorUserId: number;
-  filePublicId: string;
+  fileId: number;
   grantPublicId: string;
   permission: FileGrantPermission | undefined;
   expiresAt: Date | null | undefined;
   updatedAt: Date;
+};
+
+export type UpdatedFileGrant = {
+  previous: FileGrant;
+  updated: FileGrant;
 };
 
 export type MaintainPendingFileGrantsCommand = {
@@ -104,10 +107,10 @@ export type OwnedSharedFileRecord = {
 };
 
 export interface FileGrantRepository {
-  save(command: SaveFileGrantCommand): Promise<FileGrant>;
+  save(command: SaveFileGrantCommand, tx: TransactionContext): Promise<FileGrant>;
   listByFileId(query: ListFileGrantsQuery): Promise<FileGrant[]>;
-  revoke(command: RevokeFileGrantCommand): Promise<void>;
-  update(command: UpdateFileGrantCommand): Promise<FileGrant | null>;
+  revoke(command: RevokeFileGrantCommand, tx: TransactionContext): Promise<FileGrant | null>;
+  update(command: UpdateFileGrantCommand, tx: TransactionContext): Promise<UpdatedFileGrant | null>;
   maintainPending(command: MaintainPendingFileGrantsCommand): Promise<FileGrantMaintenanceResult>;
   listSharedFiles(query: ListSharedFilesQuery): Promise<SharedFileRecord[]>;
   listOwnedSharedFiles(query: ListOwnedSharedFilesQuery): Promise<OwnedSharedFileRecord[]>;

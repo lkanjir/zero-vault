@@ -1,4 +1,7 @@
+import type { AuditRepository } from '../audit/audit-repository.js';
 import type { AuthorizationService } from '../authorization/authorization-service.js';
+import type { EntryAuthorizer } from '../authorization/entry-authorizer.js';
+import type { UnitOfWork } from '../db/unit-of-work.js';
 import type { User } from '../user/user.js';
 import type { FileGrantRepository, SharedFileRecord } from './file-grant-repository.js';
 import type { FileGrantPermission } from './file-grant.js';
@@ -33,8 +36,11 @@ export type ShareFileCommand = {
 
 export class FileSharingService {
   constructor(
+    private readonly unitOfWork: UnitOfWork,
     private readonly authzService: AuthorizationService,
+    private readonly entryAuthorizer: EntryAuthorizer,
     private readonly grantRepository: FileGrantRepository,
+    private readonly auditRepository: AuditRepository,
     private readonly accessMapper: EntryAccessMapper,
   ) {}
 
@@ -43,16 +49,6 @@ export class FileSharingService {
 
     if (command.expiresAt !== null && command.expiresAt.getTime() <= submittedAt.getTime()) {
       throw new AppError('invalid_grant_expiry');
-    }
-
-    await this.authzService.authorizeEntryByPublicId({
-      actorUserId: user.id,
-      entryPublicId: filePublicId,
-      action: 'share:manage',
-    });
-
-    if (command.recipientEmail === user.email) {
-      throw new AppError('cannot_share_with_self');
     }
 
     const maximumActivationDeadline = new Date(
@@ -64,14 +60,50 @@ export class FileSharingService {
         ? command.expiresAt
         : maximumActivationDeadline;
 
-    await this.grantRepository.save({
-      actorUserId: user.id,
-      filePublicId,
-      recipientEmail: command.recipientEmail,
-      permission: command.permission,
-      expiresAt: command.expiresAt,
-      submittedAt,
-      pendingActivationDeadline,
+    await this.unitOfWork.run(async (tx) => {
+      const { entry: file } = await this.entryAuthorizer.authorizeForUpdate(
+        {
+          actorUserId: user.id,
+          entryPublicId: filePublicId,
+          actions: ['share:manage'],
+        },
+        tx,
+      );
+
+      if (command.recipientEmail === user.email) {
+        throw new AppError('cannot_share_with_self');
+      }
+
+      const savedGrant = await this.grantRepository.save(
+        {
+          fileId: file.id,
+          createdByUserId: file.ownerId,
+          recipientEmail: command.recipientEmail,
+          permission: command.permission,
+          expiresAt: command.expiresAt,
+          submittedAt,
+          pendingActivationDeadline,
+        },
+        tx,
+      );
+
+      await this.auditRepository.record(
+        {
+          ownerId: file.ownerId,
+          actorUserId: user.id,
+          entryId: file.id,
+          entryNameSnapshot: file.name,
+          action: 'file.share_submitted',
+          details: {
+            shareId: savedGrant.publicId,
+            recipientEmail: savedGrant.recipientEmail,
+            permission: savedGrant.permission,
+            expiresAt: savedGrant.expiresAt?.toISOString() ?? null,
+          },
+          occurredAt: submittedAt,
+        },
+        tx,
+      );
     });
   }
 
@@ -137,11 +169,47 @@ export class FileSharingService {
   }
 
   async revokeFileShare(user: User, filePublicId: string, shareId: string): Promise<void> {
-    await this.grantRepository.revoke({
-      actorUserId: user.id,
-      filePublicId,
-      grantPublicId: shareId,
-      revokedAt: new Date(),
+    const revokedAt = new Date();
+
+    await this.unitOfWork.run(async (tx) => {
+      const { entry: file } = await this.entryAuthorizer.authorizeForUpdate(
+        {
+          actorUserId: user.id,
+          entryPublicId: filePublicId,
+          actions: ['share:manage'],
+        },
+        tx,
+      );
+
+      const revokedGrant = await this.grantRepository.revoke(
+        {
+          fileId: file.id,
+          grantPublicId: shareId,
+        },
+        tx,
+      );
+
+      if (!revokedGrant) {
+        return;
+      }
+
+      await this.auditRepository.record(
+        {
+          ownerId: file.ownerId,
+          actorUserId: user.id,
+          entryId: file.id,
+          entryNameSnapshot: file.name,
+          action: 'file.share_revoked',
+          details: {
+            shareId: revokedGrant.publicId,
+            recipientEmail: revokedGrant.recipientEmail,
+            permission: revokedGrant.permission,
+            expiresAt: revokedGrant.expiresAt?.toISOString() ?? null,
+          },
+          occurredAt: revokedAt,
+        },
+        tx,
+      );
     });
   }
 
@@ -161,18 +229,59 @@ export class FileSharingService {
       throw new AppError('invalid_grant_expiry');
     }
 
-    const grant = await this.grantRepository.update({
-      actorUserId: user.id,
-      filePublicId,
-      grantPublicId: shareId,
-      permission: request.permission,
-      expiresAt: request.expiresAt,
-      updatedAt,
-    });
+    const grant = await this.unitOfWork.run(async (tx) => {
+      const { entry: file } = await this.entryAuthorizer.authorizeForUpdate(
+        {
+          actorUserId: user.id,
+          entryPublicId: filePublicId,
+          actions: ['share:manage'],
+        },
+        tx,
+      );
 
-    if (grant === null) {
-      throw new AppError('file_share_not_found');
-    }
+      const result = await this.grantRepository.update(
+        {
+          fileId: file.id,
+          grantPublicId: shareId,
+          permission: request.permission,
+          expiresAt: request.expiresAt,
+          updatedAt,
+        },
+        tx,
+      );
+
+      if (result === null) {
+        throw new AppError('file_share_not_found');
+      }
+
+      const permissionChanged = result.previous.permission !== result.updated.permission;
+      const expiryChanged =
+        result.previous.expiresAt?.getTime() !== result.updated.expiresAt?.getTime();
+
+      if (permissionChanged || expiryChanged) {
+        await this.auditRepository.record(
+          {
+            ownerId: file.ownerId,
+            actorUserId: user.id,
+            entryId: file.id,
+            entryNameSnapshot: file.name,
+            action: 'file.share_updated',
+            details: {
+              shareId: result.updated.publicId,
+              recipientEmail: result.updated.recipientEmail,
+              previousPermission: result.previous.permission,
+              newPermission: result.updated.permission,
+              previousExpiresAt: result.previous.expiresAt?.toISOString() ?? null,
+              newExpiresAt: result.updated.expiresAt?.toISOString() ?? null,
+            },
+            occurredAt: updatedAt,
+          },
+          tx,
+        );
+      }
+
+      return result.updated;
+    });
 
     return {
       shareId: grant.publicId,

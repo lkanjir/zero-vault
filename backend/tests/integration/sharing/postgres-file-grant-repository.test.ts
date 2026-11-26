@@ -4,13 +4,18 @@ import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { AuditRepository } from '../../../src/audit/audit-repository.js';
+import { PostgresAuditRepository } from '../../../src/audit/postgres-audit-repository.js';
 import { AuthorizationPolicy } from '../../../src/authorization/authorization-policy.js';
 import { AuthorizationService } from '../../../src/authorization/authorization-service.js';
+import { EntryAccessMapper } from '../../../src/authorization/entry-access-mapper.js';
 import { PostgresAuthorizationContextResolver } from '../../../src/authorization/postgres-authorization-context-resolver.js';
 import { PostgresEntryAuthorizer } from '../../../src/authorization/postgres-entry-authorizer.js';
 import { createDatabase, type Database } from '../../../src/db/db-client.js';
 import { isUniqueViolation } from '../../../src/db/postgres-error.js';
+import { DrizzleUnitOfWork } from '../../../src/db/unit-of-work.js';
 import { auditEvents, entries, fileGrants, files, users } from '../../../src/db/schema.js';
+import { FileSharingService } from '../../../src/sharing/file-sharing-service.js';
 import { PostgresFileGrantRepository } from '../../../src/sharing/postgres-file-grant-repository.js';
 
 const ISSUER = 'https://issuer.example.test/realms/zero-vault';
@@ -18,11 +23,17 @@ const SHA256 = 'a'.repeat(64);
 const SUBMITTED_AT = new Date('2026-08-01T10:00:00.000Z');
 const PENDING_DEADLINE = new Date('2026-08-02T10:00:00.000Z');
 
-describe('PostgresFileGrantRepository', () => {
+describe('PostgresFileGrantRepository and FileSharingService', () => {
   let container: StartedPostgreSqlContainer;
   let database: Database;
   let closeDatabase: () => Promise<void>;
+  let unitOfWork: DrizzleUnitOfWork;
+  let authorizationService: AuthorizationService;
+  let entryAuthorizer: PostgresEntryAuthorizer;
+  let accessMapper: EntryAccessMapper;
+  let auditRepository: PostgresAuditRepository;
   let repository: PostgresFileGrantRepository;
+  let sharingService: FileSharingService;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:18-alpine')
@@ -39,12 +50,24 @@ describe('PostgresFileGrantRepository', () => {
       migrationsFolder: path.resolve(process.cwd(), 'drizzle'),
     });
 
-    const authorizationService = new AuthorizationService(
+    const policy = new AuthorizationPolicy();
+    unitOfWork = new DrizzleUnitOfWork(database);
+    authorizationService = new AuthorizationService(
       new PostgresAuthorizationContextResolver(database),
-      new AuthorizationPolicy(),
+      policy,
     );
-    const entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
-    repository = new PostgresFileGrantRepository(database, entryAuthorizer);
+    entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
+    accessMapper = new EntryAccessMapper(policy);
+    auditRepository = new PostgresAuditRepository(database);
+    repository = new PostgresFileGrantRepository(database);
+    sharingService = new FileSharingService(
+      unitOfWork,
+      authorizationService,
+      entryAuthorizer,
+      repository,
+      auditRepository,
+      accessMapper,
+    );
   });
 
   beforeEach(async () => {
@@ -66,14 +89,12 @@ describe('PostgresFileGrantRepository', () => {
     const file = await createFile(owner.id);
     const expiresAt = new Date('2026-08-05T10:00:00.000Z');
 
-    const grant = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const grant = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: recipient.email,
       permission: 'viewer',
       expiresAt,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
 
     expect(grant).toMatchObject({
@@ -93,14 +114,12 @@ describe('PostgresFileGrantRepository', () => {
     const owner = await createUser('owner@example.com');
     const file = await createFile(owner.id);
 
-    const grant = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const grant = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: 'pending@example.com',
       permission: 'editor',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
 
     expect(grant).toMatchObject({
@@ -118,27 +137,24 @@ describe('PostgresFileGrantRepository', () => {
     const file = await createFile(owner.id);
     const recipientEmail = 'later@example.com';
 
-    const pending = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const pending = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail,
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
     const recipient = await createUser(recipientEmail);
     const updatedAt = new Date('2026-08-01T11:00:00.000Z');
     const expiresAt = new Date('2026-08-05T10:00:00.000Z');
 
-    const active = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const active = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail,
       permission: 'editor',
       expiresAt,
       submittedAt: updatedAt,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
 
     expect(active).toMatchObject({
@@ -158,26 +174,23 @@ describe('PostgresFileGrantRepository', () => {
     const owner = await createUser('owner@example.com');
     const recipient = await createUser('recipient@example.com');
     const file = await createFile(owner.id);
-    const existing = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const existing = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: recipient.email,
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
     const updatedAt = new Date('2026-08-01T12:00:00.000Z');
     const expiresAt = new Date('2026-08-10T10:00:00.000Z');
 
-    const updated = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const updated = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: recipient.email,
       permission: 'editor',
       expiresAt,
       submittedAt: updatedAt,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
 
     expect(updated).toMatchObject({
@@ -190,26 +203,53 @@ describe('PostgresFileGrantRepository', () => {
     });
   });
 
-  it('does not create a grant when the actor cannot manage sharing', async () => {
+  it('does not create a grant or audit event when the actor cannot manage sharing', async () => {
     const owner = await createUser('owner@example.com');
     const otherUser = await createUser('other@example.com');
     const file = await createFile(owner.id);
 
     await expect(
-      repository.save({
-        actorUserId: otherUser.id,
-        filePublicId: file.publicId,
+      sharingService.shareFile(otherUser, file.publicId, {
         recipientEmail: 'recipient@example.com',
         permission: 'viewer',
         expiresAt: null,
-        submittedAt: SUBMITTED_AT,
-        pendingActivationDeadline: PENDING_DEADLINE,
       }),
     ).rejects.toMatchObject({
       code: 'entry_not_found',
     });
 
     await expect(database.select().from(fileGrants)).resolves.toHaveLength(0);
+    await expect(database.select().from(auditEvents)).resolves.toHaveLength(0);
+  });
+
+  it('rolls back grant persistence when share audit recording fails', async () => {
+    const owner = await createUser('owner@example.com');
+    const file = await createFile(owner.id);
+    const failingAuditRepository: AuditRepository = {
+      record: () => Promise.reject(new Error('audit write failed')),
+      listEvents: () => Promise.resolve([]),
+      getStatistics: () =>
+        Promise.resolve({ total: 0, entryChanges: 0, downloadRequests: 0, sharingChanges: 0 }),
+    };
+    const serviceWithFailingAudit = new FileSharingService(
+      unitOfWork,
+      authorizationService,
+      entryAuthorizer,
+      repository,
+      failingAuditRepository,
+      accessMapper,
+    );
+
+    await expect(
+      serviceWithFailingAudit.shareFile(owner, file.publicId, {
+        recipientEmail: 'recipient@example.com',
+        permission: 'viewer',
+        expiresAt: null,
+      }),
+    ).rejects.toThrow('audit write failed');
+
+    await expect(database.select().from(fileGrants)).resolves.toHaveLength(0);
+    await expect(database.select().from(auditEvents)).resolves.toHaveLength(0);
   });
 
   it('enforces one active grant per recipient and file at the database boundary', async () => {
@@ -217,14 +257,12 @@ describe('PostgresFileGrantRepository', () => {
     const recipient = await createUser('recipient@example.com');
     const file = await createFile(owner.id);
 
-    await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: recipient.email,
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
 
     let caught: unknown;
@@ -249,26 +287,23 @@ describe('PostgresFileGrantRepository', () => {
     const owner = await createUser('owner@example.com');
     const recipient = await createUser('old@example.com');
     const file = await createFile(owner.id);
-    const existing = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const existing = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: recipient.email,
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
     const newEmail = 'new@example.com';
     await database.update(users).set({ email: newEmail }).where(eq(users.id, recipient.id));
 
-    const updated = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const updated = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: newEmail,
       permission: 'editor',
       expiresAt: null,
       submittedAt: new Date('2026-08-01T11:00:00.000Z'),
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
 
     expect(updated).toMatchObject({
@@ -291,25 +326,21 @@ describe('PostgresFileGrantRepository', () => {
       'alpha@example.com',
       'bravo@example.com',
     ]) {
-      await repository.save({
-        actorUserId: owner.id,
-        filePublicId: file.publicId,
+      await saveGrant({
+        fileId: file.id,
+        createdByUserId: owner.id,
         recipientEmail,
         permission: 'viewer',
         expiresAt: null,
-        submittedAt: SUBMITTED_AT,
-        pendingActivationDeadline: PENDING_DEADLINE,
       });
     }
 
-    await repository.save({
-      actorUserId: owner.id,
-      filePublicId: otherFile.publicId,
+    await saveGrant({
+      fileId: otherFile.id,
+      createdByUserId: owner.id,
       recipientEmail: 'other@example.com',
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
 
     const firstPage = await repository.listByFileId({
@@ -353,41 +384,33 @@ describe('PostgresFileGrantRepository', () => {
     const otherFile = await createFile(owner.id, 'Other.txt');
     const listedAt = new Date('2026-08-02T10:00:00.000Z');
 
-    await repository.save({
-      actorUserId: owner.id,
-      filePublicId: visibleFile.publicId,
+    await saveGrant({
+      fileId: visibleFile.id,
+      createdByUserId: owner.id,
       recipientEmail: recipient.email,
       permission: 'editor',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
-    await repository.save({
-      actorUserId: owner.id,
-      filePublicId: expiredFile.publicId,
+    await saveGrant({
+      fileId: expiredFile.id,
+      createdByUserId: owner.id,
       recipientEmail: recipient.email,
       permission: 'viewer',
       expiresAt: listedAt,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
-    await repository.save({
-      actorUserId: owner.id,
-      filePublicId: deletedFile.publicId,
+    await saveGrant({
+      fileId: deletedFile.id,
+      createdByUserId: owner.id,
       recipientEmail: recipient.email,
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
-    await repository.save({
-      actorUserId: owner.id,
-      filePublicId: otherFile.publicId,
+    await saveGrant({
+      fileId: otherFile.id,
+      createdByUserId: owner.id,
       recipientEmail: otherRecipient.email,
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
     await database
       .update(entries)
@@ -439,14 +462,12 @@ describe('PostgresFileGrantRepository', () => {
       [secondOwner, 'alpha.txt'],
     ] as const) {
       const file = await createFile(owner.id, name);
-      await repository.save({
-        actorUserId: owner.id,
-        filePublicId: file.publicId,
+      await saveGrant({
+        fileId: file.id,
+        createdByUserId: owner.id,
         recipientEmail: recipient.email,
         permission: 'viewer',
         expiresAt: null,
-        submittedAt: SUBMITTED_AT,
-        pendingActivationDeadline: PENDING_DEADLINE,
       });
     }
 
@@ -477,98 +498,71 @@ describe('PostgresFileGrantRepository', () => {
     ).toBe(false);
   });
 
-  it('revokes both active and pending grants', async () => {
+  it('revokes both active and pending grants and records audit events', async () => {
     const owner = await createUser('owner@example.com');
     const recipient = await createUser('recipient@example.com');
     const file = await createFile(owner.id);
-    const activeGrant = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const activeGrant = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: recipient.email,
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
-    const pendingGrant = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const pendingGrant = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: 'pending@example.com',
       permission: 'editor',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
 
-    await repository.revoke({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
-      grantPublicId: activeGrant.publicId,
-      revokedAt: SUBMITTED_AT,
-    });
-    await repository.revoke({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
-      grantPublicId: pendingGrant.publicId,
-      revokedAt: SUBMITTED_AT,
-    });
+    await sharingService.revokeFileShare(owner, file.publicId, activeGrant.publicId);
+    await sharingService.revokeFileShare(owner, file.publicId, pendingGrant.publicId);
 
     await expect(database.select().from(fileGrants)).resolves.toHaveLength(0);
+    const events = await database.select().from(auditEvents);
+    expect(events.map((event) => event.action)).toStrictEqual([
+      'file.share_revoked',
+      'file.share_revoked',
+    ]);
   });
 
   it('does not revoke a grant belonging to another file and treats missing grants as success', async () => {
     const owner = await createUser('owner@example.com');
     const targetFile = await createFile(owner.id);
     const otherFile = await createFile(owner.id, 'other.txt');
-    const otherGrant = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: otherFile.publicId,
+    const otherGrant = await saveGrant({
+      fileId: otherFile.id,
+      createdByUserId: owner.id,
       recipientEmail: 'recipient@example.com',
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
 
-    await repository.revoke({
-      actorUserId: owner.id,
-      filePublicId: targetFile.publicId,
-      grantPublicId: otherGrant.publicId,
-      revokedAt: SUBMITTED_AT,
-    });
-    await repository.revoke({
-      actorUserId: owner.id,
-      filePublicId: targetFile.publicId,
-      grantPublicId: randomUUID(),
-      revokedAt: SUBMITTED_AT,
-    });
+    await sharingService.revokeFileShare(owner, targetFile.publicId, otherGrant.publicId);
+    await sharingService.revokeFileShare(owner, targetFile.publicId, randomUUID());
 
     const remainingGrants = await database.select().from(fileGrants);
     expect(remainingGrants).toHaveLength(1);
     expect(remainingGrants[0]?.publicId).toBe(otherGrant.publicId);
+    expect(await database.select().from(auditEvents)).toHaveLength(0);
   });
 
   it('does not revoke a grant when the actor cannot manage the file sharing', async () => {
     const owner = await createUser('owner@example.com');
     const otherUser = await createUser('other@example.com');
     const file = await createFile(owner.id);
-    const grant = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const grant = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: 'recipient@example.com',
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
 
     await expect(
-      repository.revoke({
-        actorUserId: otherUser.id,
-        filePublicId: file.publicId,
-        grantPublicId: grant.publicId,
-        revokedAt: SUBMITTED_AT,
-      }),
+      sharingService.revokeFileShare(otherUser, file.publicId, grant.publicId),
     ).rejects.toMatchObject({
       code: 'entry_not_found',
     });
@@ -576,6 +570,7 @@ describe('PostgresFileGrantRepository', () => {
     const remainingGrants = await database.select().from(fileGrants);
     expect(remainingGrants).toHaveLength(1);
     expect(remainingGrants[0]?.publicId).toBe(grant.publicId);
+    expect(await database.select().from(auditEvents)).toHaveLength(0);
   });
 
   it('partially updates an active grant while preserving its identity and omitted fields', async () => {
@@ -583,27 +578,29 @@ describe('PostgresFileGrantRepository', () => {
     const recipient = await createUser('recipient@example.com');
     const file = await createFile(owner.id);
     const originalExpiry = new Date('2026-08-05T10:00:00.000Z');
-    const grant = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const grant = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: recipient.email,
       permission: 'viewer',
       expiresAt: originalExpiry,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
     const permissionUpdatedAt = new Date('2026-08-01T11:00:00.000Z');
 
-    const permissionUpdated = await repository.update({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
-      grantPublicId: grant.publicId,
-      permission: 'editor',
-      expiresAt: undefined,
-      updatedAt: permissionUpdatedAt,
-    });
+    const permissionUpdated = await unitOfWork.run((tx) =>
+      repository.update(
+        {
+          fileId: file.id,
+          grantPublicId: grant.publicId,
+          permission: 'editor',
+          expiresAt: undefined,
+          updatedAt: permissionUpdatedAt,
+        },
+        tx,
+      ),
+    );
 
-    expect(permissionUpdated).toMatchObject({
+    expect(permissionUpdated?.updated).toMatchObject({
       id: grant.id,
       publicId: grant.publicId,
       permission: 'editor',
@@ -613,16 +610,20 @@ describe('PostgresFileGrantRepository', () => {
     });
 
     const expiryClearedAt = new Date('2026-08-01T12:00:00.000Z');
-    const expiryCleared = await repository.update({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
-      grantPublicId: grant.publicId,
-      permission: undefined,
-      expiresAt: null,
-      updatedAt: expiryClearedAt,
-    });
+    const expiryCleared = await unitOfWork.run((tx) =>
+      repository.update(
+        {
+          fileId: file.id,
+          grantPublicId: grant.publicId,
+          permission: undefined,
+          expiresAt: null,
+          updatedAt: expiryClearedAt,
+        },
+        tx,
+      ),
+    );
 
-    expect(expiryCleared).toMatchObject({
+    expect(expiryCleared?.updated).toMatchObject({
       id: grant.id,
       permission: 'editor',
       expiresAt: null,
@@ -634,56 +635,66 @@ describe('PostgresFileGrantRepository', () => {
   it('only shortens a pending grant activation deadline', async () => {
     const owner = await createUser('owner@example.com');
     const file = await createFile(owner.id);
-    const grant = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const grant = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: 'pending@example.com',
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
     const earlierExpiry = new Date('2026-08-01T12:00:00.000Z');
 
-    const shortened = await repository.update({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
-      grantPublicId: grant.publicId,
-      permission: undefined,
-      expiresAt: earlierExpiry,
-      updatedAt: new Date('2026-08-01T11:00:00.000Z'),
-    });
+    const shortened = await unitOfWork.run((tx) =>
+      repository.update(
+        {
+          fileId: file.id,
+          grantPublicId: grant.publicId,
+          permission: undefined,
+          expiresAt: earlierExpiry,
+          updatedAt: new Date('2026-08-01T11:00:00.000Z'),
+        },
+        tx,
+      ),
+    );
 
-    expect(shortened).toMatchObject({
+    expect(shortened?.updated).toMatchObject({
       expiresAt: earlierExpiry,
       activationDeadline: earlierExpiry,
     });
 
     const laterExpiry = new Date('2026-08-05T10:00:00.000Z');
-    const extended = await repository.update({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
-      grantPublicId: grant.publicId,
-      permission: undefined,
-      expiresAt: laterExpiry,
-      updatedAt: new Date('2026-08-01T11:30:00.000Z'),
-    });
+    const extended = await unitOfWork.run((tx) =>
+      repository.update(
+        {
+          fileId: file.id,
+          grantPublicId: grant.publicId,
+          permission: undefined,
+          expiresAt: laterExpiry,
+          updatedAt: new Date('2026-08-01T11:30:00.000Z'),
+        },
+        tx,
+      ),
+    );
 
-    expect(extended).toMatchObject({
+    expect(extended?.updated).toMatchObject({
       expiresAt: laterExpiry,
       activationDeadline: earlierExpiry,
     });
 
-    const expiryCleared = await repository.update({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
-      grantPublicId: grant.publicId,
-      permission: undefined,
-      expiresAt: null,
-      updatedAt: new Date('2026-08-01T11:45:00.000Z'),
-    });
+    const expiryCleared = await unitOfWork.run((tx) =>
+      repository.update(
+        {
+          fileId: file.id,
+          grantPublicId: grant.publicId,
+          permission: undefined,
+          expiresAt: null,
+          updatedAt: new Date('2026-08-01T11:45:00.000Z'),
+        },
+        tx,
+      ),
+    );
 
-    expect(expiryCleared).toMatchObject({
+    expect(expiryCleared?.updated).toMatchObject({
       expiresAt: null,
       activationDeadline: earlierExpiry,
     });
@@ -693,24 +704,26 @@ describe('PostgresFileGrantRepository', () => {
     const owner = await createUser('owner@example.com');
     const targetFile = await createFile(owner.id);
     const otherFile = await createFile(owner.id, 'other.txt');
-    const otherGrant = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: otherFile.publicId,
+    const otherGrant = await saveGrant({
+      fileId: otherFile.id,
+      createdByUserId: owner.id,
       recipientEmail: 'recipient@example.com',
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
 
-    const result = await repository.update({
-      actorUserId: owner.id,
-      filePublicId: targetFile.publicId,
-      grantPublicId: otherGrant.publicId,
-      permission: 'editor',
-      expiresAt: undefined,
-      updatedAt: new Date('2026-08-01T11:00:00.000Z'),
-    });
+    const result = await unitOfWork.run((tx) =>
+      repository.update(
+        {
+          fileId: targetFile.id,
+          grantPublicId: otherGrant.publicId,
+          permission: 'editor',
+          expiresAt: undefined,
+          updatedAt: new Date('2026-08-01T11:00:00.000Z'),
+        },
+        tx,
+      ),
+    );
 
     expect(result).toBeNull();
     const [storedGrant] = await database.select().from(fileGrants);
@@ -725,24 +738,17 @@ describe('PostgresFileGrantRepository', () => {
     const owner = await createUser('owner@example.com');
     const recipient = await createUser('recipient@example.com');
     const file = await createFile(owner.id);
-    const grant = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const grant = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: recipient.email,
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
-      pendingActivationDeadline: PENDING_DEADLINE,
     });
 
     await expect(
-      repository.update({
-        actorUserId: recipient.id,
-        filePublicId: file.publicId,
-        grantPublicId: grant.publicId,
+      sharingService.updateFileShare(recipient, file.publicId, grant.publicId, {
         permission: 'editor',
-        expiresAt: undefined,
-        updatedAt: new Date('2026-08-01T11:00:00.000Z'),
       }),
     ).rejects.toMatchObject({
       code: 'authorization_denied',
@@ -754,6 +760,7 @@ describe('PostgresFileGrantRepository', () => {
       permission: 'viewer',
       updatedAt: SUBMITTED_AT,
     });
+    expect(await database.select().from(auditEvents)).toHaveLength(0);
   });
 
   it('deletes expired pending grants and activates recipients available before the deadline', async () => {
@@ -762,31 +769,28 @@ describe('PostgresFileGrantRepository', () => {
     const processedAt = PENDING_DEADLINE;
     const futureDeadline = new Date('2026-08-03T10:00:00.000Z');
 
-    const expired = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const expired = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: 'expired@example.com',
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
       pendingActivationDeadline: processedAt,
     });
-    const activatable = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const activatable = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: 'available@example.com',
       permission: 'editor',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
       pendingActivationDeadline: futureDeadline,
     });
-    const unresolved = await repository.save({
-      actorUserId: owner.id,
-      filePublicId: file.publicId,
+    const unresolved = await saveGrant({
+      fileId: file.id,
+      createdByUserId: owner.id,
       recipientEmail: 'unresolved@example.com',
       permission: 'viewer',
       expiresAt: null,
-      submittedAt: SUBMITTED_AT,
       pendingActivationDeadline: futureDeadline,
     });
     const recipient = await createUser('available@example.com');
@@ -819,25 +823,23 @@ describe('PostgresFileGrantRepository', () => {
       ['expired-first@example.com', new Date('2026-08-02T08:00:00.000Z')],
       ['expired-second@example.com', new Date('2026-08-02T09:00:00.000Z')],
     ] as const) {
-      await repository.save({
-        actorUserId: owner.id,
-        filePublicId: file.publicId,
+      await saveGrant({
+        fileId: file.id,
+        createdByUserId: owner.id,
         recipientEmail,
         permission: 'viewer',
         expiresAt: null,
-        submittedAt: SUBMITTED_AT,
         pendingActivationDeadline,
       });
     }
 
     for (const recipientEmail of ['available-first@example.com', 'available-second@example.com']) {
-      await repository.save({
-        actorUserId: owner.id,
-        filePublicId: file.publicId,
+      await saveGrant({
+        fileId: file.id,
+        createdByUserId: owner.id,
         recipientEmail,
         permission: 'viewer',
         expiresAt: null,
-        submittedAt: SUBMITTED_AT,
         pendingActivationDeadline: new Date('2026-08-03T10:00:00.000Z'),
       });
       await createUser(recipientEmail);
@@ -856,6 +858,31 @@ describe('PostgresFileGrantRepository', () => {
     expect(storedGrants).toHaveLength(2);
     expect(storedGrants.every((grant) => grant.recipientUserId !== null)).toBe(true);
   });
+
+  async function saveGrant(input: {
+    fileId: number;
+    createdByUserId: number;
+    recipientEmail: string;
+    permission: 'viewer' | 'editor';
+    expiresAt: Date | null;
+    submittedAt?: Date;
+    pendingActivationDeadline?: Date;
+  }) {
+    return unitOfWork.run((tx) =>
+      repository.save(
+        {
+          fileId: input.fileId,
+          createdByUserId: input.createdByUserId,
+          recipientEmail: input.recipientEmail,
+          permission: input.permission,
+          expiresAt: input.expiresAt,
+          submittedAt: input.submittedAt ?? SUBMITTED_AT,
+          pendingActivationDeadline: input.pendingActivationDeadline ?? PENDING_DEADLINE,
+        },
+        tx,
+      ),
+    );
+  }
 
   async function createUser(email: string) {
     const [user] = await database

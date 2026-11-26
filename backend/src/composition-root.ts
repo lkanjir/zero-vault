@@ -85,8 +85,15 @@ export function createApiComposition(db: Database, s3Config: S3Config) {
     storage,
   );
 
-  const grantRepository = new PostgresFileGrantRepository(db, authorizer);
-  const sharingService = new FileSharingService(authorizationService, grantRepository, authzMapper);
+  const grantRepository = new PostgresFileGrantRepository(db);
+  const sharingService = new FileSharingService(
+    unitOfWork,
+    authorizationService,
+    authorizer,
+    grantRepository,
+    auditRepository,
+    authzMapper,
+  );
 
   return {
     userService,
@@ -134,7 +141,7 @@ export function createMaintenanceWorkerComposition(db: Database) {
   const folderDownloadRepository = new PostgresFolderDownloadRepository(db);
   const folderDownloadCleanupService = new FolderDownloadCleanupService(folderDownloadRepository);
 
-  const grantRepository = new PostgresFileGrantRepository(db, authorizer);
+  const grantRepository = new PostgresFileGrantRepository(db);
   const fileGrantMaintenanceService = new FileGrantMaintenanceService(grantRepository);
 
   return {
