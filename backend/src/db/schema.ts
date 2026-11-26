@@ -2,6 +2,7 @@ import {
   pgTable,
   index,
   unique,
+  uniqueIndex,
   check,
   bigint,
   uuid,
@@ -162,6 +163,9 @@ export const users = pgTable(
       and char_length(${table.email}) between 3 and 254
     `,
     ),
+    uniqueIndex('users_active_email_key')
+      .on(sql`lower(${table.email})`)
+      .where(sql`${table.deletedAt} is null`),
   ],
 );
 
@@ -193,6 +197,9 @@ export const entries = pgTable(
       sql`${table.parentId} is null or ${table.parentId} <> ${table.id}`,
     ),
     check('entries_name_not_blank_check', sql`char_length(btrim(${table.name})) between 1 and 500`),
+    // Partial unique index `entries_owner_parent_name_active_key` on (owner_id, parent_id, lower(name))
+    // with NULLS NOT DISTINCT WHERE deleted_at IS NULL is managed in 0001_uniqe_index_for_file_name.sql
+    // because Drizzle's uniqueIndex builder does not support NULLS NOT DISTINCT.
     index('entries_owner_parent_listing_index')
       .on(
         table.ownerId,
@@ -201,6 +208,18 @@ export const entries = pgTable(
         sql`lower(${table.name})`,
         table.id,
       )
+      .where(sql`${table.deletedAt} is null`),
+    index('entries_owner_parent_updated_at_listing_idx')
+      .on(
+        table.ownerId,
+        table.parentId,
+        sql`(case when ${table.kind} = 'folder' then 0 else 1 end)`,
+        sql`date_trunc('milliseconds', ${table.updatedAt}, 'UTC')`,
+        table.id,
+      )
+      .where(sql`${table.deletedAt} is null`),
+    index('entries_name_trgm_idx')
+      .using('gin', sql`${table.name} gin_trgm_ops`)
       .where(sql`${table.deletedAt} is null`),
   ],
 );
@@ -395,6 +414,9 @@ export const fileGrants = pgTable(
     index('file_grants_pending_deadline_idx')
       .on(table.activationDeadline)
       .where(sql`${table.recipientUserId} is null`),
+    uniqueIndex('file_grants_file_recipient_user_key')
+      .on(table.recipientUserId, table.fileId)
+      .where(sql`${table.recipientUserId} is not null`),
     foreignKey({
       name: 'file_grants_file_owner_fk',
       columns: [table.fileId, table.createdByUserId],
@@ -435,5 +457,9 @@ export const auditEvents = pgTable(
     ),
     index('audit_events_owner_occurred_at_id_idx').on(table.ownerId, table.occurredAt, table.id),
     index('audit_events_entry_occurred_at_id_idx').on(table.entryId, table.occurredAt, table.id),
+    index('audit_events_entry_name_snapshot_trgm_idx').using(
+      'gin',
+      sql`${table.entryNameSnapshot} gin_trgm_ops`,
+    ),
   ],
 );

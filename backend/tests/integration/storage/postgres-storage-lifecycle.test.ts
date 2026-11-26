@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import {
   auditEvents,
   entries,
@@ -690,6 +690,24 @@ describe('PostgreSQL storage lifecycle', () => {
         expect(new Set(names).size).toBe(expected.length);
       },
     );
+
+    it('creates all expected listing, search, and partial unique indexes via migrations', async () => {
+      const result = await database.execute<{ indexname: string }>(sql`
+        SELECT indexname
+        FROM pg_indexes
+        WHERE schemaname = 'public'
+      `);
+
+      const indexNames = new Set(result.rows.map((row) => row.indexname));
+
+      expect(indexNames).toContain('entries_owner_parent_name_active_key');
+      expect(indexNames).toContain('entries_owner_parent_listing_index');
+      expect(indexNames).toContain('entries_owner_parent_updated_at_listing_idx');
+      expect(indexNames).toContain('entries_name_trgm_idx');
+      expect(indexNames).toContain('users_active_email_key');
+      expect(indexNames).toContain('file_grants_file_recipient_user_key');
+      expect(indexNames).toContain('audit_events_entry_name_snapshot_trgm_idx');
+    });
   });
 
   async function createUser() {

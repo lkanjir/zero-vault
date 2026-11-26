@@ -50,7 +50,7 @@ export class PostgresEntryRepository implements EntryRepository {
 
   readonly kindRankExpression = sql<number>`case when ${entries.kind} = 'folder' then 0 else 1 end`;
   readonly sortNameExpression = sql<string>`lower(${entries.name})`;
-  readonly sortUpdatedAtExpression = sql<Date>`date_trunc('milliseconds', ${entries.updatedAt})`;
+  readonly sortUpdatedAtExpression = sql<Date>`date_trunc('milliseconds', ${entries.updatedAt}, 'UTC')`;
 
   async getEntries(query: EntriesQuery): Promise<EntryListing> {
     const resolvedFolder = await this.resolveFolderPath(query.ownerId, query.parentId);
