@@ -25,6 +25,14 @@ import { TransferFailure, TransferOperation, UploadTransfer } from './transfer-m
 type FailureContext = 'preparing' | 'presigning' | 'uploading' | 'finalizing';
 
 const MAX_CONCURRENT_UPLOADS = 3;
+const TERMINAL_SERVER_ERROR_CODES = new Set([
+  'upload_already_completed',
+  'upload_aborted',
+  'upload_expired',
+  'upload_not_found',
+  'duplicate_entry_name',
+  'replacement_conflict',
+]);
 
 @Injectable({ providedIn: 'root' })
 export class TransferStore {
@@ -184,6 +192,9 @@ export class TransferStore {
           intent,
           signal: controller.signal,
           onProgress: (snapshot) => {
+            if (controller.signal.aborted) {
+              return;
+            }
             this.patch(transferId, {
               progress: snapshot.progress,
               bytesPerSecond: snapshot.bytesPerSecond,
@@ -196,6 +207,9 @@ export class TransferStore {
           intent,
           signal: controller.signal,
           onProgress: (snapshot) => {
+            if (controller.signal.aborted) {
+              return;
+            }
             this.patch(transferId, {
               progress: snapshot.progress,
               bytesPerSecond: snapshot.bytesPerSecond,
@@ -248,11 +262,18 @@ export class TransferStore {
 
       const failure = this.mapFailure(error, failureContext);
 
+      if (createdUploadId !== null && !TERMINAL_SERVER_ERROR_CODES.has(failure.code)) {
+        this.abortUploadBestEffort(createdUploadId);
+      }
+
       this.patch(transferId, { phase: 'failed', bytesPerSecond: null, error: failure });
 
       return { ok: false, error: failure };
     } finally {
       this.activeControllers.delete(transferId);
+      if (createdUploadId !== null) {
+        this.abortedUploadIds.delete(createdUploadId);
+      }
     }
   }
 
@@ -292,7 +313,12 @@ export class TransferStore {
       finalizing: 'Greška pri završavanju.',
     }[context];
 
-    const message = context === 'uploading' ? fallback : apiErrorMessage(error, fallback);
+    const message =
+      context === 'uploading'
+        ? error.message
+          ? apiErrorMessage(error, fallback)
+          : fallback
+        : apiErrorMessage(error, fallback);
 
     return { ...error, message };
   }

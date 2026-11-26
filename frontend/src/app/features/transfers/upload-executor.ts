@@ -19,6 +19,8 @@ import {
   CompletedUploadPart,
   MultipartUploadIntentResponse,
   PresignedUploadPart,
+  PresignPartItemRequest,
+  PresignUploadPartsResponse,
   SinglePartUploadIntentResponse,
 } from '../../data-access/uploads/upload-models';
 import { calculateBufferSha256 } from '../../shared/util/sha256';
@@ -43,6 +45,7 @@ const STANDARD_PART_CONCURRENCY = 3;
 const LARGE_PART_CONCURRENCY = 2;
 const MAX_PART_ATTEMPTS = 4;
 const BASE_RETRY_DELAY_MS = 500;
+const MAX_RETRY_AFTER_MS = 60_000;
 
 @Injectable({ providedIn: 'root' })
 export class UploadExecutor {
@@ -108,6 +111,10 @@ export class UploadExecutor {
     const uploadStartedAt = performance.now();
 
     const reportProgress = () => {
+      if (signal.aborted) {
+        return;
+      }
+
       let activeBytes = 0;
       for (const loaded of inFlightBytes.values()) {
         activeBytes += loaded;
@@ -151,10 +158,9 @@ export class UploadExecutor {
         });
       }
 
-      const presignedResponse = await abortableLastValueFrom(
-        this.uploadApi.presignParts(intent.uploadId, {
-          parts: batchParts.map(({ partNumber, sha256 }) => ({ partNumber, sha256 })),
-        }),
+      const presignedResponse = await this.presignPartsWithRetry(
+        intent.uploadId,
+        batchParts.map(({ partNumber, sha256 }) => ({ partNumber, sha256 })),
         signal,
       );
       const presignedByPart = new Map(
@@ -162,7 +168,9 @@ export class UploadExecutor {
       );
 
       const batchAbortController = new AbortController();
-      const batchSignal = combineSignals(signal, batchAbortController.signal);
+      const batchCombined = combineSignals(signal, batchAbortController.signal);
+      let firstBatchError: unknown = null;
+      let hasBatchError = false;
 
       try {
         const batchCompleted = await Promise.all(
@@ -180,7 +188,7 @@ export class UploadExecutor {
                 buffer: part.buffer,
                 sha256: part.sha256,
                 initialPresigned,
-                signal: batchSignal,
+                signal: batchCombined.signal,
                 onPartProgress: (loaded) => {
                   inFlightBytes.set(part.partNumber, Math.min(loaded, part.sizeBytes));
                   reportProgress();
@@ -201,6 +209,10 @@ export class UploadExecutor {
                 sha256: part.sha256,
               };
             } catch (error) {
+              if (!signal.aborted && !hasBatchError && !isUploadCancelledError(error)) {
+                hasBatchError = true;
+                firstBatchError = error;
+              }
               batchAbortController.abort();
               throw error;
             }
@@ -212,11 +224,45 @@ export class UploadExecutor {
         if (signal.aborted) {
           throw new UploadCancelledError();
         }
+        if (hasBatchError) {
+          throw firstBatchError;
+        }
         throw error;
+      } finally {
+        batchCombined.cleanup();
       }
     }
 
     return completedParts;
+  }
+
+  private async presignPartsWithRetry(
+    uploadId: string,
+    parts: readonly PresignPartItemRequest[],
+    signal: AbortSignal,
+  ): Promise<PresignUploadPartsResponse> {
+    for (let attempt = 1; attempt <= MAX_PART_ATTEMPTS; attempt++) {
+      throwIfAborted(signal);
+
+      try {
+        return await abortableLastValueFrom(
+          this.uploadApi.presignParts(uploadId, { parts }),
+          signal,
+        );
+      } catch (error) {
+        if (isUploadCancelledError(error) || signal.aborted) {
+          throw new UploadCancelledError();
+        }
+
+        if (attempt >= MAX_PART_ATTEMPTS || !isRetryablePresignError(error)) {
+          throw error;
+        }
+
+        await abortableDelay(computeRetryDelayMs(error, attempt), signal);
+      }
+    }
+
+    throw new Error('Exceeded retry attempts for part presigning');
   }
 
   private async uploadPartWithRetry(params: {
@@ -257,23 +303,22 @@ export class UploadExecutor {
 
         return extractPartEtag(finalEvent, params.partNumber);
       } catch (error) {
-        params.onPartReset();
-
         if (isUploadCancelledError(error) || params.signal.aborted) {
           throw new UploadCancelledError();
         }
+
+        params.onPartReset();
 
         if (attempt >= MAX_PART_ATTEMPTS || !isRetryablePartError(error)) {
           throw error;
         }
 
-        await abortableDelay(BASE_RETRY_DELAY_MS * 2 ** (attempt - 1), params.signal);
+        await abortableDelay(computeRetryDelayMs(error, attempt), params.signal);
 
         if (error instanceof HttpErrorResponse && error.status === 403) {
-          const refreshed = await abortableLastValueFrom(
-            this.uploadApi.presignParts(params.uploadId, {
-              parts: [{ partNumber: params.partNumber, sha256: params.sha256 }],
-            }),
+          const refreshed = await this.presignPartsWithRetry(
+            params.uploadId,
+            [{ partNumber: params.partNumber, sha256: params.sha256 }],
             params.signal,
           );
           const refreshedPart = refreshed.parts[0];
@@ -302,6 +347,14 @@ function extractPartEtag(event: HttpEvent<void>, partNumber: number): string {
   return etag;
 }
 
+function isRetryablePresignError(error: unknown): boolean {
+  if (!(error instanceof HttpErrorResponse)) {
+    return false;
+  }
+
+  return error.status === 0 || error.status === 408 || error.status === 429 || error.status >= 500;
+}
+
 function isRetryablePartError(error: unknown): boolean {
   if (!(error instanceof HttpErrorResponse)) {
     return false;
@@ -316,26 +369,78 @@ function isRetryablePartError(error: unknown): boolean {
   );
 }
 
+function computeRetryDelayMs(error: unknown, attempt: number): number {
+  const backoffMs = BASE_RETRY_DELAY_MS * 2 ** (attempt - 1);
+
+  if (!(error instanceof HttpErrorResponse)) {
+    return backoffMs;
+  }
+
+  const retryAfterMs = parseRetryAfterMs(error.headers.get('Retry-After'));
+  if (retryAfterMs === null) {
+    return backoffMs;
+  }
+
+  return Math.min(Math.max(retryAfterMs, backoffMs), MAX_RETRY_AFTER_MS);
+}
+
+function parseRetryAfterMs(headerValue: string | null): number | null {
+  if (headerValue === null) {
+    return null;
+  }
+
+  const trimmed = headerValue.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  if (/^\d+$/.test(trimmed)) {
+    return Number(trimmed) * 1_000;
+  }
+
+  const targetMs = Date.parse(trimmed);
+  if (Number.isNaN(targetMs)) {
+    return null;
+  }
+
+  return Math.max(0, targetMs - Date.now());
+}
+
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) {
     throw new UploadCancelledError();
   }
 }
 
-function combineSignals(parent: AbortSignal, child: AbortSignal): AbortSignal {
+function combineSignals(
+  parent: AbortSignal,
+  child: AbortSignal,
+): { signal: AbortSignal; cleanup: () => void } {
   if (typeof AbortSignal.any === 'function') {
-    return AbortSignal.any([parent, child]);
+    return {
+      signal: AbortSignal.any([parent, child]),
+      cleanup: () => undefined,
+    };
   }
 
   const controller = new AbortController();
   const abort = () => controller.abort();
   if (parent.aborted || child.aborted) {
     controller.abort();
-    return controller.signal;
+    return {
+      signal: controller.signal,
+      cleanup: () => undefined,
+    };
   }
   parent.addEventListener('abort', abort, { once: true });
   child.addEventListener('abort', abort, { once: true });
-  return controller.signal;
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      parent.removeEventListener('abort', abort);
+      child.removeEventListener('abort', abort);
+    },
+  };
 }
 
 export function abortableLastValueFrom<T>(source$: Observable<T>, signal: AbortSignal): Promise<T> {

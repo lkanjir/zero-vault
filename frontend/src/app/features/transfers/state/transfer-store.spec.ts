@@ -252,6 +252,76 @@ describe('TransferStore', () => {
     });
     expect(store.transfers()[0]?.phase).toBe('cancelled');
   });
+
+  it('aborts an active multipart upload on permanent part upload failure to free S3 parts immediately', async () => {
+    const bigFile = createFakeSizedFile('fail-part.bin', SINGLE_PART_MAX_BYTES + 50);
+    vi.spyOn(uploadExecutor, 'uploadMultipart').mockRejectedValue(
+      new Error('Missing ETag header for part 1'),
+    );
+
+    const resultPromise = store.startUpload(bigFile, null);
+
+    const presignReq = await waitForRequest(httpTesting, '/api/uploads/presign');
+    presignReq.flush({
+      uploadMode: 'multipart',
+      uploadId: 'upload-fail-1',
+      partSizeBytes: SINGLE_PART_MAX_BYTES,
+      partCount: 2,
+      finalizeDeadline: '2026-08-10T11:00:00.000Z',
+    });
+
+    const abortReq = await waitForRequest(httpTesting, '/api/uploads/upload-fail-1/abort');
+    expect(abortReq.request.method).toBe('POST');
+    abortReq.flush(null, { status: 204, statusText: 'No Content' });
+
+    const result = await resultPromise;
+    expect(result).toStrictEqual({
+      ok: false,
+      error: {
+        status: -1,
+        code: 'unexpected_error',
+        message: 'Prijenos nije uspio.',
+      },
+    });
+    expect(store.transfers()[0]?.phase).toBe('failed');
+  });
+
+  it('surfaces Croatian API error messages during multipart part presigning without redundant /abort on terminal server errors', async () => {
+    const bigFile = createFakeSizedFile('expired-mid.bin', SINGLE_PART_MAX_BYTES + 50);
+
+    const resultPromise = store.startUpload(bigFile, null);
+
+    const presignReq = await waitForRequest(httpTesting, '/api/uploads/presign');
+    presignReq.flush({
+      uploadMode: 'multipart',
+      uploadId: 'upload-expired-mid',
+      partSizeBytes: SINGLE_PART_MAX_BYTES,
+      partCount: 2,
+      finalizeDeadline: '2026-08-10T11:00:00.000Z',
+    });
+
+    const partPresignReq = await waitForRequest(
+      httpTesting,
+      '/api/uploads/upload-expired-mid/parts/presign',
+    );
+    partPresignReq.flush(
+      { code: 'upload_expired', message: 'Vrijeme za dovršavanje prijenosa je isteklo.' },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    const result = await resultPromise;
+    expect(result).toStrictEqual({
+      ok: false,
+      error: {
+        status: 409,
+        code: 'upload_expired',
+        message: 'Vrijeme za dovršavanje prijenosa je isteklo.',
+        requestId: undefined,
+      },
+    });
+    expect(store.transfers()[0]?.phase).toBe('failed');
+    expect(httpTesting.match('/api/uploads/upload-expired-mid/abort')).toHaveLength(0);
+  });
 });
 
 function createFakeSizedFile(name: string, size: number, type = 'application/octet-stream'): File {

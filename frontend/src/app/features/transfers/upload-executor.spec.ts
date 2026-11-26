@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { calculateBufferSha256 } from '../../shared/util/sha256';
 import { UploadCancelledError, UploadExecutor, UploadProgressSnapshot } from './upload-executor';
 
+const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+
 describe('UploadExecutor', () => {
   let executor: UploadExecutor;
   let httpTesting: HttpTestingController;
 
   beforeEach(() => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.useFakeTimers();
     TestBed.configureTestingModule({
       providers: [provideHttpClient(), provideHttpClientTesting()],
     });
@@ -191,11 +193,12 @@ describe('UploadExecutor', () => {
     expect(parts.map((part) => part.etag)).toStrictEqual(['"etag-1"', '"etag-2"']);
   });
 
-  it('cancels in-flight part requests immediately when the signal aborts', async () => {
+  it('cancels in-flight part requests immediately when the signal aborts without emitting backwards progress', async () => {
     const file = new File([new Uint8Array([1, 2, 3, 4, 5, 6])], 'cancel.bin', {
       type: 'application/octet-stream',
     });
     const controller = new AbortController();
+    const snapshots: UploadProgressSnapshot[] = [];
 
     const uploadPromise = executor.uploadMultipart({
       file,
@@ -207,7 +210,7 @@ describe('UploadExecutor', () => {
         finalizeDeadline: '2026-08-10T11:00:00.000Z',
       },
       signal: controller.signal,
-      onProgress: () => undefined,
+      onProgress: (snapshot) => snapshots.push(snapshot),
     });
 
     const presign = await waitForRequest(httpTesting, '/api/uploads/upload-cancel/parts/presign');
@@ -234,11 +237,16 @@ describe('UploadExecutor', () => {
       waitForRequest(httpTesting, 'https://storage.example.test/c2'),
     ]);
 
+    req1.event({ type: HttpEventType.UploadProgress, loaded: 3, total: 3 });
+    expect(snapshots.at(-1)?.progress).toBe(50);
+    const snapshotCountBeforeAbort = snapshots.length;
+
     controller.abort();
 
     await expect(uploadPromise).rejects.toBeInstanceOf(UploadCancelledError);
     expect(req1.cancelled).toBe(true);
     expect(req2.cancelled).toBe(true);
+    expect(snapshots).toHaveLength(snapshotCountBeforeAbort);
   });
 
   it('uploads a 0-byte single-part file cleanly without NaN progress', async () => {
@@ -318,14 +326,113 @@ describe('UploadExecutor', () => {
     await expect(uploadPromise).rejects.toThrow('Missing ETag header for part 1');
     expect(req2.cancelled).toBe(true);
   });
+
+  it('retries transient 429 presignParts errors respecting Retry-After and fails fast on 409', async () => {
+    const file = new File([new Uint8Array([1, 2, 3, 4, 5, 6])], 'presign-retry.bin', {
+      type: 'application/octet-stream',
+    });
+    const controller = new AbortController();
+
+    const uploadPromise = executor.uploadMultipart({
+      file,
+      intent: {
+        uploadMode: 'multipart',
+        uploadId: 'upload-presign-retry',
+        partSizeBytes: 3,
+        partCount: 2,
+        finalizeDeadline: '2026-08-10T11:00:00.000Z',
+      },
+      signal: controller.signal,
+      onProgress: () => undefined,
+    });
+
+    const presign1 = await waitForRequest(
+      httpTesting,
+      '/api/uploads/upload-presign-retry/parts/presign',
+    );
+    presign1.flush(
+      { code: 'rate_limit_exceeded', message: 'Previše zahtjeva.' },
+      { status: 429, statusText: 'Too Many Requests', headers: { 'Retry-After': '2' } },
+    );
+
+    // Let catch block schedule the 2s Retry-After timer before advancing fake time
+    await vi.advanceTimersByTimeAsync(0);
+
+    // 1s is not enough when Retry-After is 2s
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(httpTesting.match('/api/uploads/upload-presign-retry/parts/presign')).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    const presign2 = await waitForRequest(
+      httpTesting,
+      '/api/uploads/upload-presign-retry/parts/presign',
+    );
+    presign2.flush({
+      uploadId: 'upload-presign-retry',
+      parts: [
+        {
+          partNumber: 1,
+          uploadUrl: 'https://storage.example.test/pr1',
+          expiresInSeconds: 900,
+          requiredHeaders: { 'x-amz-checksum-sha256': 'b64-1' },
+        },
+        {
+          partNumber: 2,
+          uploadUrl: 'https://storage.example.test/pr2',
+          expiresInSeconds: 900,
+          requiredHeaders: { 'x-amz-checksum-sha256': 'b64-2' },
+        },
+      ],
+    });
+
+    const [req1, req2] = await Promise.all([
+      waitForRequest(httpTesting, 'https://storage.example.test/pr1'),
+      waitForRequest(httpTesting, 'https://storage.example.test/pr2'),
+    ]);
+    req1.flush(null, { status: 200, statusText: 'OK', headers: { ETag: '"e1"' } });
+    req2.flush(null, { status: 200, statusText: 'OK', headers: { ETag: '"e2"' } });
+
+    const parts = await uploadPromise;
+    expect(parts.map((part) => part.etag)).toStrictEqual(['"e1"', '"e2"']);
+
+    // Non-retryable 409 upload_expired fails immediately without retrying
+    const expiredPromise = executor.uploadMultipart({
+      file,
+      intent: {
+        uploadMode: 'multipart',
+        uploadId: 'upload-presign-expired',
+        partSizeBytes: 3,
+        partCount: 2,
+        finalizeDeadline: '2026-08-10T11:00:00.000Z',
+      },
+      signal: controller.signal,
+      onProgress: () => undefined,
+    });
+
+    const expiredReq = await waitForRequest(
+      httpTesting,
+      '/api/uploads/upload-presign-expired/parts/presign',
+    );
+    expiredReq.flush(
+      { code: 'upload_expired', message: 'Vrijeme za dovršavanje prijenosa je isteklo.' },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    await expect(expiredPromise).rejects.toMatchObject({ status: 409 });
+  });
 });
 
 async function waitForRequest(httpTesting: HttpTestingController, url: string) {
-  return vi.waitFor(() => {
+  for (let attempt = 0; attempt < 200; attempt++) {
     const matches = httpTesting.match(url);
-    if (matches.length === 0) {
-      throw new Error(`Request not yet issued: ${url}`);
+    if (matches.length > 0) {
+      return matches[0];
     }
-    return matches[0];
-  });
+
+    await new Promise<void>((resolve) => {
+      realSetTimeout(resolve, 5);
+    });
+  }
+
+  throw new Error(`Request not yet issued: ${url}`);
 }
