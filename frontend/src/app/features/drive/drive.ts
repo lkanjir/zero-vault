@@ -22,7 +22,6 @@ import { Dialog } from '@angular/cdk/dialog';
 import { RenameEntryDialog } from './rename-entry-dialog/rename-entry-dialog';
 import {
   EntryListItem,
-  EntryResponse,
   type FileEntry,
   type FolderEntry,
 } from '../../data-access/entries/entry-models';
@@ -193,7 +192,7 @@ export class Drive implements OnInit, AfterViewInit {
   rename(selectedEntry: FolderEntry | FileEntry): void {
     const sourceParentId = this.store.parentId();
 
-    const dialogRef = this.dialog.open<EntryResponse>(RenameEntryDialog, {
+    const dialogRef = this.dialog.open<EntryListItem>(RenameEntryDialog, {
       data: {
         entry: selectedEntry,
       },

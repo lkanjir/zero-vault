@@ -2,7 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { form, FormField, FormRoot, maxLength, pattern, validate } from '@angular/forms/signals';
 import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
 import { apiErrorMessage } from '../../../shared/api-error';
-import { EntryResponse } from '../../../data-access/entries/entry-models';
+import { EntryListItem, EntryResponse } from '../../../data-access/entries/entry-models';
 import { EntryActions } from '../actions/entry-actions';
 
 export type RenameDialogData = {
@@ -16,7 +16,7 @@ export type RenameDialogData = {
 })
 export class RenameEntryDialog {
   private readonly entryActions = inject(EntryActions);
-  private readonly dialogRef = inject<DialogRef<EntryResponse>>(DialogRef);
+  private readonly dialogRef = inject<DialogRef<EntryListItem>>(DialogRef);
 
   readonly data = inject<RenameDialogData>(DIALOG_DATA);
   readonly formModel = signal({ name: this.data.entry.name });

@@ -21,7 +21,7 @@ import { EntryDownloadService } from '../drive/actions/download/entry-download-s
 import { apiErrorMessage } from '../../shared/api-error';
 import { Dialog } from '@angular/cdk/dialog';
 import { RenameEntryDialog } from '../drive/rename-entry-dialog/rename-entry-dialog';
-import { EntryResponse, FileEntry } from '../../data-access/entries/entry-models';
+import { EntryListItem, FileEntry } from '../../data-access/entries/entry-models';
 import { TransferStore } from '../transfers/state/transfer-store';
 import { ReplaceContentDialog } from '../transfers/replace-content-dialog/replace-content-dialog';
 
@@ -129,7 +129,7 @@ export class SharedWithMeFiles implements OnInit, AfterViewInit {
   }
 
   rename(file: SharedWithMeFile): void {
-    const dialogRef = this.dialog.open<EntryResponse>(RenameEntryDialog, {
+    const dialogRef = this.dialog.open<EntryListItem>(RenameEntryDialog, {
       data: { entry: file },
       width: 'calc(100vw - 2rem)',
       maxWidth: '28rem',

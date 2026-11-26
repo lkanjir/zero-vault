@@ -4,7 +4,7 @@ import { SharedWithMeFile } from '../../../data-access/sharing/sharing-models';
 import { finalize } from 'rxjs';
 import { apiErrorMessage, toApiError } from '../../../shared/api-error';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { FileEntry } from '../../../data-access/entries/entry-models';
+import { EntryAccess, FileEntry } from '../../../data-access/entries/entry-models';
 
 const SHARED_FILE_PAGE_SIZE = 50;
 
@@ -117,7 +117,7 @@ export class SharedWithMeStore {
     this.loadMore();
   }
 
-  fileUpdated(entry: FileEntry): void {
+  fileUpdated(entry: FileEntry | (FileEntry & { access: EntryAccess })): void {
     this._files.update((files) => {
       const index = files.findIndex((file) => file.id === entry.id);
 
