@@ -23,3 +23,10 @@
 - Never log raw credentials, `Authorization` headers, cookies, or presigned URL signatures.
 - Set `Cache-Control: no-store` on API responses containing user data or presigned URLs.
 - Validate all inputs with Zod before business logic and enforce explicit depth/size/count bounds on recursive queries and background jobs.
+
+## Stack Version Conventions
+
+- **Express 5**: Async route handlers and middleware reject natively to `errorHandler` (no `express-async-errors` wrapper needed); wildcard catch-all routes use `/{*path}` syntax.
+- **Zod 4**: Use top-level string/format schemas (`z.url()`, `z.uuid()`, `z.email()`, `z.stringbool()`, `z.iso.datetime()`), `z.prettifyError()`, and `{ error: '...' }` instead of legacy Zod 3 `{ message: '...' }`.
+- **Drizzle ORM 0.45 / PostgreSQL 18**: Keep `src/db/schema.ts` aligned with `drizzle/*.sql` (note `uniqueIndex` in 0.45 does not support `.nullsNotDistinct()`, so partial `NULLS NOT DISTINCT` unique indexes stay documented custom migrations); use `date_trunc('milliseconds', col, 'UTC')` when an `IMMUTABLE` index expression is required.
+- **Vitest 4 + `vitest-mock-extended`**: Use `mock<T>()` for isolated unit tests and Testcontainers (`tests/integration/`) for PostgreSQL/LocalStack verification.
