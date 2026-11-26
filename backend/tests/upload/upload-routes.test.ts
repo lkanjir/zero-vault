@@ -10,7 +10,6 @@ import type { ErrorResponse } from '../../src/shared/errors/api/error-response.j
 import { errorHandler } from '../../src/shared/http/error-handler.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
 import type { User } from '../../src/user/user.js';
-import type { UserService } from '../../src/user/user-service.js';
 import type { CompleteUploadUseCase } from '../../src/upload/complete-upload-use-case.js';
 import { createUploadRouter } from '../../src/upload/upload-routes.js';
 import type { UploadService } from '../../src/upload/upload-service.js';
@@ -50,21 +49,18 @@ const USER: User = {
 };
 
 describe('upload routes contract', () => {
-  let userService: MockProxy<UserService>;
   let uploadService: MockProxy<UploadService>;
   let completeUploadUseCase: MockProxy<CompleteUploadUseCase>;
 
   beforeEach(() => {
-    userService = mock<UserService>();
     uploadService = mock<UploadService>();
     completeUploadUseCase = mock<CompleteUploadUseCase>();
-    userService.resolveUser.mockResolvedValue(USER);
   });
 
   it('returns duplicate_entry_name when presign precheck finds an existing sibling', async () => {
     uploadService.createUpload.mockRejectedValue(new AppError('duplicate_entry_name'));
 
-    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+    const response = await request(createTestApp(uploadService, completeUploadUseCase))
       .post('/uploads/presign')
       .send({
         parentFolderId: null,
@@ -80,7 +76,7 @@ describe('upload routes contract', () => {
   it('returns duplicate_entry_name when completion loses a database race', async () => {
     completeUploadUseCase.execute.mockRejectedValue(new AppError('duplicate_entry_name'));
 
-    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+    const response = await request(createTestApp(uploadService, completeUploadUseCase))
       .post(`/uploads/${UPLOAD_ID}/complete`)
       .send();
 
@@ -90,7 +86,7 @@ describe('upload routes contract', () => {
   it('returns storage_unavailable when upload presigning fails', async () => {
     uploadService.createUpload.mockRejectedValue(new AppError('storage_unavailable'));
 
-    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+    const response = await request(createTestApp(uploadService, completeUploadUseCase))
       .post('/uploads/presign')
       .send({
         parentFolderId: null,
@@ -104,7 +100,7 @@ describe('upload routes contract', () => {
   });
 
   it('rejects a content type that becomes empty after normalization', async () => {
-    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+    const response = await request(createTestApp(uploadService, completeUploadUseCase))
       .post('/uploads/presign')
       .send({
         parentFolderId: null,
@@ -127,16 +123,13 @@ describe('upload routes contract', () => {
       code: 'too_small',
       path: ['contentType'],
     });
-    expect(userService.resolveUser).not.toHaveBeenCalled();
     expect(uploadService.createUpload).not.toHaveBeenCalled();
   });
 
   it.each(['.', '..', 'a/b.txt', 'a\\b.txt', 'bad\0.txt', 'bad\n.txt'])(
     'rejects unsafe upload fileName %j before resolving the user',
     async (fileName) => {
-      const response = await request(
-        createTestApp(userService, uploadService, completeUploadUseCase),
-      )
+      const response = await request(createTestApp(uploadService, completeUploadUseCase))
         .post('/uploads/presign')
         .send({
           parentFolderId: null,
@@ -148,7 +141,6 @@ describe('upload routes contract', () => {
 
       expect(response.status).toBe(400);
       expect((response.body as ErrorResponse).code).toBe('invalid_request_body');
-      expect(userService.resolveUser).not.toHaveBeenCalled();
       expect(uploadService.createUpload).not.toHaveBeenCalled();
     },
   );
@@ -164,7 +156,7 @@ describe('upload routes contract', () => {
       },
     });
 
-    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+    const response = await request(createTestApp(uploadService, completeUploadUseCase))
       .post('/uploads/presign')
       .send({
         parentFolderId: null,
@@ -198,7 +190,7 @@ describe('upload routes contract', () => {
       },
     });
 
-    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+    const response = await request(createTestApp(uploadService, completeUploadUseCase))
       .post('/uploads/presign')
       .send({
         parentFolderId: null,
@@ -219,7 +211,7 @@ describe('upload routes contract', () => {
   });
 
   it('rejects an upload larger than the single-part limit', async () => {
-    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+    const response = await request(createTestApp(uploadService, completeUploadUseCase))
       .post('/uploads/presign')
       .send({
         parentFolderId: null,
@@ -241,7 +233,6 @@ describe('upload routes contract', () => {
         path: ['size'],
       }),
     );
-    expect(userService.resolveUser).not.toHaveBeenCalled();
     expect(uploadService.createUpload).not.toHaveBeenCalled();
   });
 
@@ -257,7 +248,7 @@ describe('upload routes contract', () => {
   ] as const)('returns the %s completion error contract', async (code) => {
     completeUploadUseCase.execute.mockRejectedValue(new AppError(code));
 
-    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+    const response = await request(createTestApp(uploadService, completeUploadUseCase))
       .post(`/uploads/${UPLOAD_ID}/complete`)
       .send();
 
@@ -267,7 +258,7 @@ describe('upload routes contract', () => {
   it('returns the completed upload using the FileResponse contract', async () => {
     completeUploadUseCase.execute.mockResolvedValue(COMPLETED_FILE);
 
-    const response = await request(createTestApp(userService, uploadService, completeUploadUseCase))
+    const response = await request(createTestApp(uploadService, completeUploadUseCase))
       .post(`/uploads/${UPLOAD_ID}/complete`)
       .send();
 
@@ -280,23 +271,19 @@ describe('upload routes contract', () => {
   });
 });
 
-function createTestApp(
-  userService: UserService,
-  uploadService: UploadService,
-  completeUploadUseCase: CompleteUploadUseCase,
-) {
+function createTestApp(uploadService: UploadService, completeUploadUseCase: CompleteUploadUseCase) {
   const app = express();
 
   app.use(requestContext);
   app.use(express.json());
   app.use((req, _res, next) => {
     req.principal = PRINCIPAL;
+    req.user = USER;
     next();
   });
   app.use(
     '/uploads',
     createUploadRouter({
-      userService,
       uploadService,
       completeUploadUseCase,
     }),

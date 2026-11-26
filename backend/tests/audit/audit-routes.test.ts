@@ -10,7 +10,6 @@ import type { ErrorResponse } from '../../src/shared/errors/api/error-response.j
 import { errorHandler } from '../../src/shared/http/error-handler.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
 import type { User } from '../../src/user/user.js';
-import type { UserService } from '../../src/user/user-service.js';
 
 const PRINCIPAL: AuthenticatedPrincipal = {
   issuer: process.env['OIDC_ISSUER']!,
@@ -30,13 +29,10 @@ const USER: User = {
 };
 
 describe('audit routes', () => {
-  let userService: MockProxy<UserService>;
   let auditService: MockProxy<AuditService>;
 
   beforeEach(() => {
-    userService = mock<UserService>();
     auditService = mock<AuditService>();
-    userService.resolveUser.mockResolvedValue(USER);
     auditService.listEvents.mockResolvedValue({
       items: [],
       page: {
@@ -58,7 +54,7 @@ describe('audit routes', () => {
   });
 
   it('lists audit events using the default query contract', async () => {
-    const response = await request(createTestApp(userService, auditService)).get('/audit/events');
+    const response = await request(createTestApp(auditService)).get('/audit/events');
 
     expect(response.status).toBe(200);
     expect(response.body).toStrictEqual({
@@ -69,7 +65,6 @@ describe('audit routes', () => {
         nextCursor: null,
       },
     });
-    expect(userService.resolveUser).toHaveBeenCalledExactlyOnceWith(PRINCIPAL);
     expect(auditService.listEvents).toHaveBeenCalledExactlyOnceWith(USER, {
       cursor: null,
       limit: 50,
@@ -78,7 +73,7 @@ describe('audit routes', () => {
   });
 
   it('normalizes audit cursor, limit and search query values', async () => {
-    const response = await request(createTestApp(userService, auditService))
+    const response = await request(createTestApp(auditService))
       .get('/audit/events')
       .query({ cursor: ' next-page ', limit: '25', search: ' Report ' });
 
@@ -91,7 +86,7 @@ describe('audit routes', () => {
   });
 
   it('normalizes blank search to no search', async () => {
-    const response = await request(createTestApp(userService, auditService))
+    const response = await request(createTestApp(auditService))
       .get('/audit/events')
       .query({ search: '   ' });
 
@@ -109,9 +104,7 @@ describe('audit routes', () => {
     ['an empty cursor', { cursor: '   ' }],
     ['an overlong search', { search: 'a'.repeat(501) }],
   ])('rejects %s before calling the audit service', async (_case, query) => {
-    const response = await request(createTestApp(userService, auditService))
-      .get('/audit/events')
-      .query(query);
+    const response = await request(createTestApp(auditService)).get('/audit/events').query(query);
     const body = response.body as ErrorResponse;
 
     expect(response.status).toBe(400);
@@ -122,7 +115,7 @@ describe('audit routes', () => {
   it('maps an invalid decoded cursor through the API error contract', async () => {
     auditService.listEvents.mockRejectedValue(new AppError('invalid_cursor'));
 
-    const response = await request(createTestApp(userService, auditService))
+    const response = await request(createTestApp(auditService))
       .get('/audit/events')
       .query({ cursor: 'not-a-cursor' });
     const body = response.body as ErrorResponse;
@@ -132,9 +125,7 @@ describe('audit routes', () => {
   });
 
   it('returns audit statistics for the authenticated application user', async () => {
-    const response = await request(createTestApp(userService, auditService)).get(
-      '/audit/statistics',
-    );
+    const response = await request(createTestApp(auditService)).get('/audit/statistics');
 
     expect(response.status).toBe(200);
     expect(response.body).toStrictEqual({
@@ -151,15 +142,16 @@ describe('audit routes', () => {
   });
 });
 
-function createTestApp(userService: UserService, auditService: AuditService) {
+function createTestApp(auditService: AuditService) {
   const app = express();
 
   app.use(requestContext);
   app.use((req, _res, next) => {
     req.principal = PRINCIPAL;
+    req.user = USER;
     next();
   });
-  app.use('/audit', createAuditRouter({ userService, auditService }));
+  app.use('/audit', createAuditRouter({ auditService }));
   app.use(errorHandler);
 
   return app;

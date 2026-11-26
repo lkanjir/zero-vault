@@ -1,7 +1,6 @@
 import express, { type Router } from 'express';
 import { completeUploadSchema, uploadRequestSchema } from './validation-schemas.js';
-import { requirePrincipal } from '../auth/require-principal.js';
-import type { UserService } from '../user/user-service.js';
+import { requireUser } from '../auth/resolve-user-middleware.js';
 import type { UploadService } from './upload-service.js';
 import type { CompleteUploadUseCase } from './complete-upload-use-case.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
@@ -11,7 +10,6 @@ import {
 } from '../shared/http/api-rate-limiters.js';
 
 export type UploadRouterDeps = {
-  userService: UserService;
   uploadService: UploadService;
   completeUploadUseCase: CompleteUploadUseCase;
 };
@@ -23,8 +21,7 @@ export function createUploadRouter(deps: UploadRouterDeps): Router {
     '/presign',
     uploadIntentRateLimiter,
     validateRequest({ body: uploadRequestSchema }, async (req, res, validated) => {
-      const principal = requirePrincipal(req);
-      const authenticatedUser = await deps.userService.resolveUser(principal);
+      const authenticatedUser = requireUser(req);
 
       const result = await deps.uploadService.createUpload(authenticatedUser, validated.body);
       res.status(201).json(result);
@@ -35,8 +32,7 @@ export function createUploadRouter(deps: UploadRouterDeps): Router {
     '/:uploadId/complete',
     uploadCompletionRateLimiter,
     validateRequest({ params: completeUploadSchema }, async (req, res, validated) => {
-      const principal = requirePrincipal(req);
-      const authenticatedUser = await deps.userService.resolveUser(principal);
+      const authenticatedUser = requireUser(req);
 
       const result = await deps.completeUploadUseCase.execute(
         authenticatedUser,

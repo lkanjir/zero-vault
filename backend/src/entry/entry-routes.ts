@@ -1,16 +1,14 @@
 import express, { type Router } from 'express';
-import type { UserService } from '../user/user-service.js';
 import type { EntryService } from './entry-service.js';
 import {
   entryIdParamsSchema,
   listEntriesQuerySchema,
   updateEntryBodySchema,
 } from './validation-schemas.js';
-import { requirePrincipal } from '../auth/require-principal.js';
+import { requireUser } from '../auth/resolve-user-middleware.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
 
 export type EntryRouterDeps = {
-  userService: UserService;
   entryService: EntryService;
 };
 
@@ -20,8 +18,7 @@ export function createEntryRouter(deps: EntryRouterDeps): Router {
   router.get(
     '/',
     validateRequest({ query: listEntriesQuerySchema }, async (req, res, validated) => {
-      const principal = requirePrincipal(req);
-      const authenticatedUser = await deps.userService.resolveUser(principal);
+      const authenticatedUser = requireUser(req);
 
       const result = await deps.entryService.listEntries(authenticatedUser, {
         limit: validated.query.limit,
@@ -41,8 +38,7 @@ export function createEntryRouter(deps: EntryRouterDeps): Router {
     validateRequest(
       { params: entryIdParamsSchema, body: updateEntryBodySchema },
       async (req, res, validated) => {
-        const principal = requirePrincipal(req);
-        const user = await deps.userService.resolveUser(principal);
+        const user = requireUser(req);
 
         const result = await deps.entryService.updateEntry(
           user,
@@ -58,8 +54,7 @@ export function createEntryRouter(deps: EntryRouterDeps): Router {
   router.delete(
     '/:entryId',
     validateRequest({ params: entryIdParamsSchema }, async (req, res, validated) => {
-      const principal = requirePrincipal(req);
-      const user = await deps.userService.resolveUser(principal);
+      const user = requireUser(req);
 
       await deps.entryService.deleteEntry(user, validated.params.entryId);
 

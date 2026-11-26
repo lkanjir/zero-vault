@@ -1,6 +1,5 @@
 import express, { type Router } from 'express';
-import type { UserService } from '../user/user-service.js';
-import { requirePrincipal } from '../auth/require-principal.js';
+import { requireUser } from '../auth/resolve-user-middleware.js';
 import type { FolderService } from '../folder/folder-service.js';
 import { createFolderBodySchema } from './validation-schemas.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
@@ -12,7 +11,6 @@ import type { FolderDownloadService } from './download/folder-download-service.j
 import { folderDownloadRateLimiter } from '../shared/http/api-rate-limiters.js';
 
 export type FolderRouterDeps = {
-  userService: UserService;
   folderService: FolderService;
   folderDownloadService: FolderDownloadService;
 };
@@ -25,8 +23,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
   router.post(
     '/',
     validateRequest({ body: createFolderBodySchema }, async (req, res, validated) => {
-      const principal = requirePrincipal(req);
-      const authenticatedUser = await deps.userService.resolveUser(principal);
+      const authenticatedUser = requireUser(req);
 
       const result = await deps.folderService.createFolder(authenticatedUser, validated.body);
 
@@ -38,8 +35,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
     '/:folderId/downloads',
     folderDownloadRateLimiter,
     validateRequest({ params: createFolderDownloadParamsSchema }, async (req, res, validated) => {
-      const principal = requirePrincipal(req);
-      const user = await deps.userService.resolveUser(principal);
+      const user = requireUser(req);
 
       const result = await deps.folderDownloadService.createDownload(
         user,
@@ -55,8 +51,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
   router.get(
     '/downloads/:downloadId',
     validateRequest({ params: folderDownloadIdParamsSchema }, async (req, res, validated) => {
-      const principal = requirePrincipal(req);
-      const user = await deps.userService.resolveUser(principal);
+      const user = requireUser(req);
 
       const result = await deps.folderDownloadService.getStatus(user, validated.params.downloadId);
 

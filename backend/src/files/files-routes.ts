@@ -1,7 +1,6 @@
 import express, { type Router } from 'express';
-import type { UserService } from '../user/user-service.js';
 import type { FileDownloadService } from './file-download-service.js';
-import { requirePrincipal } from '../auth/require-principal.js';
+import { requireUser } from '../auth/resolve-user-middleware.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
 import {
   fileIdParamsSchema,
@@ -23,7 +22,6 @@ import {
 } from '../shared/http/api-rate-limiters.js';
 
 export type FileRouterDeps = {
-  userService: UserService;
   downloadService: FileDownloadService;
   sharingService: FileSharingService;
   uploadService: UploadService;
@@ -36,8 +34,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
     '/:fileId/download-url',
     fileDownloadRateLimiter,
     validateRequest({ params: fileIdParamsSchema }, async (req, res, validated) => {
-      const principal = requirePrincipal(req);
-      const authenticatedUser = await deps.userService.resolveUser(principal);
+      const authenticatedUser = requireUser(req);
 
       const result = await deps.downloadService.createDownloadUrl(
         authenticatedUser,
@@ -54,8 +51,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
     validateRequest(
       { params: fileIdParamsSchema, body: shareFileBodySchema },
       async (req, res, validated) => {
-        const principal = requirePrincipal(req);
-        const user = await deps.userService.resolveUser(principal);
+        const user = requireUser(req);
 
         await deps.sharingService.shareFile(user, validated.params.fileId, validated.body);
 
@@ -70,8 +66,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
     validateRequest(
       { params: fileIdParamsSchema, query: listFileSharesQuerySchema },
       async (req, res, validated) => {
-        const principal = requirePrincipal(req);
-        const user = await deps.userService.resolveUser(principal);
+        const user = requireUser(req);
 
         const result = await deps.sharingService.listFileShares(user, validated.params.fileId, {
           cursor: validated.query.cursor,
@@ -87,8 +82,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
     '/:fileId/shares/:shareId',
     sharingMutationRateLimiter,
     validateRequest({ params: fileShareParamsSchema }, async (req, res, validated) => {
-      const principal = requirePrincipal(req);
-      const user = await deps.userService.resolveUser(principal);
+      const user = requireUser(req);
 
       await deps.sharingService.revokeFileShare(
         user,
@@ -106,8 +100,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
     validateRequest(
       { params: fileShareParamsSchema, body: updateFileShareBodySchema },
       async (req, res, validated) => {
-        const principal = requirePrincipal(req);
-        const user = await deps.userService.resolveUser(principal);
+        const user = requireUser(req);
 
         const result = await deps.sharingService.updateFileShare(
           user,
@@ -124,8 +117,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
   router.get(
     '/shared-with-me',
     validateRequest({ query: listSharedFilesQuerySchema }, async (req, res, validated) => {
-      const principal = requirePrincipal(req);
-      const user = await deps.userService.resolveUser(principal);
+      const user = requireUser(req);
 
       const result = await deps.sharingService.listSharedFiles(user, {
         cursor: validated.query.cursor,
@@ -139,8 +131,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
   router.get(
     '/shared-by-me',
     validateRequest({ query: listSharedByMeFilesQuerySchema }, async (req, res, validated) => {
-      const principal = requirePrincipal(req);
-      const user = await deps.userService.resolveUser(principal);
+      const user = requireUser(req);
 
       const result = await deps.sharingService.listSharedByMeFiles(user, {
         cursor: validated.query.cursor,
@@ -157,8 +148,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
     validateRequest(
       { params: fileIdParamsSchema, body: replacementUploadRequestSchema },
       async (req, res, validated) => {
-        const principal = requirePrincipal(req);
-        const user = await deps.userService.resolveUser(principal);
+        const user = requireUser(req);
 
         const result = await deps.uploadService.createReplacementUpload(
           user,

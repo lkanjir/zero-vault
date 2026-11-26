@@ -7,7 +7,6 @@ import type { FileDownloadService } from '../../src/files/file-download-service.
 import { createFilesRouter } from '../../src/files/files-routes.js';
 import { errorHandler } from '../../src/shared/http/error-handler.js';
 import type { User } from '../../src/user/user.js';
-import type { UserService } from '../../src/user/user-service.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
 import type { ErrorResponse } from '../../src/shared/errors/api/error-response.js';
 import type { FileSharingService } from '../../src/sharing/file-sharing-service.js';
@@ -41,18 +40,15 @@ const USER: User = {
 };
 
 describe('files routes', () => {
-  let userService: MockProxy<UserService>;
   let downloadService: MockProxy<FileDownloadService>;
   let sharingService: MockProxy<FileSharingService>;
   let uploadService: MockProxy<UploadService>;
 
   beforeEach(() => {
-    userService = mock<UserService>();
     downloadService = mock<FileDownloadService>();
     sharingService = mock<FileSharingService>();
     uploadService = mock<UploadService>();
 
-    userService.resolveUser.mockResolvedValue(USER);
     downloadService.createDownloadUrl.mockResolvedValue({
       fileId: FILE_ID,
       fileName: 'document.txt',
@@ -128,9 +124,9 @@ describe('files routes', () => {
   });
 
   it('creates a download URL for the fileId route parameter', async () => {
-    const response = await request(
-      createTestApp(userService, downloadService, sharingService),
-    ).post(`/files/${FILE_ID}/download-url`);
+    const response = await request(createTestApp(downloadService, sharingService)).post(
+      `/files/${FILE_ID}/download-url`,
+    );
 
     expect(response.status).toBe(200);
     expect(response.headers['ratelimit-policy']).toContain('"file-download"');
@@ -148,9 +144,9 @@ describe('files routes', () => {
   });
 
   it('rejects invalid fileId before calling the download service', async () => {
-    const response = await request(
-      createTestApp(userService, downloadService, sharingService),
-    ).post('/files/not-a-uuid/download-url');
+    const response = await request(createTestApp(downloadService, sharingService)).post(
+      '/files/not-a-uuid/download-url',
+    );
     const body = response.body as ErrorResponse;
 
     expect(response.status).toBe(400);
@@ -164,9 +160,7 @@ describe('files routes', () => {
   });
 
   it('creates a replacement upload intent for a valid file', async () => {
-    const response = await request(
-      createTestApp(userService, downloadService, sharingService, uploadService),
-    )
+    const response = await request(createTestApp(downloadService, sharingService, uploadService))
       .post(`/files/${FILE_ID}/replacements`)
       .send({
         contentType: ' Application/PDF; charset=binary ',
@@ -213,9 +207,7 @@ describe('files routes', () => {
       validReplacementBody({ sha256: 'invalid' }),
     ],
   ])('rejects %s before creating a replacement intent', async (_case, url, body) => {
-    const response = await request(
-      createTestApp(userService, downloadService, sharingService, uploadService),
-    )
+    const response = await request(createTestApp(downloadService, sharingService, uploadService))
       .post(url)
       .send(body);
 
@@ -226,9 +218,7 @@ describe('files routes', () => {
   it('preserves a hidden replacement authorization failure', async () => {
     uploadService.createReplacementUpload.mockRejectedValue(new AppError('entry_not_found'));
 
-    const response = await request(
-      createTestApp(userService, downloadService, sharingService, uploadService),
-    )
+    const response = await request(createTestApp(downloadService, sharingService, uploadService))
       .post(`/files/${FILE_ID}/replacements`)
       .send(validReplacementBody());
 
@@ -237,7 +227,7 @@ describe('files routes', () => {
   });
 
   it('accepts a share request without disclosing recipient state', async () => {
-    const response = await request(createTestApp(userService, downloadService, sharingService))
+    const response = await request(createTestApp(downloadService, sharingService))
       .post(`/files/${FILE_ID}/shares`)
       .send({
         recipientEmail: ' Recipient@Example.COM ',
@@ -257,7 +247,7 @@ describe('files routes', () => {
   });
 
   it('converts an ISO expiry with an offset to a Date', async () => {
-    const response = await request(createTestApp(userService, downloadService, sharingService))
+    const response = await request(createTestApp(downloadService, sharingService))
       .post(`/files/${FILE_ID}/shares`)
       .send({
         recipientEmail: 'recipient@example.com',
@@ -285,7 +275,7 @@ describe('files routes', () => {
       },
     ],
   ])('rejects an %s before calling the sharing service', async (_case, body) => {
-    const response = await request(createTestApp(userService, downloadService, sharingService))
+    const response = await request(createTestApp(downloadService, sharingService))
       .post(`/files/${FILE_ID}/shares`)
       .send(body);
 
@@ -297,7 +287,7 @@ describe('files routes', () => {
   });
 
   it('rejects an invalid share fileId before calling the sharing service', async () => {
-    const response = await request(createTestApp(userService, downloadService, sharingService))
+    const response = await request(createTestApp(downloadService, sharingService))
       .post('/files/not-a-uuid/shares')
       .send({
         recipientEmail: 'recipient@example.com',
@@ -314,7 +304,7 @@ describe('files routes', () => {
   it('preserves a hidden authorization failure from the sharing service', async () => {
     sharingService.shareFile.mockRejectedValue(new AppError('entry_not_found'));
 
-    const response = await request(createTestApp(userService, downloadService, sharingService))
+    const response = await request(createTestApp(downloadService, sharingService))
       .post(`/files/${FILE_ID}/shares`)
       .send({
         recipientEmail: 'recipient@example.com',
@@ -328,7 +318,7 @@ describe('files routes', () => {
   });
 
   it('lists file shares with the default page request', async () => {
-    const response = await request(createTestApp(userService, downloadService, sharingService)).get(
+    const response = await request(createTestApp(downloadService, sharingService)).get(
       `/files/${FILE_ID}/shares`,
     );
 
@@ -355,7 +345,7 @@ describe('files routes', () => {
   });
 
   it('passes a normalized cursor page request to the sharing service', async () => {
-    const response = await request(createTestApp(userService, downloadService, sharingService))
+    const response = await request(createTestApp(downloadService, sharingService))
       .get(`/files/${FILE_ID}/shares`)
       .query({ cursor: ' next-page ', limit: '25' });
 
@@ -371,18 +361,16 @@ describe('files routes', () => {
     ['an invalid page limit', `/files/${FILE_ID}/shares?limit=0`],
     ['an empty cursor', `/files/${FILE_ID}/shares?cursor=%20%20%20`],
   ])('rejects %s before listing file shares', async (_case, url) => {
-    const response = await request(createTestApp(userService, downloadService, sharingService)).get(
-      url,
-    );
+    const response = await request(createTestApp(downloadService, sharingService)).get(url);
 
     expect(response.status).toBe(400);
     expect(sharingService.listFileShares).not.toHaveBeenCalled();
   });
 
   it('revokes a file share and returns an empty response', async () => {
-    const response = await request(
-      createTestApp(userService, downloadService, sharingService),
-    ).delete(`/files/${FILE_ID}/shares/${SHARE_ID}`);
+    const response = await request(createTestApp(downloadService, sharingService)).delete(
+      `/files/${FILE_ID}/shares/${SHARE_ID}`,
+    );
 
     expect(response.status).toBe(204);
     expect(response.headers['ratelimit-policy']).toContain('"sharing-mutation"');
@@ -394,9 +382,7 @@ describe('files routes', () => {
     ['an invalid file ID', `/files/not-a-uuid/shares/${SHARE_ID}`],
     ['an invalid share ID', `/files/${FILE_ID}/shares/not-a-uuid`],
   ])('rejects %s before revoking a file share', async (_case, url) => {
-    const response = await request(
-      createTestApp(userService, downloadService, sharingService),
-    ).delete(url);
+    const response = await request(createTestApp(downloadService, sharingService)).delete(url);
 
     expect(response.status).toBe(400);
     expect(sharingService.revokeFileShare).not.toHaveBeenCalled();
@@ -405,9 +391,9 @@ describe('files routes', () => {
   it('preserves a hidden authorization failure when revoking a file share', async () => {
     sharingService.revokeFileShare.mockRejectedValue(new AppError('entry_not_found'));
 
-    const response = await request(
-      createTestApp(userService, downloadService, sharingService),
-    ).delete(`/files/${FILE_ID}/shares/${SHARE_ID}`);
+    const response = await request(createTestApp(downloadService, sharingService)).delete(
+      `/files/${FILE_ID}/shares/${SHARE_ID}`,
+    );
 
     expect(response.status).toBe(404);
     expect(response.body).toMatchObject({
@@ -416,7 +402,7 @@ describe('files routes', () => {
   });
 
   it('updates a file share and returns the resulting representation', async () => {
-    const response = await request(createTestApp(userService, downloadService, sharingService))
+    const response = await request(createTestApp(downloadService, sharingService))
       .patch(`/files/${FILE_ID}/shares/${SHARE_ID}`)
       .send({ permission: 'editor' });
 
@@ -437,7 +423,7 @@ describe('files routes', () => {
   });
 
   it('converts an updated ISO expiry with an offset to a Date', async () => {
-    const response = await request(createTestApp(userService, downloadService, sharingService))
+    const response = await request(createTestApp(downloadService, sharingService))
       .patch(`/files/${FILE_ID}/shares/${SHARE_ID}`)
       .send({ expiresAt: '2026-08-10T12:30:00+02:00' });
 
@@ -451,7 +437,7 @@ describe('files routes', () => {
   });
 
   it('passes a null updated expiry through to the sharing service', async () => {
-    const response = await request(createTestApp(userService, downloadService, sharingService))
+    const response = await request(createTestApp(downloadService, sharingService))
       .patch(`/files/${FILE_ID}/shares/${SHARE_ID}`)
       .send({ expiresAt: null });
 
@@ -469,7 +455,7 @@ describe('files routes', () => {
     ['an invalid permission', { permission: 'owner' }],
     ['an invalid expiry', { expiresAt: 'tomorrow' }],
   ])('rejects %s before updating a file share', async (_case, body) => {
-    const response = await request(createTestApp(userService, downloadService, sharingService))
+    const response = await request(createTestApp(downloadService, sharingService))
       .patch(`/files/${FILE_ID}/shares/${SHARE_ID}`)
       .send(body);
 
@@ -482,7 +468,7 @@ describe('files routes', () => {
     ['an invalid file ID', `/files/not-a-uuid/shares/${SHARE_ID}`],
     ['an invalid share ID', `/files/${FILE_ID}/shares/not-a-uuid`],
   ])('rejects %s before updating a file share', async (_case, url) => {
-    const response = await request(createTestApp(userService, downloadService, sharingService))
+    const response = await request(createTestApp(downloadService, sharingService))
       .patch(url)
       .send({ permission: 'editor' });
 
@@ -494,7 +480,7 @@ describe('files routes', () => {
   it('maps a missing file share from the sharing service to 404', async () => {
     sharingService.updateFileShare.mockRejectedValue(new AppError('file_share_not_found'));
 
-    const response = await request(createTestApp(userService, downloadService, sharingService))
+    const response = await request(createTestApp(downloadService, sharingService))
       .patch(`/files/${FILE_ID}/shares/${SHARE_ID}`)
       .send({ permission: 'editor' });
 
@@ -503,7 +489,7 @@ describe('files routes', () => {
   });
 
   it('lists files shared with the authenticated user using the default page request', async () => {
-    const response = await request(createTestApp(userService, downloadService, sharingService)).get(
+    const response = await request(createTestApp(downloadService, sharingService)).get(
       '/files/shared-with-me',
     );
 
@@ -549,7 +535,7 @@ describe('files routes', () => {
   });
 
   it('passes a normalized shared-file page request to the sharing service', async () => {
-    const response = await request(createTestApp(userService, downloadService, sharingService))
+    const response = await request(createTestApp(downloadService, sharingService))
       .get('/files/shared-with-me')
       .query({ cursor: ' next-page ', limit: '25' });
 
@@ -564,9 +550,7 @@ describe('files routes', () => {
     ['an invalid page limit', '/files/shared-with-me?limit=101'],
     ['an empty cursor', '/files/shared-with-me?cursor=%20%20%20'],
   ])('rejects %s before listing shared files', async (_case, url) => {
-    const response = await request(createTestApp(userService, downloadService, sharingService)).get(
-      url,
-    );
+    const response = await request(createTestApp(downloadService, sharingService)).get(url);
 
     expect(response.status).toBe(400);
     expect(response.body).toMatchObject({ code: 'invalid_request_query' });
@@ -575,7 +559,6 @@ describe('files routes', () => {
 });
 
 function createTestApp(
-  userService: UserService,
   downloadService: FileDownloadService,
   sharingService: FileSharingService,
   uploadService: UploadService = mock<UploadService>(),
@@ -586,12 +569,10 @@ function createTestApp(
   app.use(express.json({ limit: '16kb' }));
   app.use((req, _res, next) => {
     req.principal = PRINCIPAL;
+    req.user = USER;
     next();
   });
-  app.use(
-    '/files',
-    createFilesRouter({ userService, downloadService, sharingService, uploadService }),
-  );
+  app.use('/files', createFilesRouter({ downloadService, sharingService, uploadService }));
   app.use(errorHandler);
 
   return app;

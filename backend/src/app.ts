@@ -1,6 +1,7 @@
 import express from 'express';
 import helmet from 'helmet';
 import { requireAuth } from './auth/auth-middleware.js';
+import { createResolveUserMiddleware } from './auth/resolve-user-middleware.js';
 import { createCompositionRoot } from './composition-root.js';
 import { createUploadRouter } from './upload/upload-routes.js';
 import { createFilesRouter } from './files/files-routes.js';
@@ -31,11 +32,13 @@ app.use(
 app.use(requestContext);
 app.use(express.json({ limit: '16kb' }));
 
-app.use('/api/uploads', requireAuth, createUploadRouter(composition));
-app.use('/api/entries', requireAuth, createEntryRouter(composition));
-app.use('/api/files', requireAuth, createFilesRouter(composition));
-app.use('/api/folders', requireAuth, createFolderRouter(composition));
-app.use('/api/audit', requireAuth, createAuditRouter(composition));
+const resolveUser = createResolveUserMiddleware(composition.userService);
+
+app.use('/api/uploads', requireAuth, resolveUser, createUploadRouter(composition));
+app.use('/api/entries', requireAuth, resolveUser, createEntryRouter(composition));
+app.use('/api/files', requireAuth, resolveUser, createFilesRouter(composition));
+app.use('/api/folders', requireAuth, resolveUser, createFolderRouter(composition));
+app.use('/api/audit', requireAuth, resolveUser, createAuditRouter(composition));
 
 app.use('/api', routeNotFound);
 
