@@ -1,7 +1,10 @@
-import cron from 'node-cron';
 import { createMaintenanceWorkerComposition } from '../composition-root.js';
 import { loadDbConfig, loadDotenv } from '../config.js';
 import { createDatabase } from '../db/db-client.js';
+import {
+  registerGracefulShutdown,
+  scheduleManagedCronTask,
+} from '../shared/runtime/graceful-shutdown.js';
 
 loadDotenv();
 
@@ -9,9 +12,9 @@ const BATCH_SIZE = 100;
 const database = createDatabase(loadDbConfig());
 const composition = createMaintenanceWorkerComposition(database.db);
 
-const uploadCleanupTask = cron.schedule(
-  '0 * * * * *',
-  async () => {
+const uploadCleanupTask = scheduleManagedCronTask({
+  expression: '0 * * * * *',
+  run: async () => {
     const expiredUploadCount =
       await composition.uploadCleanupService.cleanExpiredUploads(BATCH_SIZE);
 
@@ -21,18 +24,14 @@ const uploadCleanupTask = cron.schedule(
       });
     }
   },
-  { noOverlap: true },
-);
-
-uploadCleanupTask.on('execution:failed', (context) => {
-  console.error('Upload cleanup failed', {
-    error: context.execution?.error,
-  });
+  onError: (error) => {
+    console.error('Upload cleanup failed', { error });
+  },
 });
 
-const folderDownloadCleanupTask = cron.schedule(
-  '0 * * * * *',
-  async () => {
+const folderDownloadCleanupTask = scheduleManagedCronTask({
+  expression: '0 * * * * *',
+  run: async () => {
     const expiredArchiveCount =
       await composition.folderDownloadCleanupService.cleanExpiredDownloads(BATCH_SIZE);
 
@@ -42,18 +41,14 @@ const folderDownloadCleanupTask = cron.schedule(
       });
     }
   },
-  { noOverlap: true },
-);
-
-folderDownloadCleanupTask.on('execution:failed', (context) => {
-  console.error('Folder download cleanup failed', {
-    error: context.execution?.error,
-  });
+  onError: (error) => {
+    console.error('Folder download cleanup failed', { error });
+  },
 });
 
-const fileGrantMaintenanceTask = cron.schedule(
-  '0 * * * * *',
-  async () => {
+const fileGrantMaintenanceTask = scheduleManagedCronTask({
+  expression: '0 * * * * *',
+  run: async () => {
     const { activatedCount, deletedCount } =
       await composition.fileGrantMaintenanceService.maintainPendingGrants(BATCH_SIZE);
 
@@ -64,13 +59,21 @@ const fileGrantMaintenanceTask = cron.schedule(
       });
     }
   },
-  { noOverlap: true },
-);
+  onError: (error) => {
+    console.error('File grant maintenance failed', { error });
+  },
+});
 
-fileGrantMaintenanceTask.on('execution:failed', (context) => {
-  console.error('File grant maintenance failed', {
-    error: context.execution?.error,
-  });
+registerGracefulShutdown({
+  name: 'Maintenance worker',
+  onShutdown: async () => {
+    await Promise.all([
+      uploadCleanupTask.stopAndDrain(),
+      folderDownloadCleanupTask.stopAndDrain(),
+      fileGrantMaintenanceTask.stopAndDrain(),
+    ]);
+    await database.close();
+  },
 });
 
 console.info('Maintenance worker started');
