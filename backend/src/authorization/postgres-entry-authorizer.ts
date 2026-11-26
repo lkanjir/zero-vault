@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import type { Transaction } from '../db/db-client.js';
-import { requireTransaction, type TransactionContext } from '../db/unit-of-work.js';
+import type { TransactionContext } from '../db/unit-of-work.js';
 import { entries, fileGrants } from '../db/schema.js';
 import type { Entry } from '../entry/entry.js';
 import type { AuthorizationService } from './authorization-service.js';
@@ -27,9 +27,8 @@ export class PostgresEntryAuthorizer implements EntryAuthorizer {
     tx: TransactionContext,
   ): Promise<AuthorizedEntry> {
     this.assertActionsProvided(input.actions);
-    const drizzleTx = requireTransaction(tx);
 
-    const [entry] = await drizzleTx
+    const [entry] = await tx
       .select()
       .from(entries)
       .where(eq(entries.publicId, input.entryPublicId))
@@ -40,7 +39,7 @@ export class PostgresEntryAuthorizer implements EntryAuthorizer {
       throw new AppError('entry_not_found');
     }
 
-    return this.authorizeLockedEntry(drizzleTx, entry, input.actorUserId, input.actions);
+    return this.authorizeLockedEntry(tx, entry, input.actorUserId, input.actions);
   }
 
   async authorizeForUpdate(
@@ -48,9 +47,8 @@ export class PostgresEntryAuthorizer implements EntryAuthorizer {
     tx: TransactionContext,
   ): Promise<AuthorizedEntry> {
     this.assertActionsProvided(input.actions);
-    const drizzleTx = requireTransaction(tx);
 
-    const [entry] = await drizzleTx
+    const [entry] = await tx
       .select()
       .from(entries)
       .where(eq(entries.publicId, input.entryPublicId))
@@ -61,7 +59,7 @@ export class PostgresEntryAuthorizer implements EntryAuthorizer {
       throw new AppError('entry_not_found');
     }
 
-    return this.authorizeLockedEntry(drizzleTx, entry, input.actorUserId, input.actions);
+    return this.authorizeLockedEntry(tx, entry, input.actorUserId, input.actions);
   }
 
   async authorizeForUpdateByDbId(
@@ -69,9 +67,8 @@ export class PostgresEntryAuthorizer implements EntryAuthorizer {
     tx: TransactionContext,
   ): Promise<AuthorizedEntry> {
     this.assertActionsProvided(input.actions);
-    const drizzleTx = requireTransaction(tx);
 
-    const [entry] = await drizzleTx
+    const [entry] = await tx
       .select()
       .from(entries)
       .where(eq(entries.id, input.entryDbId))
@@ -82,7 +79,7 @@ export class PostgresEntryAuthorizer implements EntryAuthorizer {
       throw new AppError('entry_not_found');
     }
 
-    return this.authorizeLockedEntry(drizzleTx, entry, input.actorUserId, input.actions);
+    return this.authorizeLockedEntry(tx, entry, input.actorUserId, input.actions);
   }
 
   async authorizeParentForCreate(
@@ -99,12 +96,7 @@ export class PostgresEntryAuthorizer implements EntryAuthorizer {
       return null;
     }
 
-    const drizzleTx = requireTransaction(tx);
-    const parentId = await resolveParentIdInTransaction(
-      drizzleTx,
-      input.ownerId,
-      input.parentPublicId,
-    );
+    const parentId = await resolveParentIdInTransaction(tx, input.ownerId, input.parentPublicId);
 
     if (parentId === null) {
       throw new Error('Resolved parent folder is missing its database ID');
@@ -150,9 +142,8 @@ export class PostgresEntryAuthorizer implements EntryAuthorizer {
       return;
     }
 
-    const drizzleTx = requireTransaction(tx);
     const parentPublicId = await resolveParentPublicIdInTransaction(
-      drizzleTx,
+      tx,
       input.ownerId,
       input.parentId,
     );

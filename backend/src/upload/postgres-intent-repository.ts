@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import type { Database, Transaction } from '../db/db-client.js';
 import { entries, files, uploadIntents } from '../db/schema.js';
-import { requireTransaction, type TransactionContext } from '../db/unit-of-work.js';
+import type { TransactionContext } from '../db/unit-of-work.js';
 import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
 import { enqueueObjectDeletionsInTransaction } from '../object-deletion/object-deletion-helpers.js';
 import { AppError } from '../shared/errors/api/app-error.js';
@@ -39,8 +39,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     uploadId: string,
     tx: TransactionContext,
   ): Promise<UploadIntent | null> {
-    const drizzleTx = requireTransaction(tx);
-    const [row] = await drizzleTx
+    const [row] = await tx
       .select()
       .from(uploadIntents)
       .where(and(eq(uploadIntents.uploadId, uploadId), eq(uploadIntents.createdByUserId, userId)))
@@ -54,8 +53,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     intentId: number,
     tx: TransactionContext,
   ): Promise<CompletedUploadFile> {
-    const drizzleTx = requireTransaction(tx);
-    const [row] = await drizzleTx
+    const [row] = await tx
       .select({
         entryId: entries.id,
         publicId: entries.publicId,
@@ -78,9 +76,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
   }
 
   async save(command: SaveUploadIntentCommand, tx: TransactionContext): Promise<void> {
-    const drizzleTx = requireTransaction(tx);
-
-    await drizzleTx.insert(uploadIntents).values({
+    await tx.insert(uploadIntents).values({
       ...this.toPendingInsert(command.upload),
       operation: 'create',
       fileName: command.fileName,
@@ -92,8 +88,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     command: SaveReplacementUploadIntentCommand,
     tx: TransactionContext,
   ): Promise<void> {
-    const drizzleTx = requireTransaction(tx);
-    const [file] = await drizzleTx
+    const [file] = await tx
       .select({ contentVersion: files.contentVersion })
       .from(files)
       .where(eq(files.entryId, command.targetFileId))
@@ -103,7 +98,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       throw new Error('Replacement target is missing file metadata');
     }
 
-    await drizzleTx.insert(uploadIntents).values({
+    await tx.insert(uploadIntents).values({
       ...this.toPendingInsert(command.upload),
       operation: 'replace',
       fileName: null,
@@ -116,13 +111,12 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     command: AssertUploadTargetAvailableCommand,
     tx: TransactionContext,
   ): Promise<void> {
-    const drizzleTx = requireTransaction(tx);
     const parentCondition =
       command.targetParentId === null
         ? isNull(entries.parentId)
         : eq(entries.parentId, command.targetParentId);
 
-    const [existingEntry] = await drizzleTx
+    const [existingEntry] = await tx
       .select({ id: entries.id })
       .from(entries)
       .where(
@@ -141,34 +135,27 @@ export class PostgresIntentRepository implements UploadIntentRepository {
   }
 
   async expireLockedIntent(intentId: number, tx: TransactionContext): Promise<void> {
-    await this.expireLockedIntents(requireTransaction(tx), [intentId]);
+    await this.expireLockedIntents(tx, [intentId]);
   }
 
   async completeCreateIntent(
     command: CompleteCreateIntentCommand,
     tx: TransactionContext,
   ): Promise<CompletedUploadFile> {
-    const drizzleTx = requireTransaction(tx);
-
     try {
-      const entry = await this.createEntryForIntent(drizzleTx, command.userId, command.intent);
+      const entry = await this.createEntryForIntent(tx, command.userId, command.intent);
 
       if (!entry) {
         throw new Error('Failed to create file entry');
       }
 
-      const file = await this.createFileForIntent(drizzleTx, entry.id, command.intent);
+      const file = await this.createFileForIntent(tx, entry.id, command.intent);
 
       if (!file) {
         throw new Error('Failed to create file metadata');
       }
 
-      await this.markIntentCompleted(
-        drizzleTx,
-        command.intent.id,
-        file.entryId,
-        command.completedAt,
-      );
+      await this.markIntentCompleted(tx, command.intent.id, file.entryId, command.completedAt);
 
       return {
         entryId: file.entryId,
@@ -187,7 +174,6 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     command: CompleteReplaceIntentCommand,
     tx: TransactionContext,
   ): Promise<CompleteReplaceIntentResult> {
-    const drizzleTx = requireTransaction(tx);
     const { intent, targetEntryId, completedAt } = command;
     const expectedContentVersion = intent.expectedContentVersion;
 
@@ -196,7 +182,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     }
 
     try {
-      const [currentFile] = await drizzleTx
+      const [currentFile] = await tx
         .select({ objectKey: files.objectKey, contentVersion: files.contentVersion })
         .from(files)
         .where(eq(files.entryId, targetEntryId))
@@ -207,11 +193,11 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       }
 
       if (currentFile.contentVersion !== expectedContentVersion) {
-        await this.markIntentSuperseded(drizzleTx, intent.id, intent.objectKey);
+        await this.markIntentSuperseded(tx, intent.id, intent.objectKey);
         return { kind: 'superseded' };
       }
 
-      const [updatedFile] = await drizzleTx
+      const [updatedFile] = await tx
         .update(files)
         .set({
           objectKey: intent.objectKey,
@@ -231,11 +217,11 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         });
 
       if (!updatedFile) {
-        await this.markIntentSuperseded(drizzleTx, intent.id, intent.objectKey);
+        await this.markIntentSuperseded(tx, intent.id, intent.objectKey);
         return { kind: 'superseded' };
       }
 
-      const [updatedEntry] = await drizzleTx
+      const [updatedEntry] = await tx
         .update(entries)
         .set({ updatedAt: completedAt })
         .where(eq(entries.id, targetEntryId))
@@ -249,8 +235,8 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         throw new Error('Replacement target entry could not be updated');
       }
 
-      await this.markIntentCompleted(drizzleTx, intent.id, updatedFile.entryId, completedAt);
-      await enqueueObjectDeletionsInTransaction(drizzleTx, [
+      await this.markIntentCompleted(tx, intent.id, updatedFile.entryId, completedAt);
+      await enqueueObjectDeletionsInTransaction(tx, [
         {
           objectKey: currentFile.objectKey,
           reason: 'replaced_file',

@@ -14,7 +14,7 @@ import type {
 import { eq, isNull, sql, and, or, gt, type SQL, ilike, asc, desc, lt } from 'drizzle-orm';
 import { entries, files } from '../db/schema.js';
 import type { Database, Transaction } from '../db/db-client.js';
-import { requireTransaction, type TransactionContext } from '../db/unit-of-work.js';
+import type { TransactionContext } from '../db/unit-of-work.js';
 import type { EntryListCursor } from './entry-list-cursor.js';
 import type { Folder } from '../folder/folder.js';
 import type { Entry, EntryListSort } from './entry.js';
@@ -102,10 +102,8 @@ export class PostgresEntryRepository implements EntryRepository {
   }
 
   async createFolder(command: CreateFolderCommand, tx: TransactionContext): Promise<Folder> {
-    const drizzleTx = requireTransaction(tx);
-
     try {
-      const [folder] = await drizzleTx
+      const [folder] = await tx
         .insert(entries)
         .values({
           kind: 'folder',
@@ -140,8 +138,7 @@ export class PostgresEntryRepository implements EntryRepository {
       });
     }
 
-    const drizzleTx = requireTransaction(tx);
-    const result = await drizzleTx.execute<{ id: number }>(sql`
+    const result = await tx.execute<{ id: number }>(sql`
       with recursive descendants(id) as (
         select id
         from entries
@@ -173,7 +170,6 @@ export class PostgresEntryRepository implements EntryRepository {
     command: UpdateEntryCommand,
     tx: TransactionContext,
   ): Promise<UpdatedEntryRecord> {
-    const drizzleTx = requireTransaction(tx);
     const updatedData: Partial<Entry> = {
       updatedAt: command.updatedAt,
     };
@@ -187,7 +183,7 @@ export class PostgresEntryRepository implements EntryRepository {
     }
 
     try {
-      const [updatedEntry] = await drizzleTx
+      const [updatedEntry] = await tx
         .update(entries)
         .set(updatedData)
         .where(
@@ -205,7 +201,7 @@ export class PostgresEntryRepository implements EntryRepository {
 
       return {
         entry: updatedEntry,
-        listedEntry: await this.toListedEntryInTransaction(drizzleTx, updatedEntry),
+        listedEntry: await this.toListedEntryInTransaction(tx, updatedEntry),
       };
     } catch (error) {
       throw mapEntryDatabaseError(error);
@@ -217,18 +213,16 @@ export class PostgresEntryRepository implements EntryRepository {
     parentId: number,
     tx: TransactionContext,
   ): Promise<EntryParentContext> {
-    return resolveParentContextInTransaction(requireTransaction(tx), ownerId, parentId);
+    return resolveParentContextInTransaction(tx, ownerId, parentId);
   }
 
   async deleteEntry(command: DeleteEntryCommand, tx: TransactionContext): Promise<void> {
-    const drizzleTx = requireTransaction(tx);
-
     try {
-      const target = await this.resolveEntryDeletionTarget(drizzleTx, command.entry);
-      await this.softDeleteEntry(drizzleTx, command.entry.ownerId, target.id, command.deletedAt);
+      const target = await this.resolveEntryDeletionTarget(tx, command.entry);
+      await this.softDeleteEntry(tx, command.entry.ownerId, target.id, command.deletedAt);
 
       if (target.kind === 'file') {
-        await enqueueObjectDeletionInTransaction(drizzleTx, {
+        await enqueueObjectDeletionInTransaction(tx, {
           objectKey: target.objectKey,
           reason: 'deleted_file',
         });

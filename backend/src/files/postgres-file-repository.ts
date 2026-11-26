@@ -1,6 +1,6 @@
 import { eq, and, isNull } from 'drizzle-orm';
 import type { Database } from '../db/db-client.js';
-import { resolveDbExecutor, type TransactionContext } from '../db/unit-of-work.js';
+import type { TransactionContext } from '../db/unit-of-work.js';
 import { entries, files } from '../db/schema.js';
 import type { FileRepository } from './file-repository.js';
 import type { DownloadableFile } from './file.js';
@@ -12,7 +12,7 @@ export class PostgresFileRepository implements FileRepository {
     entryId: number,
     tx?: TransactionContext,
   ): Promise<DownloadableFile | null> {
-    const [row] = await resolveDbExecutor(this.db, tx)
+    const [row] = await (tx ?? this.db)
       .select({
         entryId: entries.id,
         publicId: entries.publicId,

@@ -1,6 +1,6 @@
 import { and, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { Database, Transaction } from '../db/db-client.js';
-import { requireTransaction, type TransactionContext } from '../db/unit-of-work.js';
+import type { TransactionContext } from '../db/unit-of-work.js';
 import { entries, fileGrants, files, users } from '../db/schema.js';
 import type {
   FileGrantMaintenanceResult,
@@ -22,9 +22,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
   constructor(private readonly db: Database) {}
 
   async save(command: SaveFileGrantCommand, tx: TransactionContext): Promise<FileGrant> {
-    const drizzleTx = requireTransaction(tx);
-
-    const [recipient] = await drizzleTx
+    const [recipient] = await tx
       .select({ id: users.id })
       .from(users)
       .where(and(sql`lower(${users.email}) = ${command.recipientEmail}`, isNull(users.deletedAt)))
@@ -37,7 +35,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
     const [existingRecipientGrant] =
       recipientUserId === null
         ? []
-        : await drizzleTx
+        : await tx
             .select({ id: fileGrants.id })
             .from(fileGrants)
             .where(
@@ -50,7 +48,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
             .limit(1);
 
     if (existingRecipientGrant) {
-      await drizzleTx
+      await tx
         .delete(fileGrants)
         .where(
           and(
@@ -60,7 +58,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
           ),
         );
 
-      const [updatedGrant] = await drizzleTx
+      const [updatedGrant] = await tx
         .update(fileGrants)
         .set({
           recipientEmail: command.recipientEmail,
@@ -79,7 +77,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
       return updatedGrant;
     }
 
-    const [savedGrant] = await drizzleTx
+    const [savedGrant] = await tx
       .insert(fileGrants)
       .values({
         fileId: command.fileId,
@@ -132,9 +130,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
   }
 
   async revoke(command: RevokeFileGrantCommand, tx: TransactionContext): Promise<FileGrant | null> {
-    const drizzleTx = requireTransaction(tx);
-
-    const [revokedGrant] = await drizzleTx
+    const [revokedGrant] = await tx
       .delete(fileGrants)
       .where(
         and(eq(fileGrants.fileId, command.fileId), eq(fileGrants.publicId, command.grantPublicId)),
@@ -148,9 +144,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
     command: UpdateFileGrantCommand,
     tx: TransactionContext,
   ): Promise<UpdatedFileGrant | null> {
-    const drizzleTx = requireTransaction(tx);
-
-    const [grant] = await drizzleTx
+    const [grant] = await tx
       .select()
       .from(fileGrants)
       .where(
@@ -171,7 +165,7 @@ export class PostgresFileGrantRepository implements FileGrantRepository {
         ? command.expiresAt
         : grant.activationDeadline;
 
-    const [updatedGrant] = await drizzleTx
+    const [updatedGrant] = await tx
       .update(fileGrants)
       .set({
         permission: command.permission,
