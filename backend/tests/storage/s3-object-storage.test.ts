@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   getSignedUrl: vi.fn(),
   uploadDone: vi.fn(),
+  uploadAbort: vi.fn(),
   uploadOptions: [] as unknown[],
 }));
 
@@ -49,6 +50,7 @@ vi.mock('@aws-sdk/lib-storage', () => ({
     }
 
     done = mocks.uploadDone;
+    abort = mocks.uploadAbort;
   },
 }));
 
@@ -271,5 +273,43 @@ describe('S3ObjectStorage errors', () => {
       contentType: 'text/plain',
       sha256Hex: 'aa'.repeat(32),
     });
+  });
+
+  it('forwards AbortSignal to GetObjectCommand and propagates abort errors', async () => {
+    const controller = new AbortController();
+    const abortError = new Error('request aborted');
+    mocks.send.mockImplementationOnce(() => {
+      controller.abort(abortError);
+      return Promise.reject(abortError);
+    });
+
+    await expect(storage.getObjectStream('object-key', controller.signal)).rejects.toBe(abortError);
+    expect(mocks.send).toHaveBeenCalledWith(expect.anything(), {
+      abortSignal: controller.signal,
+    });
+  });
+
+  it('aborts an in-flight multipart upload when the signal aborts', async () => {
+    const controller = new AbortController();
+    const abortError = new Error('upload aborted');
+    mocks.uploadAbort.mockResolvedValueOnce(undefined);
+    mocks.uploadDone.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          controller.signal.addEventListener('abort', () => reject(abortError), { once: true });
+        }),
+    );
+
+    const uploadPromise = storage.uploadObjectStream({
+      objectKey: 'archive.zip',
+      contentType: 'application/zip',
+      body: Readable.from(['content']),
+      signal: controller.signal,
+    });
+
+    controller.abort(abortError);
+
+    await expect(uploadPromise).rejects.toBe(abortError);
+    expect(mocks.uploadAbort).toHaveBeenCalledOnce();
   });
 });

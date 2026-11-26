@@ -49,10 +49,15 @@ export class S3ObjectStorage implements ObjectStorage {
   private async executeStorageOperation<T>(
     context: StorageErrorContext,
     operation: () => Promise<T>,
+    signal?: AbortSignal,
   ): Promise<T> {
     try {
       return await operation();
     } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
+
       const isObjectReadOperation =
         context.operation === 'head_object' || context.operation === 'get_object_stream';
 
@@ -178,28 +183,38 @@ export class S3ObjectStorage implements ObjectStorage {
     return `attachment; filename*=UTF-8''${encodedFileName}`;
   }
 
-  async getObjectStream(objectKey: string): Promise<Readable> {
+  async getObjectStream(objectKey: string, signal?: AbortSignal): Promise<Readable> {
     const context = {
       operation: 'get_object_stream',
       objectKey,
     } as const satisfies StorageErrorContext;
 
-    return this.executeStorageOperation(context, async () => {
-      const response = await this.client.send(
-        new GetObjectCommand({
+    return this.executeStorageOperation(
+      context,
+      async () => {
+        if (signal?.aborted) {
+          throw this.toAbortError(signal);
+        }
+
+        const command = new GetObjectCommand({
           Bucket: this.bucket,
           Key: objectKey,
-        }),
-      );
-
-      if (!(response.Body instanceof Readable)) {
-        throw new StorageUnavailableError(context, {
-          cause: new Error('S3 GetObject response is missing a Node.js readable body'),
         });
-      }
+        const response =
+          signal !== undefined
+            ? await this.client.send(command, { abortSignal: signal })
+            : await this.client.send(command);
 
-      return response.Body;
-    });
+        if (!(response.Body instanceof Readable)) {
+          throw new StorageUnavailableError(context, {
+            cause: new Error('S3 GetObject response is missing a Node.js readable body'),
+          });
+        }
+
+        return response.Body;
+      },
+      signal,
+    );
   }
 
   async uploadObjectStream(params: UploadObjectStreamParams): Promise<void> {
@@ -208,21 +223,49 @@ export class S3ObjectStorage implements ObjectStorage {
       objectKey: params.objectKey,
     } as const satisfies StorageErrorContext;
 
-    await this.executeStorageOperation(context, async () => {
-      const upload = new Upload({
-        client: this.client,
-        params: {
-          Bucket: this.bucket,
-          Key: params.objectKey,
-          Body: params.body,
-          ContentType: params.contentType,
-        },
-        partSize: MULTIPART_PART_SIZE_BYTES,
-        queueSize: MULTIPART_QUEUE_SIZE,
-        leavePartsOnError: false,
-      });
+    await this.executeStorageOperation(
+      context,
+      async () => {
+        if (params.signal?.aborted) {
+          throw this.toAbortError(params.signal);
+        }
 
-      await upload.done();
-    });
+        const upload = new Upload({
+          client: this.client,
+          params: {
+            Bucket: this.bucket,
+            Key: params.objectKey,
+            Body: params.body,
+            ContentType: params.contentType,
+          },
+          partSize: MULTIPART_PART_SIZE_BYTES,
+          queueSize: MULTIPART_QUEUE_SIZE,
+          leavePartsOnError: false,
+        });
+
+        const onAbort = () => {
+          void upload.abort();
+        };
+
+        params.signal?.addEventListener('abort', onAbort, { once: true });
+
+        try {
+          await upload.done();
+        } finally {
+          params.signal?.removeEventListener('abort', onAbort);
+        }
+      },
+      params.signal,
+    );
+  }
+
+  private toAbortError(signal: AbortSignal): Error {
+    if (signal.reason instanceof Error) {
+      return signal.reason;
+    }
+
+    const error = new Error('Storage operation aborted', { cause: signal.reason });
+    error.name = 'AbortError';
+    return error;
   }
 }

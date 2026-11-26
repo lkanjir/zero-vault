@@ -30,13 +30,14 @@ export type UploadObjectStreamParams = {
   objectKey: string;
   contentType: string;
   body: Readable;
+  signal?: AbortSignal;
 };
 
 export interface ObjectStorage {
   createPresignedUploadUrl(params: SignedUploadUrlParams): Promise<string>;
   createPresignedDownloadUrl(params: SignedDownloadUrlParams): Promise<string>;
   headObject(objectKey: string): Promise<ObjectMetadata>;
-  getObjectStream(objectKey: string): Promise<Readable>;
+  getObjectStream(objectKey: string, signal?: AbortSignal): Promise<Readable>;
   uploadObjectStream(params: UploadObjectStreamParams): Promise<void>;
   deleteObject(objectKey: string): Promise<void>;
 }
