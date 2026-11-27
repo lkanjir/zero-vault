@@ -237,6 +237,25 @@ describe('PostgresEntryRepository and EntryService.ensureFolderTree', () => {
     expect(events).toHaveLength(5);
   });
 
+  it('serializes folders named __proto__ and constructor safely as own keys', async () => {
+    const user = await createUser();
+
+    const result = await entryService.ensureFolderTree(user, {
+      parentId: null,
+      paths: ['__proto__/constructor'],
+    });
+
+    expect(Object.hasOwn(result.folders, '__proto__')).toBe(true);
+    expect(Object.hasOwn(result.folders, '__proto__/constructor')).toBe(true);
+
+    const roundTripped = JSON.parse(JSON.stringify(result)) as { folders: Record<string, string> };
+    expect(Object.entries(roundTripped.folders)).toHaveLength(2);
+    expect(Object.hasOwn(roundTripped.folders, '__proto__')).toBe(true);
+    expect(roundTripped.folders['__proto__/constructor']).toBe(
+      result.folders['__proto__/constructor'],
+    );
+  });
+
   async function createUser(): Promise<User> {
     const [created] = await database
       .insert(users)

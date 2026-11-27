@@ -559,6 +559,50 @@ describe('EntryService', () => {
     expect(repository.findOrCreateFolder).not.toHaveBeenCalled();
     expect(auditRepository.record).not.toHaveBeenCalled();
   });
+
+  it('preserves Object.prototype key names like __proto__ and constructor as own properties in the response map', async () => {
+    const protoFolder = {
+      id: 30,
+      publicId: '20000000-0000-4000-8000-000000000030',
+      ownerId: USER.id,
+      parentId: null,
+      kind: 'folder' as const,
+      name: '__proto__',
+      createdAt: NOW,
+      updatedAt: NOW,
+      deletedAt: null,
+    };
+    const ctorFolder = {
+      id: 31,
+      publicId: '20000000-0000-4000-8000-000000000031',
+      ownerId: USER.id,
+      parentId: 30,
+      kind: 'folder' as const,
+      name: 'constructor',
+      createdAt: NOW,
+      updatedAt: NOW,
+      deletedAt: null,
+    };
+
+    entryAuthorizer.authorizeParentForCreate.mockResolvedValue(null);
+    repository.findOrCreateFolder
+      .mockResolvedValueOnce({ folder: protoFolder, created: true })
+      .mockResolvedValueOnce({ folder: ctorFolder, created: true });
+
+    const result = await service.ensureFolderTree(USER, {
+      parentId: null,
+      paths: ['__proto__/constructor'],
+    });
+
+    expect(Object.hasOwn(result.folders, '__proto__')).toBe(true);
+    expect(Object.hasOwn(result.folders, '__proto__/constructor')).toBe(true);
+    expect(JSON.parse(JSON.stringify(result))).toStrictEqual({
+      folders: Object.fromEntries([
+        ['__proto__', protoFolder.publicId],
+        ['__proto__/constructor', ctorFolder.publicId],
+      ]),
+    });
+  });
 });
 
 function makeEntry(overrides: Partial<Entry> = {}): Entry {

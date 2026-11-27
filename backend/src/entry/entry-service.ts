@@ -201,7 +201,12 @@ export class EntryService {
 
       const folderMap: Record<string, string> = {};
       for (const [relativePath, canonicalKey] of plan.pathToCanonicalKey) {
-        folderMap[relativePath] = resolvedByCanonicalKey.get(canonicalKey)!.publicId;
+        Object.defineProperty(folderMap, relativePath, {
+          value: resolvedByCanonicalKey.get(canonicalKey)!.publicId,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
       }
 
       return folderMap;
@@ -449,7 +454,11 @@ function buildFolderTreePlan(paths: readonly string[]): FolderTreePlan {
       return left.depth - right.depth;
     }
 
-    return left.canonicalKey.localeCompare(right.canonicalKey);
+    if (left.canonicalKey < right.canonicalKey) {
+      return -1;
+    }
+
+    return left.canonicalKey > right.canonicalKey ? 1 : 0;
   });
 
   return {
