@@ -150,13 +150,10 @@ describe('UploadService', () => {
     });
   });
 
-  it('uses resolveAvailableFileName and persists conflictStrategy=rename for single-part and multipart uploads', async () => {
+  it('skips duplicate precheck and persists original fileName with conflictStrategy=rename for single-part and multipart uploads', async () => {
     storage.createPresignedUploadUrl.mockResolvedValue(SIGNED_URL);
     storage.createMultipartUpload.mockResolvedValue('s3-mp-rename-1');
     entryAuthorizer.authorizeParentForCreate.mockResolvedValue(7);
-    repo.resolveAvailableFileName
-      .mockResolvedValueOnce('document (1).txt')
-      .mockResolvedValueOnce('archive (2).zip');
 
     await service.createUpload(USER, {
       fileName: 'document.txt',
@@ -168,18 +165,9 @@ describe('UploadService', () => {
     });
 
     expect(repo.assertUploadTargetAvailable).not.toHaveBeenCalled();
-    expect(repo.resolveAvailableFileName).toHaveBeenCalledWith(
-      {
-        userId: USER.id,
-        targetParentId: 7,
-        fileName: 'document.txt',
-        now: NOW,
-      },
-      tx,
-    );
     expect(repo.save).toHaveBeenCalledWith(
       expect.objectContaining({
-        fileName: 'document (1).txt',
+        fileName: 'document.txt',
         targetParentId: 7,
         conflictStrategy: 'rename',
       }),
@@ -194,9 +182,10 @@ describe('UploadService', () => {
       conflictStrategy: 'rename',
     });
 
+    expect(repo.assertUploadTargetAvailable).not.toHaveBeenCalled();
     expect(repo.save).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        fileName: 'archive (2).zip',
+        fileName: 'archive.zip',
         targetParentId: 7,
         conflictStrategy: 'rename',
       }),

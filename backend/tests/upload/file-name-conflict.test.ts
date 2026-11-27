@@ -40,12 +40,25 @@ describe('file-name-conflict', () => {
     ).toBe(true);
   });
 
-  it('handles pathological very long extensions without exceeding 500 characters', () => {
+  it('handles pathological very long extensions without exceeding 500 characters and keeps search prefix consistent', () => {
     const weirdName = `x.${'e'.repeat(498)}`; // 500 chars
     const renamed = buildAutoRenamedFileName(weirdName, 12);
 
     expect(renamed.length).toBeLessThanOrEqual(MAX_ENTRY_NAME_LENGTH);
     expect(renamed.endsWith(' (12)')).toBe(true);
+    expect(
+      renamed.toLowerCase().startsWith(getAutoRenameSearchPrefix(weirdName).toLowerCase()),
+    ).toBe(true);
+
+    // Extension of 491 chars: counter=1 still inserts " (1)" before the dot,
+    // while extension.length + 12 >= 500 — search prefix must still match every candidate.
+    const longExtName = `abcdef.${'b'.repeat(490)}`;
+    const prefix = getAutoRenameSearchPrefix(longExtName).toLowerCase();
+    for (const counter of [1, 2, 10, 999, 10_000, 100_000]) {
+      const candidate = buildAutoRenamedFileName(longExtName, counter);
+      expect(candidate.length).toBeLessThanOrEqual(MAX_ENTRY_NAME_LENGTH);
+      expect(candidate.toLowerCase().startsWith(prefix)).toBe(true);
+    }
   });
 
   it('picks the original name when free and skips case-insensitive taken candidates', () => {

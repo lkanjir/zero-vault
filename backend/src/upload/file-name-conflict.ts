@@ -59,15 +59,18 @@ export function getAutoRenameSearchPrefix(fileName: string): string {
     return base;
   }
 
-  if (extension.length + PREFIX_COUNTER_BUFFER < MAX_ENTRY_NAME_LENGTH) {
-    const maxBaseLength = MAX_ENTRY_NAME_LENGTH - extension.length - PREFIX_COUNTER_BUFFER;
-    const prefix = base.slice(0, Math.max(1, maxBaseLength)).trimEnd();
+  const maxBaseLength = MAX_ENTRY_NAME_LENGTH - extension.length - PREFIX_COUNTER_BUFFER;
+  if (maxBaseLength >= 1) {
+    const prefix = base.slice(0, Math.min(base.length, maxBaseLength)).trimEnd();
     if (prefix.length > 0) {
       return prefix;
     }
   }
 
-  return fileName.slice(0, Math.min(fileName.length, 16));
+  // When the extension alone leaves fewer than PREFIX_COUNTER_BUFFER characters,
+  // buildAutoRenamedFileName may truncate base down to a single character or fall
+  // back to truncating fileName. The first character of base is always preserved.
+  return base.slice(0, 1);
 }
 
 export function pickAvailableFileName(

@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { Database, Transaction } from '../db/db-client.js';
 import { entries, files, uploadIntents } from '../db/schema.js';
 import type { TransactionContext } from '../db/unit-of-work.js';
@@ -15,7 +15,6 @@ import type {
   CompleteReplaceIntentCommand,
   CompleteReplaceIntentResult,
   ExpirePendingIntentsCommand,
-  ResolveAvailableFileNameCommand,
   SaveReplacementUploadIntentCommand,
   SaveUploadIntentCommand,
   UploadIntentRepository,
@@ -142,65 +141,6 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     }
   }
 
-  async resolveAvailableFileName(
-    command: ResolveAvailableFileNameCommand,
-    tx: TransactionContext,
-  ): Promise<string> {
-    const entryParentCondition =
-      command.targetParentId === null
-        ? isNull(entries.parentId)
-        : eq(entries.parentId, command.targetParentId);
-
-    const intentParentCondition =
-      command.targetParentId === null
-        ? isNull(uploadIntents.targetParentId)
-        : eq(uploadIntents.targetParentId, command.targetParentId);
-
-    const [existingEntry] = await tx
-      .select({ id: entries.id })
-      .from(entries)
-      .where(
-        and(
-          eq(entries.ownerId, command.userId),
-          entryParentCondition,
-          isNull(entries.deletedAt),
-          sql`lower(${entries.name}) = lower(${command.fileName})`,
-        ),
-      )
-      .limit(1);
-
-    const [existingPendingIntent] = existingEntry
-      ? [undefined]
-      : await tx
-          .select({ id: uploadIntents.id })
-          .from(uploadIntents)
-          .where(
-            and(
-              eq(uploadIntents.createdByUserId, command.userId),
-              intentParentCondition,
-              eq(uploadIntents.status, 'pending'),
-              eq(uploadIntents.operation, 'create'),
-              gt(uploadIntents.finalizeDeadline, command.now),
-              sql`lower(${uploadIntents.fileName}) = lower(${command.fileName})`,
-            ),
-          )
-          .limit(1);
-
-    if (!existingEntry && !existingPendingIntent) {
-      return command.fileName;
-    }
-
-    const takenLowerNames = await this.findTakenSiblingLowerNames(
-      tx,
-      command.userId,
-      command.targetParentId,
-      command.fileName,
-      command.now,
-    );
-
-    return pickAvailableFileName(command.fileName, takenLowerNames);
-  }
-
   async expireLockedIntent(intentId: number, tx: TransactionContext): Promise<void> {
     await this.expireLockedIntents(tx, [intentId]);
   }
@@ -295,7 +235,6 @@ export class PostgresIntentRepository implements UploadIntentRepository {
               command.userId,
               command.intent.targetParentId,
               baseFileName,
-              null,
             );
             candidateFileName = pickAvailableFileName(baseFileName, takenLowerNames);
             continue;
@@ -496,7 +435,6 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     userId: number,
     targetParentId: number | null,
     fileName: string,
-    includePendingAsOf: Date | null,
   ): Promise<Set<string>> {
     const searchPrefix = getAutoRenameSearchPrefix(fileName).toLowerCase();
     const escapedPrefix = searchPrefix.replace(/[\\%_]/g, '\\$&');
@@ -524,36 +462,6 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     const taken = new Set<string>();
     for (const row of entryRows) {
       taken.add(row.name.toLowerCase());
-    }
-
-    if (includePendingAsOf !== null) {
-      const intentParentCondition =
-        targetParentId === null
-          ? isNull(uploadIntents.targetParentId)
-          : eq(uploadIntents.targetParentId, targetParentId);
-
-      const intentRows = await tx
-        .select({ fileName: uploadIntents.fileName })
-        .from(uploadIntents)
-        .where(
-          and(
-            eq(uploadIntents.createdByUserId, userId),
-            intentParentCondition,
-            eq(uploadIntents.status, 'pending'),
-            eq(uploadIntents.operation, 'create'),
-            gt(uploadIntents.finalizeDeadline, includePendingAsOf),
-            or(
-              sql`lower(${uploadIntents.fileName}) = ${lowerFileName}`,
-              sql`lower(${uploadIntents.fileName}) LIKE ${likePattern} ESCAPE '\\'`,
-            ),
-          ),
-        );
-
-      for (const row of intentRows) {
-        if (row.fileName !== null) {
-          taken.add(row.fileName.toLowerCase());
-        }
-      }
     }
 
     return taken;

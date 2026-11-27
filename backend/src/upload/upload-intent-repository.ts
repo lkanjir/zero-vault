@@ -56,13 +56,6 @@ export type AssertUploadTargetAvailableCommand = {
   fileName: string;
 };
 
-export type ResolveAvailableFileNameCommand = {
-  userId: number;
-  targetParentId: number | null;
-  fileName: string;
-  now: Date;
-};
-
 export type SaveReplacementUploadIntentCommand = {
   upload: UploadIntentInput;
   targetFileId: number;
@@ -88,10 +81,6 @@ export interface UploadIntentRepository {
     command: AssertUploadTargetAvailableCommand,
     tx: TransactionContext,
   ): Promise<void>;
-  resolveAvailableFileName(
-    command: ResolveAvailableFileNameCommand,
-    tx: TransactionContext,
-  ): Promise<string>;
   expireLockedIntent(intentId: number, tx: TransactionContext): Promise<void>;
   abortLockedIntent(intentId: number, tx: TransactionContext): Promise<void>;
   completeCreateIntent(

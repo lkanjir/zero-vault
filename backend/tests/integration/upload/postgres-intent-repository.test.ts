@@ -750,7 +750,7 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
     });
   });
 
-  it('auto-renames conflicting file uploads with and without extensions, including case-insensitive and pending collisions', async () => {
+  it('auto-renames conflicting file uploads with and without extensions, including concurrent completions without double-renaming', async () => {
     const user = await createUser();
     await createFile(user.id, {
       name: 'Report.PDF',
@@ -767,39 +767,41 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
       name: '.gitignore',
     });
 
-    // Two concurrent pending uploads for report.pdf should reserve (1) and (2) upfront
-    const firstReport = await uploadService.createUpload(user, {
-      parentFolderId: null,
-      fileName: 'report.pdf',
-      contentType: 'application/pdf',
-      size: 12,
-      sha256: EXPECTED_SHA256,
-      conflictStrategy: 'rename',
-    });
-    const secondReport = await uploadService.createUpload(user, {
-      parentFolderId: null,
-      fileName: 'report.pdf',
-      contentType: 'application/pdf',
-      size: 12,
-      sha256: EXPECTED_SHA256,
-      conflictStrategy: 'rename',
-    });
-    const readmeUpload = await uploadService.createUpload(user, {
-      parentFolderId: null,
-      fileName: 'README',
-      contentType: 'text/plain',
-      size: 12,
-      sha256: EXPECTED_SHA256,
-      conflictStrategy: 'rename',
-    });
-    const dotfileUpload = await uploadService.createUpload(user, {
-      parentFolderId: null,
-      fileName: '.gitignore',
-      contentType: 'text/plain',
-      size: 12,
-      sha256: EXPECTED_SHA256,
-      conflictStrategy: 'rename',
-    });
+    // Two concurrent presigns and completions for report.pdf must produce (1) and (2), never (1) (1)
+    const [firstReport, secondReport, readmeUpload, dotfileUpload] = await Promise.all([
+      uploadService.createUpload(user, {
+        parentFolderId: null,
+        fileName: 'report.pdf',
+        contentType: 'application/pdf',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+        conflictStrategy: 'rename',
+      }),
+      uploadService.createUpload(user, {
+        parentFolderId: null,
+        fileName: 'report.pdf',
+        contentType: 'application/pdf',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+        conflictStrategy: 'rename',
+      }),
+      uploadService.createUpload(user, {
+        parentFolderId: null,
+        fileName: 'README',
+        contentType: 'text/plain',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+        conflictStrategy: 'rename',
+      }),
+      uploadService.createUpload(user, {
+        parentFolderId: null,
+        fileName: '.gitignore',
+        contentType: 'text/plain',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+        conflictStrategy: 'rename',
+      }),
+    ]);
 
     for (const uploadId of [
       firstReport.uploadId,
@@ -816,19 +818,65 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
       });
     }
 
-    const completedFirst = await uploadService.completeUpload(user, firstReport.uploadId);
-    const completedSecond = await uploadService.completeUpload(user, secondReport.uploadId);
-    const completedReadme = await uploadService.completeUpload(user, readmeUpload.uploadId);
-    const completedDotfile = await uploadService.completeUpload(user, dotfileUpload.uploadId);
+    const [completedFirst, completedSecond, completedReadme, completedDotfile] = await Promise.all([
+      uploadService.completeUpload(user, firstReport.uploadId),
+      uploadService.completeUpload(user, secondReport.uploadId),
+      uploadService.completeUpload(user, readmeUpload.uploadId),
+      uploadService.completeUpload(user, dotfileUpload.uploadId),
+    ]);
 
-    expect(completedFirst.name).toBe('report (1).pdf');
-    expect(completedSecond.name).toBe('report (2).pdf');
+    expect([completedFirst.name, completedSecond.name].sort()).toStrictEqual([
+      'report (1).pdf',
+      'report (2).pdf',
+    ]);
     expect(completedReadme.name).toBe('README (1)');
     expect(completedDotfile.name).toBe('.gitignore (1)');
   });
 
-  it('auto-renames during completeUpload when a concurrent file claims the reserved name before completion', async () => {
+  it('does not let an abandoned pending rename intent reserve the original file name or create numbering gaps', async () => {
     const user = await createUser();
+
+    // Abandoned pending upload that is never completed or aborted
+    await uploadService.createUpload(user, {
+      parentFolderId: null,
+      fileName: 'notes.txt',
+      contentType: 'text/plain',
+      size: 12,
+      sha256: EXPECTED_SHA256,
+      conflictStrategy: 'rename',
+    });
+
+    const activeUpload = await uploadService.createUpload(user, {
+      parentFolderId: null,
+      fileName: 'notes.txt',
+      contentType: 'text/plain',
+      size: 12,
+      sha256: EXPECTED_SHA256,
+      conflictStrategy: 'rename',
+    });
+
+    const intent = await repository.findByUserAndUploadId(user.id, activeUpload.uploadId);
+    uploadedObjects.set(intent!.objectKey, {
+      objectKey: intent!.objectKey,
+      sizeBytes: 12,
+      contentType: 'text/plain',
+      checksum: { type: 'full_sha256', value: EXPECTED_SHA256 },
+    });
+
+    const completed = await uploadService.completeUpload(user, activeUpload.uploadId);
+    expect(completed.name).toBe('notes.txt');
+  });
+
+  it('auto-renames during completeUpload without double-suffixing when conflicts arrive before completion, including long extensions', async () => {
+    const user = await createUser();
+    const longExt = `.${'b'.repeat(490)}`;
+    const longFileName = `a${longExt}`;
+
+    await createFile(user.id, {
+      name: longFileName,
+      objectKey: `integration-tests/${randomUUID()}`,
+    });
+
     const upload = await uploadService.createUpload(user, {
       parentFolderId: null,
       fileName: 'photo.jpg',
@@ -837,19 +885,27 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
       sha256: EXPECTED_SHA256,
       conflictStrategy: 'rename',
     });
-
-    const intent = await repository.findByUserAndUploadId(user.id, upload.uploadId);
-    expect(intent?.fileName).toBe('photo.jpg');
-    expect(intent?.conflictStrategy).toBe('rename');
-
-    uploadedObjects.set(intent!.objectKey, {
-      objectKey: intent!.objectKey,
-      sizeBytes: 12,
-      contentType: 'image/jpeg',
-      checksum: { type: 'full_sha256', value: EXPECTED_SHA256 },
+    const longExtUpload = await uploadService.createUpload(user, {
+      parentFolderId: null,
+      fileName: longFileName,
+      contentType: 'application/octet-stream',
+      size: 12,
+      sha256: EXPECTED_SHA256,
+      conflictStrategy: 'rename',
     });
 
-    // Simulate another request claiming 'photo.jpg' and 'photo (1).jpg' after presign but before complete
+    for (const uploadId of [upload.uploadId, longExtUpload.uploadId]) {
+      const intent = await repository.findByUserAndUploadId(user.id, uploadId);
+      expect(intent?.conflictStrategy).toBe('rename');
+      uploadedObjects.set(intent!.objectKey, {
+        objectKey: intent!.objectKey,
+        sizeBytes: 12,
+        contentType: intent!.contentType,
+        checksum: { type: 'full_sha256', value: EXPECTED_SHA256 },
+      });
+    }
+
+    // Simulate another request claiming 'photo.jpg', 'photo (1).jpg', and 'a (1).bbb...' before complete
     await createFile(user.id, {
       name: 'photo.jpg',
       objectKey: `integration-tests/${randomUUID()}`,
@@ -858,19 +914,28 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
       name: 'PHOTO (1).JPG',
       objectKey: `integration-tests/${randomUUID()}`,
     });
+    await createFile(user.id, {
+      name: `a (1)${longExt}`,
+      objectKey: `integration-tests/${randomUUID()}`,
+    });
 
     const completed = await uploadService.completeUpload(user, upload.uploadId);
     expect(completed.name).toBe('photo (2).jpg');
 
-    const [auditRow] = await database
-      .select()
-      .from(auditEvents)
-      .where(eq(auditEvents.ownerId, user.id));
-    expect(auditRow?.entryNameSnapshot).toBe('photo (2).jpg');
+    const completedLongExt = await uploadService.completeUpload(user, longExtUpload.uploadId);
+    expect(completedLongExt.name).toBe(`a (2)${longExt}`);
 
     const updatedIntent = await repository.findByUserAndUploadId(user.id, upload.uploadId);
     expect(updatedIntent?.status).toBe('completed');
     expect(updatedIntent?.fileName).toBe('photo (2).jpg');
+
+    const auditRows = await database
+      .select()
+      .from(auditEvents)
+      .where(eq(auditEvents.ownerId, user.id));
+    expect(auditRows.map((row) => row.entryNameSnapshot).sort()).toStrictEqual(
+      [`a (2)${longExt}`, 'photo (2).jpg'].sort(),
+    );
   });
 
   async function saveCreateIntent(command: SaveUploadIntentCommand): Promise<void> {

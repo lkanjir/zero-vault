@@ -23,7 +23,7 @@ import {
   assertSizeMatches,
 } from './metadata-assertions.js';
 import type { CompletedUploadFile, UploadIntentRepository } from './upload-intent-repository.js';
-import type { UploadConflictStrategy, UploadIntent, UploadIntentInput } from './upload-intent.js';
+import type { UploadIntent, UploadIntentInput } from './upload-intent.js';
 import { computeUploadPlan, getExpectedPartSizeBytes } from './upload-sizing.js';
 import type {
   CompleteUploadRequestBody,
@@ -71,14 +71,16 @@ export class UploadService {
           tx,
         );
 
-        const resolvedFileName = await this.resolveCreateFileName(
-          user.id,
-          targetParentId,
-          requestBody.fileName,
-          conflictStrategy,
-          upload.createdAt,
-          tx,
-        );
+        if (conflictStrategy === 'fail') {
+          await this.intentRepo.assertUploadTargetAvailable(
+            {
+              userId: user.id,
+              targetParentId,
+              fileName: requestBody.fileName,
+            },
+            tx,
+          );
+        }
 
         const presignedUrl = await this.createPresignedUploadUrl(upload);
 
@@ -86,7 +88,7 @@ export class UploadService {
           {
             upload,
             targetParentId,
-            fileName: resolvedFileName,
+            fileName: requestBody.fileName,
             conflictStrategy,
           },
           tx,
@@ -112,14 +114,16 @@ export class UploadService {
           tx,
         );
 
-        const resolvedFileName = await this.resolveCreateFileName(
-          user.id,
-          targetParentId,
-          requestBody.fileName,
-          conflictStrategy,
-          new Date(),
-          tx,
-        );
+        if (conflictStrategy === 'fail') {
+          await this.intentRepo.assertUploadTargetAvailable(
+            {
+              userId: user.id,
+              targetParentId,
+              fileName: requestBody.fileName,
+            },
+            tx,
+          );
+        }
 
         const s3UploadId = await this.storage.createMultipartUpload({
           objectKey,
@@ -140,7 +144,7 @@ export class UploadService {
           {
             upload: multipartIntent,
             targetParentId,
-            fileName: resolvedFileName,
+            fileName: requestBody.fileName,
             conflictStrategy,
           },
           tx,
@@ -660,38 +664,6 @@ export class UploadService {
         return { kind: 'completed', file: replaceResult.file };
       }
     }
-  }
-
-  private async resolveCreateFileName(
-    userId: number,
-    targetParentId: number | null,
-    fileName: string,
-    conflictStrategy: UploadConflictStrategy,
-    now: Date,
-    tx: TransactionContext,
-  ): Promise<string> {
-    if (conflictStrategy === 'rename') {
-      return this.intentRepo.resolveAvailableFileName(
-        {
-          userId,
-          targetParentId,
-          fileName,
-          now,
-        },
-        tx,
-      );
-    }
-
-    await this.intentRepo.assertUploadTargetAvailable(
-      {
-        userId,
-        targetParentId,
-        fileName,
-      },
-      tx,
-    );
-
-    return fileName;
   }
 
   private async createPresignedUploadUrl(upload: UploadIntentInput): Promise<string> {
