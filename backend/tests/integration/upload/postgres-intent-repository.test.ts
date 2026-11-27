@@ -938,6 +938,197 @@ describe('PostgresIntentRepository and UploadService transactions', () => {
     );
   });
 
+  it('enforces storage quota across active files, active pending uploads, and replacement deltas while ignoring soft-deleted and expired items', async () => {
+    const owner = await createUser();
+    const editor = await createUser();
+    const boundedUploadService = new UploadService(
+      unitOfWork,
+      entryAuthorizer,
+      createInMemoryStorage(uploadedObjects),
+      repository,
+      auditRepository,
+      {
+        userStorageQuotaBytes: 100,
+        maxPendingUploadIntentsPerUser: 20,
+      },
+    );
+
+    // 40-byte active file
+    const { entry: activeFile } = await createFile(owner.id, {
+      name: 'active.bin',
+      objectKey: `integration-tests/${randomUUID()}`,
+      sizeBytes: 40,
+    });
+
+    // 500-byte soft-deleted file (must NOT count against quota)
+    const { entry: deletedFile } = await createFile(owner.id, {
+      name: 'deleted.bin',
+      objectKey: `integration-tests/${randomUUID()}`,
+      sizeBytes: 500,
+    });
+    await database
+      .update(entries)
+      .set({ deletedAt: new Date() })
+      .where(eq(entries.id, deletedFile.id));
+
+    // 500-byte expired-but-unswept pending intent (must NOT count against quota or pending limit)
+    const pastCreated = new Date(Date.now() - 120_000);
+    await database.insert(uploadIntents).values({
+      uploadId: randomUUID(),
+      createdByUserId: owner.id,
+      fileName: 'expired-unswept.bin',
+      objectKey: `integration-tests/${randomUUID()}`,
+      contentType: 'application/octet-stream',
+      expectedSizeBytes: 500,
+      expectedSha256: EXPECTED_SHA256,
+      status: 'pending',
+      createdAt: pastCreated,
+      uploadUrlExpiresAt: new Date(pastCreated.getTime() + 10_000),
+      finalizeDeadline: new Date(pastCreated.getTime() + 60_000),
+      operation: 'create',
+    });
+
+    // 30-byte active pending create intent -> reserved = 40 + 30 = 70 / 100
+    await boundedUploadService.createUpload(owner, {
+      parentFolderId: null,
+      fileName: 'pending-1.bin',
+      contentType: 'application/octet-stream',
+      size: 30,
+      sha256: EXPECTED_SHA256,
+    });
+
+    // 31-byte create intent would exceed 70 + 31 = 101 > 100
+    await expect(
+      boundedUploadService.createUpload(owner, {
+        parentFolderId: null,
+        fileName: 'too-big.bin',
+        contentType: 'application/octet-stream',
+        size: 31,
+        sha256: EXPECTED_SHA256,
+      }),
+    ).rejects.toMatchObject({ code: 'storage_quota_exceeded' });
+
+    // Grant editor access to owner's 40-byte file
+    await database.insert(fileGrants).values({
+      fileId: activeFile.id,
+      recipientUserId: editor.id,
+      recipientEmail: editor.email,
+      createdByUserId: owner.id,
+      permission: 'editor',
+    });
+
+    // Editor replaces 40-byte file with 60-byte file -> delta +20 -> reserved = 70 + 20 = 90 / 100 (allowed)
+    await boundedUploadService.createReplacementUpload(editor, activeFile.publicId, {
+      contentType: 'application/octet-stream',
+      size: 60,
+      sha256: EXPECTED_SHA256,
+    });
+
+    // Owner tries to upload 11 bytes -> reserved 90 + 11 = 101 > 100 (rejected because editor's replacement delta reserved 20 bytes)
+    await expect(
+      boundedUploadService.createUpload(owner, {
+        parentFolderId: null,
+        fileName: 'over-after-replace-delta.bin',
+        contentType: 'application/octet-stream',
+        size: 11,
+        sha256: EXPECTED_SHA256,
+      }),
+    ).rejects.toMatchObject({ code: 'storage_quota_exceeded' });
+
+    // Replacing 40-byte file with 35-byte file (delta 0) succeeds even with only 10 bytes left
+    await expect(
+      boundedUploadService.createReplacementUpload(owner, activeFile.publicId, {
+        contentType: 'application/octet-stream',
+        size: 35,
+        sha256: EXPECTED_SHA256,
+      }),
+    ).resolves.toMatchObject({ uploadMode: 'single' });
+  });
+
+  it('serializes concurrent createUpload requests so storage quota and pending intent limits cannot be bypassed by races', async () => {
+    const quotaUser = await createUser();
+    const quotaService = new UploadService(
+      unitOfWork,
+      entryAuthorizer,
+      createInMemoryStorage(uploadedObjects),
+      repository,
+      auditRepository,
+      {
+        userStorageQuotaBytes: 100,
+        maxPendingUploadIntentsPerUser: 20,
+      },
+    );
+
+    const quotaOutcomes = await Promise.allSettled([
+      quotaService.createUpload(quotaUser, {
+        parentFolderId: null,
+        fileName: 'race-1.bin',
+        contentType: 'application/octet-stream',
+        size: 60,
+        sha256: EXPECTED_SHA256,
+      }),
+      quotaService.createUpload(quotaUser, {
+        parentFolderId: null,
+        fileName: 'race-2.bin',
+        contentType: 'application/octet-stream',
+        size: 60,
+        sha256: EXPECTED_SHA256,
+      }),
+      quotaService.createUpload(quotaUser, {
+        parentFolderId: null,
+        fileName: 'race-3.bin',
+        contentType: 'application/octet-stream',
+        size: 60,
+        sha256: EXPECTED_SHA256,
+      }),
+    ]);
+
+    const quotaFulfilled = quotaOutcomes.filter((outcome) => outcome.status === 'fulfilled');
+    const quotaRejected = quotaOutcomes.filter(
+      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+    );
+    expect(quotaFulfilled).toHaveLength(1);
+    expect(quotaRejected).toHaveLength(2);
+    for (const rejected of quotaRejected) {
+      expect(rejected.reason).toMatchObject({ code: 'storage_quota_exceeded' });
+    }
+
+    const pendingUser = await createUser();
+    const pendingLimitService = new UploadService(
+      unitOfWork,
+      entryAuthorizer,
+      createInMemoryStorage(uploadedObjects),
+      repository,
+      auditRepository,
+      {
+        userStorageQuotaBytes: 10_000,
+        maxPendingUploadIntentsPerUser: 3,
+      },
+    );
+
+    const pendingOutcomes = await Promise.allSettled(
+      Array.from({ length: 6 }, (_, index) =>
+        pendingLimitService.createUpload(pendingUser, {
+          parentFolderId: null,
+          fileName: `pending-${index}.bin`,
+          contentType: 'application/octet-stream',
+          size: 10,
+          sha256: EXPECTED_SHA256,
+        }),
+      ),
+    );
+
+    const pendingFulfilled = pendingOutcomes.filter((outcome) => outcome.status === 'fulfilled');
+    const pendingRejected = pendingOutcomes.filter(
+      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+    );
+    expect(pendingFulfilled).toHaveLength(3);
+    expect(pendingRejected).toHaveLength(3);
+    for (const rejected of pendingRejected) {
+      expect(rejected.reason).toMatchObject({ code: 'upload_pending_limit_exceeded' });
+    }
+  });
+
   async function saveCreateIntent(command: SaveUploadIntentCommand): Promise<void> {
     uploadedObjects.set(command.upload.objectKey, {
       objectKey: command.upload.objectKey,

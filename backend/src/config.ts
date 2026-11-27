@@ -95,6 +95,24 @@ const trustProxyEnvSchema = z
     return value;
   });
 
+export const DEFAULT_USER_STORAGE_QUOTA_BYTES = 10 * 1024 * 1024 * 1024; // 10 GiB
+export const DEFAULT_MAX_PENDING_UPLOAD_INTENTS_PER_USER = 20;
+
+const uploadLimitsEnvSchema = z.object({
+  USER_STORAGE_QUOTA_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER)
+    .default(DEFAULT_USER_STORAGE_QUOTA_BYTES),
+  MAX_PENDING_UPLOAD_INTENTS_PER_USER: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(10_000)
+    .default(DEFAULT_MAX_PENDING_UPLOAD_INTENTS_PER_USER),
+});
+
 const httpEnvSchema = z.object({
   PORT: z.coerce.number().int().positive().max(65_535).default(3000),
   HSTS_ENABLED: z.stringbool().default(false),
@@ -135,12 +153,18 @@ export type HttpConfig = {
   readonly trustProxy: TrustProxyConfig;
 };
 
+export type UploadLimitsConfig = {
+  readonly userStorageQuotaBytes: number;
+  readonly maxPendingUploadIntentsPerUser: number;
+};
+
 export type ApiConfig = {
   readonly db: DbConfig;
   readonly redis: RedisConfig;
   readonly s3: S3Config;
   readonly oidc: OidcConfig;
   readonly http: HttpConfig;
+  readonly uploadLimits: UploadLimitsConfig;
 };
 
 export function loadDotenv(): void {
@@ -216,6 +240,14 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
   };
 }
 
+export function loadUploadLimitsConfig(env: NodeJS.ProcessEnv = process.env): UploadLimitsConfig {
+  const parsed = parseEnv(uploadLimitsEnvSchema, env, 'upload limits');
+  return {
+    userStorageQuotaBytes: parsed.USER_STORAGE_QUOTA_BYTES,
+    maxPendingUploadIntentsPerUser: parsed.MAX_PENDING_UPLOAD_INTENTS_PER_USER,
+  };
+}
+
 export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   return {
     db: loadDbConfig(env),
@@ -223,5 +255,6 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     s3: loadS3Config(env),
     oidc: loadOidcConfig(env),
     http: loadHttpConfig(env),
+    uploadLimits: loadUploadLimitsConfig(env),
   };
 }

@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  DEFAULT_MAX_PENDING_UPLOAD_INTENTS_PER_USER,
+  DEFAULT_USER_STORAGE_QUOTA_BYTES,
   loadApiConfig,
   loadDbConfig,
   loadHttpConfig,
   loadOidcConfig,
   loadRedisConfig,
   loadS3Config,
+  loadUploadLimitsConfig,
 } from '../src/config.js';
 
 describe('modular environment config loaders', () => {
@@ -159,8 +162,36 @@ describe('modular environment config loaders', () => {
     expect(apiConfig.http).toStrictEqual({ port: 4000, hstsEnabled: true, trustProxy: 1 });
     expect(apiConfig.db.connectionString).toBe('postgresql://user:pass@localhost:5432/zerovault');
     expect(apiConfig.redis.url).toBe('redis://localhost:6379');
+    expect(apiConfig.uploadLimits).toStrictEqual({
+      userStorageQuotaBytes: DEFAULT_USER_STORAGE_QUOTA_BYTES,
+      maxPendingUploadIntentsPerUser: DEFAULT_MAX_PENDING_UPLOAD_INTENTS_PER_USER,
+    });
     expect(apiConfig.s3.forcePathStyle).toBe(false);
     expect(apiConfig.oidc.audience).toBe('zero-vault-api');
+  });
+
+  it('loads upload limit defaults and custom values and rejects non-positive limits', () => {
+    expect(loadUploadLimitsConfig({})).toStrictEqual({
+      userStorageQuotaBytes: DEFAULT_USER_STORAGE_QUOTA_BYTES,
+      maxPendingUploadIntentsPerUser: DEFAULT_MAX_PENDING_UPLOAD_INTENTS_PER_USER,
+    });
+
+    expect(
+      loadUploadLimitsConfig({
+        USER_STORAGE_QUOTA_BYTES: '524288000',
+        MAX_PENDING_UPLOAD_INTENTS_PER_USER: '50',
+      }),
+    ).toStrictEqual({
+      userStorageQuotaBytes: 524_288_000,
+      maxPendingUploadIntentsPerUser: 50,
+    });
+
+    expect(() => loadUploadLimitsConfig({ USER_STORAGE_QUOTA_BYTES: '0' })).toThrow(
+      'Invalid upload limits environment configuration',
+    );
+    expect(() => loadUploadLimitsConfig({ MAX_PENDING_UPLOAD_INTENTS_PER_USER: '-1' })).toThrow(
+      'Invalid upload limits environment configuration',
+    );
   });
 
   it('throws a scoped error when required variables are missing or invalid', () => {

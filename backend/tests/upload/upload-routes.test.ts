@@ -93,6 +93,23 @@ describe('upload routes contract', () => {
     expectErrorResponse(response, 'storage_unavailable');
   });
 
+  it.each(['storage_quota_exceeded', 'upload_pending_limit_exceeded'] as const)(
+    'returns %s error contract when upload limits are exceeded',
+    async (code) => {
+      uploadService.createUpload.mockRejectedValue(new AppError(code));
+
+      const response = await request(createTestApp(uploadService)).post('/uploads/presign').send({
+        parentFolderId: null,
+        fileName: 'document.txt',
+        contentType: 'text/plain',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+      });
+
+      expectErrorResponse(response, code);
+    },
+  );
+
   it('rejects a content type that becomes empty after normalization', async () => {
     const response = await request(createTestApp(uploadService)).post('/uploads/presign').send({
       parentFolderId: null,

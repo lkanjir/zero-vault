@@ -25,7 +25,7 @@ import { FileSharingService } from './sharing/file-sharing-service.js';
 import { FileGrantMaintenanceService } from './sharing/file-grant-maintenance-service.js';
 import { PostgresAuditRepository } from './audit/postgres-audit-repository.js';
 import { AuditService } from './audit/audit-service.js';
-import type { S3Config } from './config.js';
+import type { S3Config, UploadLimitsConfig } from './config.js';
 import type { Database } from './db/db-client.js';
 import { DrizzleUnitOfWork } from './db/unit-of-work.js';
 
@@ -46,7 +46,11 @@ function createAuthorizationPrimitives(db: Database) {
   };
 }
 
-export function createApiComposition(db: Database, s3Config: S3Config) {
+export function createApiComposition(
+  db: Database,
+  s3Config: S3Config,
+  options: { readonly uploadLimits?: UploadLimitsConfig } = {},
+) {
   const unitOfWork = new DrizzleUnitOfWork(db);
   const { authorizationService, authzMapper, authorizer } = createAuthorizationPrimitives(db);
   const storage = new S3ObjectStorage(s3Config);
@@ -64,6 +68,7 @@ export function createApiComposition(db: Database, s3Config: S3Config) {
     storage,
     intentRepository,
     auditRepository,
+    options.uploadLimits,
   );
 
   const fileRepository = new PostgresFileRepository(db);

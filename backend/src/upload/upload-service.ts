@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { AuditRepository } from '../audit/audit-repository.js';
 import type { EntryAuthorizer } from '../authorization/entry-authorizer.js';
+import {
+  DEFAULT_MAX_PENDING_UPLOAD_INTENTS_PER_USER,
+  DEFAULT_USER_STORAGE_QUOTA_BYTES,
+  type UploadLimitsConfig,
+} from '../config.js';
 import type { TransactionContext, UnitOfWork } from '../db/unit-of-work.js';
 import type { FileResponse } from '../files/dto.js';
 import { AppError } from '../shared/errors/api/app-error.js';
@@ -40,6 +45,11 @@ type CompleteUploadOutcome =
   | { kind: 'superseded' }
   | { kind: 'duplicate_entry_name' };
 
+const DEFAULT_UPLOAD_LIMITS: UploadLimitsConfig = {
+  userStorageQuotaBytes: DEFAULT_USER_STORAGE_QUOTA_BYTES,
+  maxPendingUploadIntentsPerUser: DEFAULT_MAX_PENDING_UPLOAD_INTENTS_PER_USER,
+};
+
 export class UploadService {
   private readonly SINGLE_PART_EXPIRES_IN_SECONDS = 600;
   private readonly SINGLE_PART_FINALIZE_DEADLINE_SECONDS = 60 * 60;
@@ -52,6 +62,7 @@ export class UploadService {
     private readonly storage: ObjectStorage,
     private readonly intentRepo: UploadIntentRepository,
     private readonly auditRepo: AuditRepository,
+    private readonly limits: UploadLimitsConfig = DEFAULT_UPLOAD_LIMITS,
   ) {}
 
   async createUpload(user: User, requestBody: UploadRequestBody): Promise<UploadResponse> {
@@ -67,6 +78,16 @@ export class UploadService {
             actorUserId: user.id,
             ownerId: user.id,
             parentPublicId: parentFolderId,
+          },
+          tx,
+        );
+
+        await this.assertUploadLimitsInTransaction(
+          {
+            actorUserId: user.id,
+            quotaOwnerId: user.id,
+            requestedSizeBytes: requestBody.size,
+            now: new Date(),
           },
           tx,
         );
@@ -110,6 +131,16 @@ export class UploadService {
             actorUserId: user.id,
             ownerId: user.id,
             parentPublicId: parentFolderId,
+          },
+          tx,
+        );
+
+        await this.assertUploadLimitsInTransaction(
+          {
+            actorUserId: user.id,
+            quotaOwnerId: user.id,
+            requestedSizeBytes: requestBody.size,
+            now: new Date(),
           },
           tx,
         );
@@ -183,6 +214,17 @@ export class UploadService {
           tx,
         );
 
+        await this.assertUploadLimitsInTransaction(
+          {
+            actorUserId: user.id,
+            quotaOwnerId: target.ownerId,
+            requestedSizeBytes: request.size,
+            now: new Date(),
+            replacementTargetFileId: target.id,
+          },
+          tx,
+        );
+
         const presignedUrl = await this.createPresignedUploadUrl(upload);
 
         await this.intentRepo.saveReplacement(
@@ -209,6 +251,17 @@ export class UploadService {
             actorUserId: user.id,
             entryPublicId: filePublicId,
             actions: ['file:replace'],
+          },
+          tx,
+        );
+
+        await this.assertUploadLimitsInTransaction(
+          {
+            actorUserId: user.id,
+            quotaOwnerId: target.ownerId,
+            requestedSizeBytes: request.size,
+            now: new Date(),
+            replacementTargetFileId: target.id,
           },
           tx,
         );
@@ -394,6 +447,56 @@ export class UploadService {
       await this.storage
         .abortMultipartUpload(abortTarget.objectKey, abortTarget.s3UploadId)
         .catch(() => undefined);
+    }
+  }
+
+  private async assertUploadLimitsInTransaction(
+    params: {
+      actorUserId: number;
+      quotaOwnerId: number;
+      requestedSizeBytes: number;
+      now: Date;
+      replacementTargetFileId?: number;
+    },
+    tx: TransactionContext,
+  ): Promise<void> {
+    const snapshot = await this.intentRepo.lockAndGetUploadUsageSnapshot(
+      {
+        actorUserId: params.actorUserId,
+        quotaOwnerId: params.quotaOwnerId,
+        now: params.now,
+        ...(params.replacementTargetFileId !== undefined
+          ? { replacementTargetFileId: params.replacementTargetFileId }
+          : {}),
+      },
+      tx,
+    );
+
+    if (snapshot.activePendingIntentCount >= this.limits.maxPendingUploadIntentsPerUser) {
+      throw new AppError('upload_pending_limit_exceeded', {
+        context: {
+          activePendingIntentCount: snapshot.activePendingIntentCount,
+          limit: this.limits.maxPendingUploadIntentsPerUser,
+        },
+      });
+    }
+
+    const additionalBytes =
+      params.replacementTargetFileId !== undefined
+        ? Math.max(params.requestedSizeBytes - (snapshot.replacementTargetSizeBytes ?? 0), 0)
+        : params.requestedSizeBytes;
+
+    if (
+      additionalBytes > 0 &&
+      snapshot.reservedStorageBytes + additionalBytes > this.limits.userStorageQuotaBytes
+    ) {
+      throw new AppError('storage_quota_exceeded', {
+        context: {
+          reservedStorageBytes: snapshot.reservedStorageBytes,
+          additionalBytes,
+          quotaBytes: this.limits.userStorageQuotaBytes,
+        },
+      });
     }
   }
 

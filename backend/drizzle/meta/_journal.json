@@ -134,6 +134,13 @@
       "when": 1795797196896,
       "tag": "0018_upload_conflict_strategy",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795804415319,
+      "tag": "0019_upload_intents_pending_quota_indexes",
+      "breakpoints": true
     }
   ]
 }

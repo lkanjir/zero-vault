@@ -61,6 +61,19 @@ export type SaveReplacementUploadIntentCommand = {
   targetFileId: number;
 };
 
+export type LockAndGetUploadUsageSnapshotCommand = {
+  actorUserId: number;
+  quotaOwnerId: number;
+  now: Date;
+  replacementTargetFileId?: number;
+};
+
+export type UploadUsageSnapshot = {
+  activePendingIntentCount: number;
+  reservedStorageBytes: number;
+  replacementTargetSizeBytes: number | null;
+};
+
 export interface UploadIntentRepository {
   findByUserAndUploadId(userId: number, uploadId: string): Promise<UploadIntent | null>;
   findByUserAndUploadIdForUpdate(
@@ -72,6 +85,10 @@ export interface UploadIntentRepository {
     intentId: number,
     tx: TransactionContext,
   ): Promise<CompletedUploadFile>;
+  lockAndGetUploadUsageSnapshot(
+    command: LockAndGetUploadUsageSnapshotCommand,
+    tx: TransactionContext,
+  ): Promise<UploadUsageSnapshot>;
   save(intent: SaveUploadIntentCommand, tx: TransactionContext): Promise<void>;
   saveReplacement(
     command: SaveReplacementUploadIntentCommand,

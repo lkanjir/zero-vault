@@ -1,6 +1,6 @@
-import { and, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { Database, Transaction } from '../db/db-client.js';
-import { entries, files, uploadIntents } from '../db/schema.js';
+import { entries, files, uploadIntents, users } from '../db/schema.js';
 import type { TransactionContext } from '../db/unit-of-work.js';
 import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
 import { enqueueObjectDeletionsInTransaction } from '../object-deletion/object-deletion-helpers.js';
@@ -15,9 +15,11 @@ import type {
   CompleteReplaceIntentCommand,
   CompleteReplaceIntentResult,
   ExpirePendingIntentsCommand,
+  LockAndGetUploadUsageSnapshotCommand,
   SaveReplacementUploadIntentCommand,
   SaveUploadIntentCommand,
   UploadIntentRepository,
+  UploadUsageSnapshot,
 } from './upload-intent-repository.js';
 import type { UploadIntent, UploadIntentInput } from './upload-intent.js';
 
@@ -78,6 +80,96 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     }
 
     return row;
+  }
+
+  async lockAndGetUploadUsageSnapshot(
+    command: LockAndGetUploadUsageSnapshotCommand,
+    tx: TransactionContext,
+  ): Promise<UploadUsageSnapshot> {
+    const userIdsToLock =
+      command.actorUserId === command.quotaOwnerId
+        ? [command.actorUserId]
+        : [command.actorUserId, command.quotaOwnerId].sort((left, right) => left - right);
+
+    await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(inArray(users.id, userIdsToLock))
+      .orderBy(asc(users.id))
+      .for('no key update');
+
+    const [pendingRow] = await tx
+      .select({
+        count: sql<number>`count(*)::integer`,
+      })
+      .from(uploadIntents)
+      .where(
+        and(
+          eq(uploadIntents.createdByUserId, command.actorUserId),
+          eq(uploadIntents.status, 'pending'),
+          gt(uploadIntents.finalizeDeadline, command.now),
+        ),
+      );
+
+    const usageResult = await tx.execute<{ reservedStorageBytes: string }>(sql`
+      SELECT (
+        COALESCE((
+          SELECT SUM(f.size_bytes)
+          FROM entries e
+          JOIN files f ON f.entry_id = e.id
+          WHERE e.owner_id = ${command.quotaOwnerId}
+            AND e.kind = 'file'
+            AND e.deleted_at IS NULL
+        ), 0)
+        +
+        COALESCE((
+          SELECT SUM(ui.expected_size_bytes)
+          FROM upload_intents ui
+          WHERE ui.created_by_user_id = ${command.quotaOwnerId}
+            AND ui.operation = 'create'
+            AND ui.status = 'pending'
+            AND ui.finalize_deadline > ${command.now}
+        ), 0)
+        +
+        COALESCE((
+          SELECT SUM(GREATEST(ui.expected_size_bytes - tf.size_bytes, 0))
+          FROM upload_intents ui
+          JOIN entries te ON te.id = ui.target_file_id
+          JOIN files tf ON tf.entry_id = te.id
+          WHERE ui.operation = 'replace'
+            AND ui.status = 'pending'
+            AND ui.finalize_deadline > ${command.now}
+            AND te.owner_id = ${command.quotaOwnerId}
+            AND te.deleted_at IS NULL
+        ), 0)
+      )::text AS "reservedStorageBytes"
+    `);
+
+    const reservedStorageBytes = Number(usageResult.rows[0]?.reservedStorageBytes ?? '0');
+    if (!Number.isSafeInteger(reservedStorageBytes) || reservedStorageBytes < 0) {
+      throw new Error('Invalid reserved storage usage value');
+    }
+
+    let replacementTargetSizeBytes: number | null = null;
+    if (command.replacementTargetFileId !== undefined) {
+      const [targetFile] = await tx
+        .select({ sizeBytes: files.sizeBytes })
+        .from(files)
+        .where(eq(files.entryId, command.replacementTargetFileId))
+        .limit(1);
+
+      if (!targetFile) {
+        throw new Error('Replacement target is missing file metadata');
+      }
+
+      replacementTargetSizeBytes = targetFile.sizeBytes;
+    }
+
+    return {
+      activePendingIntentCount: pendingRow?.count ?? 0,
+      reservedStorageBytes,
+      replacementTargetSizeBytes,
+    };
   }
 
   async save(command: SaveUploadIntentCommand, tx: TransactionContext): Promise<void> {

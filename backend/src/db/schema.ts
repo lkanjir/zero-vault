@@ -175,9 +175,15 @@ export const uploadIntents = pgTable(
     index('upload_intents_pending_finalize_deadline_idx')
       .on(table.finalizeDeadline)
       .where(sql`${table.status} = 'pending'`),
+    index('upload_intents_pending_user_deadline_idx')
+      .on(table.createdByUserId, table.finalizeDeadline)
+      .where(sql`${table.status} = 'pending'`),
     index('upload_intents_pending_target_parent_idx')
       .on(table.createdByUserId, table.targetParentId)
       .where(sql`${table.status} = 'pending' and ${table.operation} = 'create'`),
+    index('upload_intents_pending_target_file_idx')
+      .on(table.targetFileId)
+      .where(sql`${table.status} = 'pending' and ${table.operation} = 'replace'`),
     index('upload_intents_file_id_idx')
       .on(table.fileId)
       .where(sql`${table.fileId} is not null`),

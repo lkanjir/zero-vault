@@ -61,6 +61,11 @@ describe('UploadService', () => {
     entryAuthorizer.authorizeParentForCreate.mockResolvedValue(null);
     entryAuthorizer.authorizeForUpdate.mockResolvedValue(makeAuthorizedFile(10));
     entryAuthorizer.authorizeForUpdateByDbId.mockResolvedValue(makeAuthorizedFile(10));
+    repo.lockAndGetUploadUsageSnapshot.mockResolvedValue({
+      activePendingIntentCount: 0,
+      reservedStorageBytes: 0,
+      replacementTargetSizeBytes: 0,
+    });
     service = new UploadService(unitOfWork, entryAuthorizer, storage, repo, auditRepo);
   });
 
@@ -1040,6 +1045,129 @@ describe('UploadService', () => {
     await expect(service.abortUpload(USER, 'upload-1')).rejects.toMatchObject({
       code: 'upload_already_completed',
     });
+  });
+
+  it('rejects createUpload with storage_quota_exceeded before presigning when quota would be exceeded', async () => {
+    const quotaService = new UploadService(unitOfWork, entryAuthorizer, storage, repo, auditRepo, {
+      userStorageQuotaBytes: 100,
+      maxPendingUploadIntentsPerUser: 20,
+    });
+    repo.lockAndGetUploadUsageSnapshot.mockResolvedValueOnce({
+      activePendingIntentCount: 1,
+      reservedStorageBytes: 80,
+      replacementTargetSizeBytes: null,
+    });
+
+    await expect(
+      quotaService.createUpload(USER, {
+        fileName: 'too-big.txt',
+        contentType: 'text/plain',
+        size: 21,
+        sha256: EXPECTED_SHA256,
+        parentFolderId: null,
+      }),
+    ).rejects.toMatchObject({ code: 'storage_quota_exceeded' });
+
+    expect(storage.createPresignedUploadUrl).not.toHaveBeenCalled();
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects createUpload when active pending upload intents reach the per-user limit', async () => {
+    const limitedService = new UploadService(
+      unitOfWork,
+      entryAuthorizer,
+      storage,
+      repo,
+      auditRepo,
+      {
+        userStorageQuotaBytes: 10_000,
+        maxPendingUploadIntentsPerUser: 5,
+      },
+    );
+    repo.lockAndGetUploadUsageSnapshot.mockResolvedValueOnce({
+      activePendingIntentCount: 5,
+      reservedStorageBytes: 100,
+      replacementTargetSizeBytes: null,
+    });
+
+    await expect(
+      limitedService.createUpload(USER, {
+        fileName: 'extra.txt',
+        contentType: 'text/plain',
+        size: 10,
+        sha256: EXPECTED_SHA256,
+        parentFolderId: null,
+      }),
+    ).rejects.toMatchObject({ code: 'upload_pending_limit_exceeded' });
+
+    expect(storage.createPresignedUploadUrl).not.toHaveBeenCalled();
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('enforces quota against target owner and positive replacement delta in createReplacementUpload', async () => {
+    const ownerId = 99;
+    entryAuthorizer.authorizeForUpdate.mockResolvedValue(makeAuthorizedFile(10, ownerId));
+    storage.createPresignedUploadUrl.mockResolvedValue(SIGNED_URL);
+
+    const quotaService = new UploadService(unitOfWork, entryAuthorizer, storage, repo, auditRepo, {
+      userStorageQuotaBytes: 100,
+      maxPendingUploadIntentsPerUser: 20,
+    });
+
+    // Owner is at 100/100 quota, target file is 60 bytes; shrinking to 50 bytes (delta 0) succeeds
+    repo.lockAndGetUploadUsageSnapshot.mockResolvedValueOnce({
+      activePendingIntentCount: 0,
+      reservedStorageBytes: 100,
+      replacementTargetSizeBytes: 60,
+    });
+
+    await expect(
+      quotaService.createReplacementUpload(USER, '20000000-0000-4000-8000-000000000001', {
+        contentType: 'text/plain',
+        size: 50,
+        sha256: EXPECTED_SHA256,
+      }),
+    ).resolves.toMatchObject({ uploadMode: 'single' });
+
+    expect(repo.lockAndGetUploadUsageSnapshot).toHaveBeenCalledWith(
+      {
+        actorUserId: USER.id,
+        quotaOwnerId: ownerId,
+        now: NOW,
+        replacementTargetFileId: 10,
+      },
+      tx,
+    );
+
+    // Growing target file from 60 to 70 bytes (delta +10) exceeds 95 + 10 > 100 quota
+    repo.lockAndGetUploadUsageSnapshot.mockResolvedValueOnce({
+      activePendingIntentCount: 0,
+      reservedStorageBytes: 95,
+      replacementTargetSizeBytes: 60,
+    });
+
+    await expect(
+      quotaService.createReplacementUpload(USER, '20000000-0000-4000-8000-000000000001', {
+        contentType: 'text/plain',
+        size: 70,
+        sha256: EXPECTED_SHA256,
+      }),
+    ).rejects.toMatchObject({ code: 'storage_quota_exceeded' });
+
+    // Growing target file from 60 to 65 bytes (delta +5) fits 95 + 5 <= 100
+    repo.lockAndGetUploadUsageSnapshot.mockResolvedValueOnce({
+      activePendingIntentCount: 0,
+      reservedStorageBytes: 95,
+      replacementTargetSizeBytes: 60,
+    });
+
+    await expect(
+      quotaService.createReplacementUpload(USER, '20000000-0000-4000-8000-000000000001', {
+        contentType: 'text/plain',
+        size: 65,
+        sha256: EXPECTED_SHA256,
+      }),
+    ).resolves.toMatchObject({ uploadMode: 'single' });
   });
 });
 

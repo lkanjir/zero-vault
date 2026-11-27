@@ -1,0 +1,2 @@
+CREATE INDEX "upload_intents_pending_user_deadline_idx" ON "upload_intents" USING btree ("created_by_user_id","finalize_deadline") WHERE "upload_intents"."status" = 'pending';--> statement-breakpoint
+CREATE INDEX "upload_intents_pending_target_file_idx" ON "upload_intents" USING btree ("target_file_id") WHERE "upload_intents"."status" = 'pending' and "upload_intents"."operation" = 'replace';

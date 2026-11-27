@@ -35,7 +35,9 @@ export type CreateAppOptions = {
 
 export function createApp({ config, database, redis, rateLimiters }: CreateAppOptions): Express {
   const app = express();
-  const composition = createApiComposition(database.db, config.s3);
+  const composition = createApiComposition(database.db, config.s3, {
+    uploadLimits: config.uploadLimits,
+  });
   const requireAuth = createRequireAuthMiddleware(createAccessTokenVerifier(config.oidc));
   const resolveUser = createResolveUserMiddleware(composition.userService);
   const apiRateLimiters =

@@ -196,6 +196,17 @@ export const errorCatalog = {
     message: 'Sadržaj datoteke u međuvremenu je promijenjen. Pokušajte ponovno.',
   },
 
+  storage_quota_exceeded: {
+    status: 413,
+    message: 'Premašili ste dopuštenu kvotu pohrane.',
+  },
+
+  upload_pending_limit_exceeded: {
+    status: 429,
+    message:
+      'Dosegnuli ste najveći dopušteni broj aktivnih prijenosa. Dovršite ili otkažite postojeće prijenose.',
+  },
+
   storage_unavailable: {
     status: 503,
     message: 'Spremište datoteka nije dostupno.',
