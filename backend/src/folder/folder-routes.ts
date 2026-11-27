@@ -1,14 +1,17 @@
 import express, { type Router } from 'express';
 import { requireUser } from '../auth/resolve-user-middleware.js';
 import type { EntryService } from '../entry/entry-service.js';
-import { createFolderBodySchema } from './validation-schemas.js';
+import { createFolderBodySchema, ensureFolderTreeBodySchema } from './validation-schemas.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
 import {
   createFolderDownloadParamsSchema,
   folderDownloadIdParamsSchema,
 } from './download/validation-schemas.js';
 import type { FolderDownloadService } from './download/folder-download-service.js';
-import { folderDownloadRateLimiter } from '../shared/http/api-rate-limiters.js';
+import {
+  folderDownloadRateLimiter,
+  folderTreeRateLimiter,
+} from '../shared/http/api-rate-limiters.js';
 
 export type FolderRouterDeps = {
   entryService: EntryService;
@@ -22,12 +25,26 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
 
   router.post(
     '/',
+    express.json({ limit: '16kb' }),
     validateRequest({ body: createFolderBodySchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
 
       const result = await deps.entryService.createFolder(authenticatedUser, validated.body);
 
       res.status(201).json(result);
+    }),
+  );
+
+  router.post(
+    '/tree',
+    folderTreeRateLimiter,
+    express.json({ limit: '512kb' }),
+    validateRequest({ body: ensureFolderTreeBodySchema }, async (req, res, validated) => {
+      const authenticatedUser = requireUser(req);
+
+      const result = await deps.entryService.ensureFolderTree(authenticatedUser, validated.body);
+
+      res.status(200).json(result);
     }),
   );
 

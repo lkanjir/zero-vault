@@ -9,6 +9,8 @@ import { decodeCursor, encodeCursor } from '../../src/entry/entry-list-cursor.js
 import type { EntryRepository } from '../../src/entry/entry-repository.js';
 import { EntryService } from '../../src/entry/entry-service.js';
 import type { Entry } from '../../src/entry/entry.js';
+import { MAX_FOLDER_TREE_DEPTH } from '../../src/folder/validation-schemas.js';
+import { AppError } from '../../src/shared/errors/api/app-error.js';
 import type { User } from '../../src/user/user.js';
 import { createFakeUnitOfWork } from '../helpers/fake-unit-of-work.js';
 
@@ -452,6 +454,110 @@ describe('EntryService', () => {
       },
       tx,
     );
+  });
+
+  it('ensures folder tree, merges existing folders without re-auditing, and maps case-insensitive siblings', async () => {
+    entryAuthorizer.authorizeParentForCreate.mockResolvedValue(null);
+
+    const existingPhotos = {
+      ...makeEntry({ id: 20, publicId: '20000000-0000-4000-8000-000000000020', name: 'Photos' }),
+      kind: 'folder' as const,
+    };
+    const createdSummer = {
+      ...makeEntry({
+        id: 21,
+        parentId: 20,
+        publicId: '20000000-0000-4000-8000-000000000021',
+        name: 'Summer',
+      }),
+      kind: 'folder' as const,
+    };
+    const createdWinter = {
+      ...makeEntry({
+        id: 22,
+        parentId: 20,
+        publicId: '20000000-0000-4000-8000-000000000022',
+        name: 'Winter',
+      }),
+      kind: 'folder' as const,
+    };
+
+    repository.findOrCreateFolder.mockImplementation((command) => {
+      if (command.parentId === null && command.name.toLowerCase() === 'photos') {
+        return Promise.resolve({ folder: existingPhotos, created: false });
+      }
+      if (command.parentId === 20 && command.name === 'Summer') {
+        return Promise.resolve({ folder: createdSummer, created: true });
+      }
+      if (command.parentId === 20 && command.name === 'Winter') {
+        return Promise.resolve({ folder: createdWinter, created: true });
+      }
+      return Promise.reject(new Error(`Unexpected folder call: ${command.relativePath}`));
+    });
+
+    const result = await service.ensureFolderTree(USER, {
+      parentId: null,
+      paths: ['Photos/Summer', 'photos/Winter'],
+    });
+
+    expect(runSpy).toHaveBeenCalledOnce();
+    expect(result).toStrictEqual({
+      folders: {
+        Photos: existingPhotos.publicId,
+        'Photos/Summer': createdSummer.publicId,
+        photos: existingPhotos.publicId,
+        'photos/Winter': createdWinter.publicId,
+      },
+    });
+    expect(repository.findOrCreateFolder).toHaveBeenCalledTimes(3);
+    expect(auditRepository.record).toHaveBeenCalledTimes(2);
+    expect(auditRepository.record).toHaveBeenNthCalledWith(
+      1,
+      {
+        ownerId: USER.id,
+        actorUserId: USER.id,
+        entryId: 21,
+        entryNameSnapshot: 'Summer',
+        action: 'folder.created',
+        occurredAt: NOW,
+      },
+      tx,
+    );
+    expect(auditRepository.record).toHaveBeenNthCalledWith(
+      2,
+      {
+        ownerId: USER.id,
+        actorUserId: USER.id,
+        entryId: 22,
+        entryNameSnapshot: 'Winter',
+        action: 'folder.created',
+        occurredAt: NOW,
+      },
+      tx,
+    );
+  });
+
+  it('rejects ensureFolderTree when parent depth plus relative depth exceeds the limit', async () => {
+    const parentPublicId = '20000000-0000-4000-8000-000000000099';
+    entryAuthorizer.authorizeParentForCreate.mockResolvedValue(99);
+    repository.getFolderDepth.mockResolvedValue(MAX_FOLDER_TREE_DEPTH - 1);
+
+    await expect(
+      service.ensureFolderTree(USER, {
+        parentId: parentPublicId,
+        paths: ['a/b'],
+      }),
+    ).rejects.toThrow(AppError);
+
+    await expect(
+      service.ensureFolderTree(USER, {
+        parentId: parentPublicId,
+        paths: ['a/b'],
+      }),
+    ).rejects.toMatchObject({ code: 'folder_depth_limit_exceeded' });
+
+    expect(repository.findOrCreateFolder).not.toHaveBeenCalled();
+    expect(auditRepository.record).not.toHaveBeenCalled();
   });
 });
 

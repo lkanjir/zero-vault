@@ -56,6 +56,18 @@ export type CreateFolderCommand = {
   name: string;
 };
 
+export type FindOrCreateFolderCommand = {
+  ownerId: number;
+  parentId: number | null;
+  name: string;
+  relativePath: string;
+};
+
+export type FindOrCreateFolderResult = {
+  folder: Folder;
+  created: boolean;
+};
+
 export type UpdateEntryCommand = {
   entryId: number;
   ownerId: number;
@@ -82,6 +94,16 @@ export type EntryParentContext = {
 export interface EntryRepository {
   getEntries(query: EntriesQuery): Promise<EntryListing>;
   createFolder(command: CreateFolderCommand, tx: TransactionContext): Promise<Folder>;
+  findOrCreateFolder(
+    command: FindOrCreateFolderCommand,
+    tx: TransactionContext,
+  ): Promise<FindOrCreateFolderResult>;
+  getFolderDepth(
+    ownerId: number,
+    folderId: number,
+    maxDepth: number,
+    tx: TransactionContext,
+  ): Promise<number>;
   assertFolderCanMove(
     folderId: number,
     nextParentId: number | null,

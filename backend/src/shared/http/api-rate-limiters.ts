@@ -33,6 +33,12 @@ export const folderDownloadRateLimiter = createAuthenticatedRateLimiter({
   limit: 10,
 });
 
+export const folderTreeRateLimiter = createAuthenticatedRateLimiter({
+  identifier: 'folder-tree',
+  windowMs: ONE_MINUTE_MS,
+  limit: 60,
+});
+
 export const sharingMutationRateLimiter = createAuthenticatedRateLimiter({
   identifier: 'sharing-mutation',
   windowMs: ONE_MINUTE_MS,

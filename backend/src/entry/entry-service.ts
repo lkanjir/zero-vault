@@ -4,8 +4,13 @@ import type { EntryAccessMapper } from '../authorization/entry-access-mapper.js'
 import type { EntryAuthorizer } from '../authorization/entry-authorizer.js';
 import type { UnitOfWork } from '../db/unit-of-work.js';
 import type { FileResponse } from '../files/dto.js';
-import type { FolderResponse } from '../folder/dto.js';
-import type { CreateFolderRequestBody } from '../folder/validation-schemas.js';
+import type { EnsureFolderTreeResponse, FolderResponse } from '../folder/dto.js';
+import type { Folder } from '../folder/folder.js';
+import {
+  MAX_FOLDER_TREE_DEPTH,
+  type CreateFolderRequestBody,
+  type EnsureFolderTreeRequestBody,
+} from '../folder/validation-schemas.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 import type { User } from '../user/user.js';
 import type { EntryListResponse, EntryResponse } from './dto.js';
@@ -116,6 +121,93 @@ export class EntryService {
       name: createdFolder.name,
       updatedAt: createdFolder.updatedAt.toISOString(),
     };
+  }
+
+  async ensureFolderTree(
+    user: User,
+    request: EnsureFolderTreeRequestBody,
+  ): Promise<EnsureFolderTreeResponse> {
+    const plan = buildFolderTreePlan(request.paths);
+
+    if (plan.maxRelativeDepth > MAX_FOLDER_TREE_DEPTH) {
+      throw new AppError('folder_depth_limit_exceeded', {
+        context: { maxRelativeDepth: plan.maxRelativeDepth, limit: MAX_FOLDER_TREE_DEPTH },
+      });
+    }
+
+    const folders = await this.unitOfWork.run(async (tx) => {
+      const rootParentId = await this.entryAuthorizer.authorizeParentForCreate(
+        {
+          actorUserId: user.id,
+          ownerId: user.id,
+          parentPublicId: request.parentId,
+        },
+        tx,
+      );
+
+      if (rootParentId !== null) {
+        const parentDepth = await this.entryRepository.getFolderDepth(
+          user.id,
+          rootParentId,
+          MAX_FOLDER_TREE_DEPTH,
+          tx,
+        );
+
+        if (parentDepth + plan.maxRelativeDepth > MAX_FOLDER_TREE_DEPTH) {
+          throw new AppError('folder_depth_limit_exceeded', {
+            context: {
+              parentDepth,
+              maxRelativeDepth: plan.maxRelativeDepth,
+              limit: MAX_FOLDER_TREE_DEPTH,
+            },
+          });
+        }
+      }
+
+      const resolvedByCanonicalKey = new Map<string, Folder>();
+
+      for (const node of plan.orderedNodes) {
+        const parentId =
+          node.parentCanonicalKey === null
+            ? rootParentId
+            : resolvedByCanonicalKey.get(node.parentCanonicalKey)!.id;
+
+        const { folder, created } = await this.entryRepository.findOrCreateFolder(
+          {
+            ownerId: user.id,
+            parentId,
+            name: node.name,
+            relativePath: node.displayPath,
+          },
+          tx,
+        );
+
+        resolvedByCanonicalKey.set(node.canonicalKey, folder);
+
+        if (created) {
+          await this.auditRepository.record(
+            {
+              ownerId: folder.ownerId,
+              actorUserId: user.id,
+              entryId: folder.id,
+              entryNameSnapshot: folder.name,
+              action: 'folder.created',
+              occurredAt: folder.createdAt,
+            },
+            tx,
+          );
+        }
+      }
+
+      const folderMap: Record<string, string> = {};
+      for (const [relativePath, canonicalKey] of plan.pathToCanonicalKey) {
+        folderMap[relativePath] = resolvedByCanonicalKey.get(canonicalKey)!.publicId;
+      }
+
+      return folderMap;
+    });
+
+    return { folders };
   }
 
   async updateEntry(
@@ -301,4 +393,68 @@ export class EntryService {
 
     return { ...this.toBaseEntryResponse(record.entry), access };
   }
+}
+
+type PlannedFolderNode = {
+  canonicalKey: string;
+  parentCanonicalKey: string | null;
+  depth: number;
+  name: string;
+  displayPath: string;
+};
+
+type FolderTreePlan = {
+  orderedNodes: PlannedFolderNode[];
+  pathToCanonicalKey: Map<string, string>;
+  maxRelativeDepth: number;
+};
+
+function buildFolderTreePlan(paths: readonly string[]): FolderTreePlan {
+  const nodesByCanonicalKey = new Map<string, PlannedFolderNode>();
+  const pathToCanonicalKey = new Map<string, string>();
+  let maxRelativeDepth = 0;
+
+  for (const relativePath of paths) {
+    const segments = relativePath.split('/');
+    maxRelativeDepth = Math.max(maxRelativeDepth, segments.length);
+
+    for (let index = 0; index < segments.length; index += 1) {
+      const prefixSegments = segments.slice(0, index + 1);
+      const prefixPath = prefixSegments.join('/');
+      const canonicalKey = prefixSegments.map((segment) => segment.toLowerCase()).join('/');
+      const parentCanonicalKey =
+        index === 0
+          ? null
+          : segments
+              .slice(0, index)
+              .map((segment) => segment.toLowerCase())
+              .join('/');
+
+      pathToCanonicalKey.set(prefixPath, canonicalKey);
+
+      if (!nodesByCanonicalKey.has(canonicalKey)) {
+        nodesByCanonicalKey.set(canonicalKey, {
+          canonicalKey,
+          parentCanonicalKey,
+          depth: index + 1,
+          name: segments[index]!,
+          displayPath: prefixPath,
+        });
+      }
+    }
+  }
+
+  const orderedNodes = Array.from(nodesByCanonicalKey.values()).sort((left, right) => {
+    if (left.depth !== right.depth) {
+      return left.depth - right.depth;
+    }
+
+    return left.canonicalKey.localeCompare(right.canonicalKey);
+  });
+
+  return {
+    orderedNodes,
+    pathToCanonicalKey,
+    maxRelativeDepth,
+  };
 }

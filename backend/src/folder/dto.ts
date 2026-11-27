@@ -4,3 +4,7 @@ export type FolderResponse = {
   name: string;
   updatedAt: string;
 };
+
+export type EnsureFolderTreeResponse = {
+  folders: Record<string, string>;
+};

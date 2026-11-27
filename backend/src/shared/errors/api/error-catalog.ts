@@ -96,6 +96,16 @@ export const errorCatalog = {
     message: 'Direktorij nije moguće obrisati jer nije prazan.',
   },
 
+  folder_path_conflict: {
+    status: 409,
+    message: 'Na odabranoj putanji već postoji datoteka s istim nazivom.',
+  },
+
+  folder_depth_limit_exceeded: {
+    status: 400,
+    message: 'Stablo direktorija prelazi maksimalnu dopuštenu dubinu.',
+  },
+
   folder_download_not_found: {
     status: 404,
     message: 'Za dani direktorij nije traženo preuzimanje.',

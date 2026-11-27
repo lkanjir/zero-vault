@@ -6,6 +6,12 @@ import type { AuthenticatedPrincipal } from '../../src/auth/authenticated-princi
 import type { EntryService } from '../../src/entry/entry-service.js';
 import type { FolderDownloadService } from '../../src/folder/download/folder-download-service.js';
 import { createFolderRouter } from '../../src/folder/folder-routes.js';
+import {
+  MAX_FOLDER_TREE_DEPTH,
+  MAX_FOLDER_TREE_NODES,
+  MAX_FOLDER_TREE_PATHS,
+} from '../../src/folder/validation-schemas.js';
+import { AppError } from '../../src/shared/errors/api/app-error.js';
 import type { ErrorResponse } from '../../src/shared/errors/api/error-response.js';
 import { errorHandler } from '../../src/shared/http/error-handler.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
@@ -203,6 +209,109 @@ describe('folder routes', () => {
     expect(folderDownloadService.createDownload).not.toHaveBeenCalled();
     expect(folderDownloadService.getStatus).not.toHaveBeenCalled();
   });
+
+  it('ensures a folder tree, normalizes segments, and returns the relativePath map', async () => {
+    entryService.ensureFolderTree.mockResolvedValue({
+      folders: {
+        Photos: FOLDER_ID,
+        'Photos/2026': '20000000-0000-4000-8000-000000000002',
+      },
+    });
+
+    const response = await request(createTestApp(entryService, folderDownloadService))
+      .post('/folders/tree')
+      .send({
+        paths: [' Photos / 2026 ', 'Photos/2026'],
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['ratelimit-policy']).toContain('"folder-tree"');
+    expect(response.body).toStrictEqual({
+      folders: {
+        Photos: FOLDER_ID,
+        'Photos/2026': '20000000-0000-4000-8000-000000000002',
+      },
+    });
+    expect(entryService.ensureFolderTree).toHaveBeenCalledExactlyOnceWith(USER, {
+      parentId: null,
+      paths: ['Photos/2026'],
+    });
+  });
+
+  it.each([
+    '',
+    '/leading',
+    'trailing/',
+    'a//b',
+    'a/./b',
+    'a/../b',
+    'a\\b',
+    'a/bad\0name',
+    'a/bad\nname',
+    '   ',
+    'a/   /b',
+  ])('rejects invalid folder tree path %j before calling the service', async (badPath) => {
+    const response = await request(createTestApp(entryService, folderDownloadService))
+      .post('/folders/tree')
+      .send({ paths: [badPath] });
+
+    expect(response.status).toBe(400);
+    expect((response.body as ErrorResponse).code).toBe('invalid_request_body');
+    expect(entryService.ensureFolderTree).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty paths, paths exceeding max depth, max path count, or max expanded nodes', async () => {
+    const app = createTestApp(entryService, folderDownloadService);
+
+    const emptyRes = await request(app).post('/folders/tree').send({ paths: [] });
+    expect(emptyRes.status).toBe(400);
+    expect((emptyRes.body as ErrorResponse).code).toBe('invalid_request_body');
+
+    const tooDeepPath = Array.from({ length: MAX_FOLDER_TREE_DEPTH + 1 }, (_, i) => `d${i}`).join(
+      '/',
+    );
+    const deepRes = await request(app)
+      .post('/folders/tree')
+      .send({ paths: [tooDeepPath] });
+    expect(deepRes.status).toBe(400);
+    expect((deepRes.body as ErrorResponse).code).toBe('invalid_request_body');
+
+    const tooManyPaths = Array.from({ length: MAX_FOLDER_TREE_PATHS + 1 }, (_, i) => `f${i}`);
+    const manyPathsRes = await request(app).post('/folders/tree').send({ paths: tooManyPaths });
+    expect(manyPathsRes.status).toBe(400);
+    expect((manyPathsRes.body as ErrorResponse).code).toBe('invalid_request_body');
+
+    // 50 disjoint chains of depth 5 -> 250 nodes; 500 disjoint chains of depth 5 -> 2500 > 2000 nodes
+    const tooManyNodes = Array.from(
+      { length: Math.ceil(MAX_FOLDER_TREE_NODES / 5) + 1 },
+      (_, i) => `r${i}/a/b/c/d`,
+    );
+    const manyNodesRes = await request(app).post('/folders/tree').send({ paths: tooManyNodes });
+    expect(manyNodesRes.status).toBe(400);
+    expect((manyNodesRes.body as ErrorResponse).code).toBe('invalid_request_body');
+
+    expect(entryService.ensureFolderTree).not.toHaveBeenCalled();
+  });
+
+  it('maps folder_path_conflict to 409 and folder_depth_limit_exceeded to 400', async () => {
+    const app = createTestApp(entryService, folderDownloadService);
+
+    entryService.ensureFolderTree.mockRejectedValueOnce(new AppError('folder_path_conflict'));
+    const conflictRes = await request(app)
+      .post('/folders/tree')
+      .send({ paths: ['Photos/existing-file'] });
+    expect(conflictRes.status).toBe(409);
+    expect((conflictRes.body as ErrorResponse).code).toBe('folder_path_conflict');
+
+    entryService.ensureFolderTree.mockRejectedValueOnce(
+      new AppError('folder_depth_limit_exceeded'),
+    );
+    const depthRes = await request(app)
+      .post('/folders/tree')
+      .send({ parentId: FOLDER_ID, paths: ['sub/deep'] });
+    expect(depthRes.status).toBe(400);
+    expect((depthRes.body as ErrorResponse).code).toBe('folder_depth_limit_exceeded');
+  });
 });
 
 function createTestApp(
@@ -213,7 +322,6 @@ function createTestApp(
   const app = express();
 
   app.use(requestContext);
-  app.use(express.json());
   app.use((req, _res, next) => {
     req.principal = principal;
     req.user = USER;

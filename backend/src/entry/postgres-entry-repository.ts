@@ -6,6 +6,8 @@ import type {
   EntryListRecord,
   EntryParentContext,
   EntryRepository,
+  FindOrCreateFolderCommand,
+  FindOrCreateFolderResult,
   ListedEntry,
   ResolvedFolderPath,
   UpdateEntryCommand,
@@ -121,6 +123,132 @@ export class PostgresEntryRepository implements EntryRepository {
     } catch (error) {
       throw mapEntryDatabaseError(error);
     }
+  }
+
+  async findOrCreateFolder(
+    command: FindOrCreateFolderCommand,
+    tx: TransactionContext,
+  ): Promise<FindOrCreateFolderResult> {
+    const existing = await this.findActiveSiblingForKeyShare(
+      tx,
+      command.ownerId,
+      command.parentId,
+      command.name,
+    );
+
+    if (existing) {
+      if (existing.kind !== 'folder') {
+        throw new AppError('folder_path_conflict', {
+          context: { path: command.relativePath },
+        });
+      }
+
+      return { folder: this.toFolder(existing), created: false };
+    }
+
+    try {
+      const [created] = await tx
+        .insert(entries)
+        .values({
+          kind: 'folder',
+          name: command.name,
+          ownerId: command.ownerId,
+          parentId: command.parentId,
+        })
+        .onConflictDoNothing()
+        .returning();
+
+      if (created) {
+        return { folder: this.toFolder(created), created: true };
+      }
+    } catch (error) {
+      throw mapEntryDatabaseError(error);
+    }
+
+    const raced = await this.findActiveSiblingForKeyShare(
+      tx,
+      command.ownerId,
+      command.parentId,
+      command.name,
+    );
+
+    if (!raced) {
+      throw new AppError('duplicate_entry_name', {
+        context: { path: command.relativePath },
+      });
+    }
+
+    if (raced.kind !== 'folder') {
+      throw new AppError('folder_path_conflict', {
+        context: { path: command.relativePath },
+      });
+    }
+
+    return { folder: this.toFolder(raced), created: false };
+  }
+
+  async getFolderDepth(
+    ownerId: number,
+    folderId: number,
+    maxDepth: number,
+    tx: TransactionContext,
+  ): Promise<number> {
+    const result = await tx.execute<{ depth: number | null }>(sql`
+      WITH RECURSIVE ancestors AS (
+        SELECT id, parent_id, 1 AS depth, ARRAY[id] AS visited_ids
+        FROM entries
+        WHERE id = ${folderId}
+          AND owner_id = ${ownerId}
+          AND kind = 'folder'
+          AND deleted_at IS NULL
+
+        UNION ALL
+
+        SELECT parent.id, parent.parent_id, ancestors.depth + 1, ancestors.visited_ids || parent.id
+        FROM entries parent
+        JOIN ancestors ON parent.id = ancestors.parent_id
+        WHERE parent.owner_id = ${ownerId}
+          AND parent.kind = 'folder'
+          AND parent.deleted_at IS NULL
+          AND NOT (parent.id = ANY(ancestors.visited_ids))
+          AND ancestors.depth <= ${maxDepth}
+      )
+      SELECT max(depth)::integer AS depth
+      FROM ancestors
+    `);
+
+    const depth = result.rows[0]?.depth ?? null;
+    if (depth === null) {
+      throw new AppError('folder_not_found');
+    }
+
+    return depth;
+  }
+
+  private async findActiveSiblingForKeyShare(
+    tx: Transaction,
+    ownerId: number,
+    parentId: number | null,
+    name: string,
+  ): Promise<typeof entries.$inferSelect | null> {
+    const parentCondition =
+      parentId === null ? isNull(entries.parentId) : eq(entries.parentId, parentId);
+
+    const [row] = await tx
+      .select()
+      .from(entries)
+      .where(
+        and(
+          eq(entries.ownerId, ownerId),
+          parentCondition,
+          isNull(entries.deletedAt),
+          sql`lower(${entries.name}) = lower(${name})`,
+        ),
+      )
+      .for('key share')
+      .limit(1);
+
+    return row ?? null;
   }
 
   async assertFolderCanMove(
