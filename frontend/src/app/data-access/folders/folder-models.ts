@@ -3,6 +3,15 @@ export type CreateFolderRequest = {
   parentId: string | null;
 };
 
+export type EnsureFolderTreeRequest = {
+  parentId: string | null;
+  paths: readonly string[];
+};
+
+export type EnsureFolderTreeResponse = {
+  folders: Record<string, string>;
+};
+
 export type CreateFolderDownloadResponse = {
   downloadId: string;
   fileName: string;

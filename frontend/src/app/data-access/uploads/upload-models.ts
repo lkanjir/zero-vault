@@ -4,9 +4,12 @@ export type UploadContentRequest = {
   sha256?: string;
 };
 
+export type UploadConflictStrategy = 'fail' | 'rename';
+
 export type CreateUploadIntentRequest = UploadContentRequest & {
   fileName: string;
   parentFolderId: string | null;
+  conflictStrategy?: UploadConflictStrategy;
 };
 
 export type SinglePartUploadIntentResponse = {

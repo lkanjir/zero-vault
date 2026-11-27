@@ -4,6 +4,8 @@ import { Observable } from 'rxjs';
 import {
   CreateFolderDownloadResponse,
   CreateFolderRequest,
+  EnsureFolderTreeRequest,
+  EnsureFolderTreeResponse,
   FolderDownloadStatusResponse,
 } from './folder-models';
 import { FolderEntry } from '../entries/entry-models';
@@ -14,6 +16,10 @@ export class FolderApi {
 
   createFolder(request: CreateFolderRequest): Observable<FolderEntry> {
     return this.http.post<FolderEntry>('/api/folders', request);
+  }
+
+  ensureFolderTree(request: EnsureFolderTreeRequest): Observable<EnsureFolderTreeResponse> {
+    return this.http.post<EnsureFolderTreeResponse>('/api/folders/tree', request);
   }
 
   createDownload(folderId: string): Observable<HttpResponse<CreateFolderDownloadResponse>> {
