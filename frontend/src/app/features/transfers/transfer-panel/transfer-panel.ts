@@ -1,4 +1,4 @@
-import { Component, computed, input, output } from '@angular/core';
+import { Component, computed, input, output, signal } from '@angular/core';
 import { Icon } from '../../../shared/icon/icon';
 import { FileSizePipe } from '../../../shared/pipes/file-size-pipe';
 import { UploadTransfer } from '../state/transfer-models';
@@ -9,6 +9,8 @@ import { UploadTransfer } from '../state/transfer-models';
   templateUrl: './transfer-panel.html',
 })
 export class TransferPanel {
+  private readonly expandedFolderIds = signal<ReadonlySet<string>>(new Set());
+
   readonly open = input.required<boolean>();
   readonly dismissed = output<void>();
   readonly transfers = input.required<readonly UploadTransfer[]>();
@@ -22,4 +24,20 @@ export class TransferPanel {
         transfer.phase === 'cancelled',
     ),
   );
+
+  isExpanded(transferId: string): boolean {
+    return this.expandedFolderIds().has(transferId);
+  }
+
+  toggleExpanded(transferId: string): void {
+    this.expandedFolderIds.update((current) => {
+      const next = new Set(current);
+      if (next.has(transferId)) {
+        next.delete(transferId);
+      } else {
+        next.add(transferId);
+      }
+      return next;
+    });
+  }
 }

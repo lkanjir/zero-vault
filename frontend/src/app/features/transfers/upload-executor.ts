@@ -56,8 +56,9 @@ export class UploadExecutor {
     intent: SinglePartUploadIntentResponse;
     signal: AbortSignal;
     onProgress: (snapshot: UploadProgressSnapshot) => void;
+    onLoadedBytes?: (loadedBytes: number) => void;
   }): Promise<void> {
-    const { file, intent, signal, onProgress } = params;
+    const { file, intent, signal, onProgress, onLoadedBytes } = params;
     throwIfAborted(signal);
 
     const uploadStartedAt = performance.now();
@@ -79,8 +80,10 @@ export class UploadExecutor {
             }
 
             const total = event.total ?? file.size;
+            const loadedBytes = total > 0 ? Math.min(total, event.loaded) : file.size;
             const elapsedSeconds = Math.max((performance.now() - uploadStartedAt) / 1000, 0.001);
 
+            onLoadedBytes?.(loadedBytes);
             onProgress({
               progress: total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : 100,
               bytesPerSecond: total > 0 ? event.loaded / elapsedSeconds : null,
@@ -96,8 +99,9 @@ export class UploadExecutor {
     intent: MultipartUploadIntentResponse;
     signal: AbortSignal;
     onProgress: (snapshot: UploadProgressSnapshot) => void;
+    onLoadedBytes?: (loadedBytes: number) => void;
   }): Promise<CompletedUploadPart[]> {
-    const { file, intent, signal, onProgress } = params;
+    const { file, intent, signal, onProgress, onLoadedBytes } = params;
     throwIfAborted(signal);
 
     const concurrency =
@@ -125,6 +129,7 @@ export class UploadExecutor {
       const progress =
         file.size > 0 ? Math.min(100, Math.round((totalUploaded / file.size) * 100)) : 100;
 
+      onLoadedBytes?.(totalUploaded);
       onProgress({
         progress,
         bytesPerSecond: totalUploaded / elapsedSeconds,

@@ -9,7 +9,8 @@ export type TransferFailure = ApiError & {
 
 export type TransferOperation = 'create' | 'replace';
 
-export type UploadTransfer = {
+export type FileUploadTransfer = {
+  kind: 'file';
   id: string;
   uploadId: string | null;
   operation: TransferOperation;
@@ -18,5 +19,40 @@ export type UploadTransfer = {
   phase: TransferPhase;
   progress: number | null;
   bytesPerSecond: number | null;
+  error: TransferFailure | null;
+};
+
+export type FolderTransferFileError = {
+  relativePath: string;
+  fileName: string;
+  code: string;
+  message: string;
+};
+
+export type FolderUploadTransfer = {
+  kind: 'folder';
+  id: string;
+  folderName: string;
+  totalSizeBytes: number;
+  uploadedBytes: number;
+  totalFiles: number;
+  completedFiles: number;
+  failedFiles: number;
+  totalFolders: number;
+  phase: TransferPhase;
+  progress: number | null;
+  bytesPerSecond: number | null;
+  error: TransferFailure | null;
+  fileErrors: readonly FolderTransferFileError[];
+};
+
+export type UploadTransfer = FileUploadTransfer | FolderUploadTransfer;
+
+export type FolderUploadResult = {
+  ok: boolean;
+  createdFolders: boolean;
+  completedFiles: number;
+  failedFiles: number;
+  cancelled: boolean;
   error: TransferFailure | null;
 };
