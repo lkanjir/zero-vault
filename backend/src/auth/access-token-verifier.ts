@@ -10,11 +10,20 @@ import z from 'zod';
 
 export type AccessTokenVerifier = (token: string) => Promise<AuthenticatedPrincipal>;
 
+export const JWKS_FETCH_TIMEOUT_MS = 5_000;
+const EXPECTED_TOKEN_TYPE = 'Bearer';
+
 const profileNameSchema = z.string().trim().min(1).max(255);
 
-const fetchJwks: jose.FetchImplementation = async (url, options) => {
+export const fetchJwks: jose.FetchImplementation = async (url, options) => {
+  const timeoutSignal = AbortSignal.timeout(JWKS_FETCH_TIMEOUT_MS);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+
   try {
-    return await fetch(url, options);
+    return await fetch(url, {
+      ...options,
+      signal,
+    });
   } catch (error) {
     throw new AuthProviderUnavailableError({
       cause: error,
@@ -27,7 +36,10 @@ export function createAccessTokenVerifier(
 ): AccessTokenVerifier {
   const jwks = jose.createRemoteJWKSet(
     new URL(`${oidcConfig.issuer}/protocol/openid-connect/certs`),
-    { [jose.customFetch]: fetchJwks },
+    {
+      timeoutDuration: JWKS_FETCH_TIMEOUT_MS,
+      [jose.customFetch]: fetchJwks,
+    },
   );
 
   async function verifyJwt(token: string): Promise<JWTPayload> {
@@ -37,7 +49,7 @@ export function createAccessTokenVerifier(
         audience: oidcConfig.audience,
         algorithms: ['RS256'],
         clockTolerance: 1,
-        requiredClaims: ['sub', 'iat', 'exp'],
+        requiredClaims: ['sub', 'iat', 'exp', 'typ'],
       });
 
       return payload;
@@ -48,6 +60,14 @@ export function createAccessTokenVerifier(
 
   return async function verifyAccessToken(token: string): Promise<AuthenticatedPrincipal> {
     const payload = await verifyJwt(token);
+
+    if (payload['typ'] !== EXPECTED_TOKEN_TYPE) {
+      throw new AppError('invalid_access_token', {
+        context: {
+          invalidTokenType: true,
+        },
+      });
+    }
 
     if (typeof payload.iss !== 'string' || typeof payload.sub !== 'string') {
       throw new AppError('invalid_access_token', {

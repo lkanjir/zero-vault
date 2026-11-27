@@ -1,6 +1,10 @@
 import * as jose from 'jose';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createAccessTokenVerifier } from '../../src/auth/access-token-verifier.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createAccessTokenVerifier,
+  fetchJwks,
+  JWKS_FETCH_TIMEOUT_MS,
+} from '../../src/auth/access-token-verifier.js';
 import {
   JOSEError,
   JWKInvalid,
@@ -19,6 +23,7 @@ vi.mock('jose', () => ({
   jwtVerify: vi.fn(),
 }));
 
+const createRemoteJWKSetMock = vi.mocked(jose.createRemoteJWKSet);
 const jwtVerifyMock = vi.mocked(jose.jwtVerify);
 const verifyAccessToken = createAccessTokenVerifier({
   issuer: process.env['OIDC_ISSUER']!,
@@ -32,6 +37,7 @@ const validToken = {
     sub: 'user-123',
     iat: 100,
     exp: 200,
+    typ: 'Bearer',
     email: ' Test@Example.COM ',
     email_verified: true,
     given_name: ' Test ',
@@ -42,6 +48,25 @@ const validToken = {
 
 describe('verifyAccessToken', () => {
   beforeEach(() => jwtVerifyMock.mockReset());
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('configures remote JWKS with bounded timeout and custom fetch', () => {
+    createAccessTokenVerifier({
+      issuer: process.env['OIDC_ISSUER']!,
+      audience: process.env['OIDC_AUDIENCE']!,
+    });
+
+    expect(createRemoteJWKSetMock).toHaveBeenCalledWith(
+      new URL(`${process.env['OIDC_ISSUER']!}/protocol/openid-connect/certs`),
+      {
+        timeoutDuration: JWKS_FETCH_TIMEOUT_MS,
+        [jose.customFetch]: fetchJwks,
+      },
+    );
+  });
 
   it('maps a verified payload to principal', async () => {
     jwtVerifyMock.mockResolvedValueOnce(validToken);
@@ -69,9 +94,42 @@ describe('verifyAccessToken', () => {
         audience: process.env['OIDC_AUDIENCE'],
         algorithms: ['RS256'],
         clockTolerance: 1,
-        requiredClaims: ['sub', 'iat', 'exp'],
+        requiredClaims: ['sub', 'iat', 'exp', 'typ'],
       }),
     );
+  });
+
+  it.each([
+    ['missing typ', undefined],
+    ['ID token typ', 'ID'],
+    ['Refresh token typ', 'Refresh'],
+    ['lowercase bearer typ', 'bearer'],
+    ['non-string typ', 123],
+  ])('rejects token with %s', async (_case, typ) => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      protectedHeader: { alg: 'RS256' },
+      payload: {
+        iss: process.env['OIDC_ISSUER']!,
+        sub: 'user-123',
+        iat: 100,
+        exp: 200,
+        ...(typ !== undefined ? { typ } : {}),
+        email: 'test@example.com',
+        email_verified: true,
+        given_name: 'Test',
+        family_name: 'User',
+      },
+      key: new Uint8Array(),
+    });
+
+    await expect(verifyAccessToken('wrong-typ-token')).rejects.toMatchObject({
+      code: 'invalid_access_token',
+      options: {
+        context: {
+          invalidTokenType: true,
+        },
+      },
+    });
   });
 
   it.each([
@@ -91,6 +149,7 @@ describe('verifyAccessToken', () => {
           sub: 'user-123',
           iat: 100,
           exp: 200,
+          typ: 'Bearer',
           email: 'test@example.com',
           email_verified: true,
           given_name: givenName,
@@ -119,6 +178,7 @@ describe('verifyAccessToken', () => {
         sub: 'user-123',
         iat: 100,
         exp: 200,
+        typ: 'Bearer',
         email_verified: true,
       },
     ],
@@ -129,6 +189,7 @@ describe('verifyAccessToken', () => {
         sub: 'user-123',
         iat: 100,
         exp: 200,
+        typ: 'Bearer',
         email: 'test@example.com',
         email_verified: false,
       },
@@ -140,6 +201,7 @@ describe('verifyAccessToken', () => {
         sub: 'user-123',
         iat: 100,
         exp: 200,
+        typ: 'Bearer',
         email: 'test@example.com',
       },
     ],
@@ -150,6 +212,7 @@ describe('verifyAccessToken', () => {
         sub: 'user-123',
         iat: 100,
         exp: 200,
+        typ: 'Bearer',
         email: 'not-an-email',
         email_verified: true,
       },
@@ -173,6 +236,7 @@ describe('verifyAccessToken', () => {
         sub: 'user-123',
         iat: 100,
         exp: 200,
+        typ: 'Bearer',
         email: 'test@example.com',
         email_verified: true,
       },
@@ -182,6 +246,7 @@ describe('verifyAccessToken', () => {
       {
         iat: 100,
         exp: 200,
+        typ: 'Bearer',
         iss: 'http://localhost:8080/realms/zero-vault',
         email: 'test@example.com',
         email_verified: true,
@@ -264,5 +329,43 @@ describe('verifyAccessToken', () => {
     jwtVerifyMock.mockRejectedValueOnce(error);
 
     await expect(verifyAccessToken('token')).rejects.toBe(error);
+  });
+
+  it('attaches a timeout AbortSignal to JWKS fetch requests and wraps failures', async () => {
+    const response = new Response(JSON.stringify({ keys: [] }), { status: 200 });
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const url = 'http://localhost:8080/realms/zero-vault/protocol/openid-connect/certs';
+    const initialController = new AbortController();
+    await expect(
+      fetchJwks(url, {
+        method: 'GET',
+        headers: new Headers(),
+        redirect: 'manual',
+        signal: initialController.signal,
+      }),
+    ).resolves.toBe(response);
+
+    const [, init] = fetchMock.mock.lastCall!;
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+    expect(init?.signal?.aborted).toBe(false);
+
+    const externalController = new AbortController();
+    fetchMock.mockImplementationOnce((_u, options) => {
+      expect(options?.signal).toBeInstanceOf(AbortSignal);
+      externalController.abort(new Error('caller aborted'));
+      expect(options?.signal?.aborted).toBe(true);
+      return Promise.reject(new DOMException('Timeout', 'TimeoutError'));
+    });
+
+    await expect(
+      fetchJwks(url, {
+        method: 'GET',
+        headers: new Headers(),
+        redirect: 'manual',
+        signal: externalController.signal,
+      }),
+    ).rejects.toBeInstanceOf(AuthProviderUnavailableError);
   });
 });
