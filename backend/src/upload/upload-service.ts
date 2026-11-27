@@ -23,7 +23,7 @@ import {
   assertSizeMatches,
 } from './metadata-assertions.js';
 import type { CompletedUploadFile, UploadIntentRepository } from './upload-intent-repository.js';
-import type { UploadIntent, UploadIntentInput } from './upload-intent.js';
+import type { UploadConflictStrategy, UploadIntent, UploadIntentInput } from './upload-intent.js';
 import { computeUploadPlan, getExpectedPartSizeBytes } from './upload-sizing.js';
 import type {
   CompleteUploadRequestBody,
@@ -56,6 +56,7 @@ export class UploadService {
 
   async createUpload(user: User, requestBody: UploadRequestBody): Promise<UploadResponse> {
     const parentFolderId = requestBody.parentFolderId ?? null;
+    const conflictStrategy = requestBody.conflictStrategy ?? 'fail';
     const plan = computeUploadPlan(requestBody.size);
 
     if (plan.uploadMode === 'single') {
@@ -70,12 +71,12 @@ export class UploadService {
           tx,
         );
 
-        await this.intentRepo.assertUploadTargetAvailable(
-          {
-            userId: user.id,
-            targetParentId,
-            fileName: requestBody.fileName,
-          },
+        const resolvedFileName = await this.resolveCreateFileName(
+          user.id,
+          targetParentId,
+          requestBody.fileName,
+          conflictStrategy,
+          upload.createdAt,
           tx,
         );
 
@@ -85,7 +86,8 @@ export class UploadService {
           {
             upload,
             targetParentId,
-            fileName: requestBody.fileName,
+            fileName: resolvedFileName,
+            conflictStrategy,
           },
           tx,
         );
@@ -110,12 +112,12 @@ export class UploadService {
           tx,
         );
 
-        await this.intentRepo.assertUploadTargetAvailable(
-          {
-            userId: user.id,
-            targetParentId,
-            fileName: requestBody.fileName,
-          },
+        const resolvedFileName = await this.resolveCreateFileName(
+          user.id,
+          targetParentId,
+          requestBody.fileName,
+          conflictStrategy,
+          new Date(),
           tx,
         );
 
@@ -138,7 +140,8 @@ export class UploadService {
           {
             upload: multipartIntent,
             targetParentId,
-            fileName: requestBody.fileName,
+            fileName: resolvedFileName,
+            conflictStrategy,
           },
           tx,
         );
@@ -657,6 +660,38 @@ export class UploadService {
         return { kind: 'completed', file: replaceResult.file };
       }
     }
+  }
+
+  private async resolveCreateFileName(
+    userId: number,
+    targetParentId: number | null,
+    fileName: string,
+    conflictStrategy: UploadConflictStrategy,
+    now: Date,
+    tx: TransactionContext,
+  ): Promise<string> {
+    if (conflictStrategy === 'rename') {
+      return this.intentRepo.resolveAvailableFileName(
+        {
+          userId,
+          targetParentId,
+          fileName,
+          now,
+        },
+        tx,
+      );
+    }
+
+    await this.intentRepo.assertUploadTargetAvailable(
+      {
+        userId,
+        targetParentId,
+        fileName,
+      },
+      tx,
+    );
+
+    return fileName;
   }
 
   private async createPresignedUploadUrl(upload: UploadIntentInput): Promise<string> {

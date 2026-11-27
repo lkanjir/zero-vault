@@ -2,6 +2,8 @@ export type UploadIntentStatus = 'pending' | 'completed' | 'expired' | 'supersed
 
 export type UploadIntentOperation = 'create' | 'replace';
 
+export type UploadConflictStrategy = 'fail' | 'rename';
+
 export type UploadMode = 'single' | 'multipart';
 
 export type ChecksumType = 'full_sha256' | 'composite_sha256';
@@ -28,6 +30,7 @@ export type UploadIntent = {
   completedAt: Date | null;
   finalizeDeadline: Date;
   operation: UploadIntentOperation;
+  conflictStrategy: UploadConflictStrategy;
   targetFileId: number | null;
   expectedContentVersion: number | null;
 };

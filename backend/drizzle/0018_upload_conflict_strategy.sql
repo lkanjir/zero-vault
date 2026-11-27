@@ -1,0 +1,4 @@
+CREATE TYPE "public"."upload_conflict_strategy" AS ENUM('fail', 'rename');--> statement-breakpoint
+ALTER TABLE "upload_intents" ADD COLUMN "conflict_strategy" "upload_conflict_strategy" DEFAULT 'fail' NOT NULL;--> statement-breakpoint
+CREATE INDEX "upload_intents_pending_target_parent_idx" ON "upload_intents" USING btree ("created_by_user_id","target_parent_id") WHERE "upload_intents"."status" = 'pending' and "upload_intents"."operation" = 'create';--> statement-breakpoint
+ALTER TABLE "upload_intents" ADD CONSTRAINT "upload_intents_conflict_strategy_check" CHECK ("upload_intents"."operation" = 'create' or "upload_intents"."conflict_strategy" = 'fail');

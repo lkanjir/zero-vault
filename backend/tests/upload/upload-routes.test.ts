@@ -168,6 +168,57 @@ describe('upload routes contract', () => {
     });
   });
 
+  it('forwards conflictStrategy=rename and rejects unknown conflictStrategy values', async () => {
+    uploadService.createUpload.mockResolvedValue({
+      uploadMode: 'single',
+      uploadId: UPLOAD_ID,
+      uploadUrl: 'https://storage.example.test/upload',
+      expiresInSeconds: 600,
+      requiredHeaders: {
+        'Content-Type': 'text/plain',
+        'x-amz-checksum-sha256': Buffer.from(EXPECTED_SHA256, 'hex').toString('base64'),
+      },
+    });
+
+    const renameResponse = await request(createTestApp(uploadService))
+      .post('/uploads/presign')
+      .send({
+        parentFolderId: null,
+        fileName: 'document.txt',
+        contentType: 'text/plain',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+        conflictStrategy: 'rename',
+      });
+
+    expect(renameResponse.status).toBe(201);
+    expect(uploadService.createUpload).toHaveBeenCalledExactlyOnceWith(USER, {
+      parentFolderId: null,
+      fileName: 'document.txt',
+      contentType: 'text/plain',
+      size: 12,
+      sha256: EXPECTED_SHA256,
+      conflictStrategy: 'rename',
+    });
+
+    uploadService.createUpload.mockClear();
+
+    const invalidResponse = await request(createTestApp(uploadService))
+      .post('/uploads/presign')
+      .send({
+        parentFolderId: null,
+        fileName: 'document.txt',
+        contentType: 'text/plain',
+        size: 12,
+        sha256: EXPECTED_SHA256,
+        conflictStrategy: 'overwrite',
+      });
+
+    expect(invalidResponse.status).toBe(400);
+    expect((invalidResponse.body as ErrorResponse).code).toBe('invalid_request_body');
+    expect(uploadService.createUpload).not.toHaveBeenCalled();
+  });
+
   it('accepts a 0-byte empty file and the maximum single-part upload size (16 MiB)', async () => {
     uploadService.createUpload.mockResolvedValue({
       uploadMode: 'single',

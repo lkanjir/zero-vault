@@ -27,6 +27,8 @@ export const uploadIntentStatus = pgEnum('upload_intent_status', [
 
 export const uploadIntentOperation = pgEnum('upload_intent_operation', ['create', 'replace']);
 
+export const uploadConflictStrategy = pgEnum('upload_conflict_strategy', ['fail', 'rename']);
+
 export const uploadMode = pgEnum('upload_mode', ['single', 'multipart']);
 
 export const checksumType = pgEnum('checksum_type', ['full_sha256', 'composite_sha256']);
@@ -67,6 +69,7 @@ export const uploadIntents = pgTable(
       mode: 'date',
     }).notNull(),
     operation: uploadIntentOperation('operation').default('create').notNull(),
+    conflictStrategy: uploadConflictStrategy('conflict_strategy').default('fail').notNull(),
     targetFileId: bigint('target_file_id', { mode: 'number' }).references(() => files.entryId, {
       onDelete: 'restrict',
     }),
@@ -164,10 +167,17 @@ export const uploadIntents = pgTable(
         and ${table.expectedContentVersion} > 0
       )`,
     ),
+    check(
+      'upload_intents_conflict_strategy_check',
+      sql`${table.operation} = 'create' or ${table.conflictStrategy} = 'fail'`,
+    ),
     index('upload_intents_user_id_upload_id_idx').on(table.createdByUserId, table.uploadId),
     index('upload_intents_pending_finalize_deadline_idx')
       .on(table.finalizeDeadline)
       .where(sql`${table.status} = 'pending'`),
+    index('upload_intents_pending_target_parent_idx')
+      .on(table.createdByUserId, table.targetParentId)
+      .where(sql`${table.status} = 'pending' and ${table.operation} = 'create'`),
     index('upload_intents_file_id_idx')
       .on(table.fileId)
       .where(sql`${table.fileId} is not null`),

@@ -71,6 +71,7 @@ export const uploadRequestSchema = uploadContentBaseSchema
   .extend({
     parentFolderId: z.uuid().nullable().optional(),
     fileName: entryNameSchema,
+    conflictStrategy: z.enum(['fail', 'rename']).optional(),
   })
   .superRefine(validateUploadChecksumRequirement);
 

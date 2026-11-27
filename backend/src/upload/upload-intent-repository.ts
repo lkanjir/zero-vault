@@ -1,6 +1,6 @@
 import type { TransactionContext } from '../db/unit-of-work.js';
 import type { ObjectChecksum } from '../storage/object-storage.js';
-import type { UploadIntent, UploadIntentInput } from './upload-intent.js';
+import type { UploadConflictStrategy, UploadIntent, UploadIntentInput } from './upload-intent.js';
 
 export type CompletedUploadFile = {
   entryId: number;
@@ -42,6 +42,7 @@ export type SaveUploadIntentCommand = {
   upload: UploadIntentInput;
   targetParentId: number | null;
   fileName: string;
+  conflictStrategy?: UploadConflictStrategy;
 };
 
 export type ExpirePendingIntentsCommand = {
@@ -53,6 +54,13 @@ export type AssertUploadTargetAvailableCommand = {
   userId: number;
   targetParentId: number | null;
   fileName: string;
+};
+
+export type ResolveAvailableFileNameCommand = {
+  userId: number;
+  targetParentId: number | null;
+  fileName: string;
+  now: Date;
 };
 
 export type SaveReplacementUploadIntentCommand = {
@@ -80,6 +88,10 @@ export interface UploadIntentRepository {
     command: AssertUploadTargetAvailableCommand,
     tx: TransactionContext,
   ): Promise<void>;
+  resolveAvailableFileName(
+    command: ResolveAvailableFileNameCommand,
+    tx: TransactionContext,
+  ): Promise<string>;
   expireLockedIntent(intentId: number, tx: TransactionContext): Promise<void>;
   abortLockedIntent(intentId: number, tx: TransactionContext): Promise<void>;
   completeCreateIntent(

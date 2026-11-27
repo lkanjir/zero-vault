@@ -150,6 +150,60 @@ describe('UploadService', () => {
     });
   });
 
+  it('uses resolveAvailableFileName and persists conflictStrategy=rename for single-part and multipart uploads', async () => {
+    storage.createPresignedUploadUrl.mockResolvedValue(SIGNED_URL);
+    storage.createMultipartUpload.mockResolvedValue('s3-mp-rename-1');
+    entryAuthorizer.authorizeParentForCreate.mockResolvedValue(7);
+    repo.resolveAvailableFileName
+      .mockResolvedValueOnce('document (1).txt')
+      .mockResolvedValueOnce('archive (2).zip');
+
+    await service.createUpload(USER, {
+      fileName: 'document.txt',
+      contentType: 'text/plain',
+      size: 12,
+      sha256: EXPECTED_SHA256,
+      parentFolderId: '0e3a99c9-efc6-4302-8e50-02df497bab88',
+      conflictStrategy: 'rename',
+    });
+
+    expect(repo.assertUploadTargetAvailable).not.toHaveBeenCalled();
+    expect(repo.resolveAvailableFileName).toHaveBeenCalledWith(
+      {
+        userId: USER.id,
+        targetParentId: 7,
+        fileName: 'document.txt',
+        now: NOW,
+      },
+      tx,
+    );
+    expect(repo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileName: 'document (1).txt',
+        targetParentId: 7,
+        conflictStrategy: 'rename',
+      }),
+      tx,
+    );
+
+    await service.createUpload(USER, {
+      fileName: 'archive.zip',
+      contentType: 'application/zip',
+      size: SINGLE_PART_MAX_BYTES + 1,
+      parentFolderId: '0e3a99c9-efc6-4302-8e50-02df497bab88',
+      conflictStrategy: 'rename',
+    });
+
+    expect(repo.save).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        fileName: 'archive (2).zip',
+        targetParentId: 7,
+        conflictStrategy: 'rename',
+      }),
+      tx,
+    );
+  });
+
   it('does not presign or save an upload when the target name already exists', async () => {
     const parentFolderId = '0e3a99c9-efc6-4302-8e50-02df497bab88';
     const duplicateError = new AppError('duplicate_entry_name');
@@ -1066,6 +1120,7 @@ function makePendingIntent(overrides: Partial<UploadIntent> = {}): UploadIntent 
     finalizeDeadline: new Date(NOW.getTime() + 600_000),
     completedAt: null,
     operation: 'create',
+    conflictStrategy: 'fail',
     targetFileId: null,
     expectedContentVersion: null,
     ...overrides,

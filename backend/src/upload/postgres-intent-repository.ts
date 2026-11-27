@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { Database, Transaction } from '../db/db-client.js';
 import { entries, files, uploadIntents } from '../db/schema.js';
 import type { TransactionContext } from '../db/unit-of-work.js';
@@ -6,6 +6,7 @@ import { mapEntryDatabaseError } from '../entry/map-entry-db-error.js';
 import { enqueueObjectDeletionsInTransaction } from '../object-deletion/object-deletion-helpers.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 import type { ObjectChecksum } from '../storage/object-storage.js';
+import { getAutoRenameSearchPrefix, pickAvailableFileName } from './file-name-conflict.js';
 import type {
   AssertUploadTargetAvailableCommand,
   CompleteCreateIntentCommand,
@@ -14,6 +15,7 @@ import type {
   CompleteReplaceIntentCommand,
   CompleteReplaceIntentResult,
   ExpirePendingIntentsCommand,
+  ResolveAvailableFileNameCommand,
   SaveReplacementUploadIntentCommand,
   SaveUploadIntentCommand,
   UploadIntentRepository,
@@ -22,6 +24,8 @@ import type { UploadIntent, UploadIntentInput } from './upload-intent.js';
 
 type EntryRow = typeof entries.$inferSelect;
 type FileRow = typeof files.$inferSelect;
+
+const MAX_COMPLETE_RENAME_ATTEMPTS = 25;
 
 export class PostgresIntentRepository implements UploadIntentRepository {
   constructor(private readonly db: Database) {}
@@ -81,6 +85,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     await tx.insert(uploadIntents).values({
       ...this.toPendingInsert(command.upload),
       operation: 'create',
+      conflictStrategy: command.conflictStrategy ?? 'fail',
       fileName: command.fileName,
       targetParentId: command.targetParentId,
     });
@@ -103,6 +108,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     await tx.insert(uploadIntents).values({
       ...this.toPendingInsert(command.upload),
       operation: 'replace',
+      conflictStrategy: 'fail',
       fileName: null,
       targetFileId: command.targetFileId,
       expectedContentVersion: file.contentVersion,
@@ -136,6 +142,65 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     }
   }
 
+  async resolveAvailableFileName(
+    command: ResolveAvailableFileNameCommand,
+    tx: TransactionContext,
+  ): Promise<string> {
+    const entryParentCondition =
+      command.targetParentId === null
+        ? isNull(entries.parentId)
+        : eq(entries.parentId, command.targetParentId);
+
+    const intentParentCondition =
+      command.targetParentId === null
+        ? isNull(uploadIntents.targetParentId)
+        : eq(uploadIntents.targetParentId, command.targetParentId);
+
+    const [existingEntry] = await tx
+      .select({ id: entries.id })
+      .from(entries)
+      .where(
+        and(
+          eq(entries.ownerId, command.userId),
+          entryParentCondition,
+          isNull(entries.deletedAt),
+          sql`lower(${entries.name}) = lower(${command.fileName})`,
+        ),
+      )
+      .limit(1);
+
+    const [existingPendingIntent] = existingEntry
+      ? [undefined]
+      : await tx
+          .select({ id: uploadIntents.id })
+          .from(uploadIntents)
+          .where(
+            and(
+              eq(uploadIntents.createdByUserId, command.userId),
+              intentParentCondition,
+              eq(uploadIntents.status, 'pending'),
+              eq(uploadIntents.operation, 'create'),
+              gt(uploadIntents.finalizeDeadline, command.now),
+              sql`lower(${uploadIntents.fileName}) = lower(${command.fileName})`,
+            ),
+          )
+          .limit(1);
+
+    if (!existingEntry && !existingPendingIntent) {
+      return command.fileName;
+    }
+
+    const takenLowerNames = await this.findTakenSiblingLowerNames(
+      tx,
+      command.userId,
+      command.targetParentId,
+      command.fileName,
+      command.now,
+    );
+
+    return pickAvailableFileName(command.fileName, takenLowerNames);
+  }
+
   async expireLockedIntent(intentId: number, tx: TransactionContext): Promise<void> {
     await this.expireLockedIntents(tx, [intentId]);
   }
@@ -167,58 +232,95 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     command: CompleteCreateIntentCommand,
     tx: TransactionContext,
   ): Promise<CompleteCreateIntentResult> {
-    try {
-      const completedFile = await tx.transaction(async (savepoint) => {
-        const entry = await this.createEntryForIntent(savepoint, command.userId, command.intent);
-
-        if (!entry) {
-          throw new Error('Failed to create file entry');
-        }
-
-        const file = await this.createFileForIntent(
-          savepoint,
-          entry.id,
-          command.intent,
-          command.verifiedChecksum,
-        );
-
-        if (!file) {
-          throw new Error('Failed to create file metadata');
-        }
-
-        await this.markIntentCompleted(
-          savepoint,
-          command.intent.id,
-          file.entryId,
-          command.completedAt,
-        );
-
-        return {
-          entryId: file.entryId,
-          publicId: entry.publicId,
-          name: entry.name,
-          contentType: file.contentType,
-          sizeBytes: file.sizeBytes,
-          updatedAt: entry.updatedAt,
-        };
-      });
-
-      return { kind: 'completed', file: completedFile };
-    } catch (error) {
-      const mappedError = mapEntryDatabaseError(error);
-
-      if (mappedError instanceof AppError && mappedError.code === 'duplicate_entry_name') {
-        await this.markIntentSuperseded(
-          tx,
-          command.intent.id,
-          command.intent.objectKey,
-          command.intent.s3UploadId,
-        );
-        return { kind: 'duplicate_entry_name' };
-      }
-
-      throw mappedError;
+    if (command.intent.operation !== 'create' || command.intent.fileName === null) {
+      throw new Error('Create upload intent is missing create metadata');
     }
+
+    const baseFileName = command.intent.fileName;
+    const allowAutoRename = command.intent.conflictStrategy === 'rename';
+    const maxAttempts = allowAutoRename ? MAX_COMPLETE_RENAME_ATTEMPTS : 1;
+    let candidateFileName = baseFileName;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const completedFile = await tx.transaction(async (savepoint) => {
+          const entry = await this.createEntryForIntent(
+            savepoint,
+            command.userId,
+            command.intent,
+            candidateFileName,
+          );
+
+          if (!entry) {
+            throw new Error('Failed to create file entry');
+          }
+
+          const file = await this.createFileForIntent(
+            savepoint,
+            entry.id,
+            command.intent,
+            command.verifiedChecksum,
+          );
+
+          if (!file) {
+            throw new Error('Failed to create file metadata');
+          }
+
+          await this.markIntentCompleted(
+            savepoint,
+            command.intent.id,
+            file.entryId,
+            command.completedAt,
+            candidateFileName !== baseFileName ? candidateFileName : undefined,
+          );
+
+          return {
+            entryId: file.entryId,
+            publicId: entry.publicId,
+            name: entry.name,
+            contentType: file.contentType,
+            sizeBytes: file.sizeBytes,
+            updatedAt: entry.updatedAt,
+          };
+        });
+
+        return { kind: 'completed', file: completedFile };
+      } catch (error) {
+        const mappedError = mapEntryDatabaseError(error);
+
+        if (mappedError instanceof AppError && mappedError.code === 'duplicate_entry_name') {
+          if (allowAutoRename && attempt < maxAttempts) {
+            const takenLowerNames = await this.findTakenSiblingLowerNames(
+              tx,
+              command.userId,
+              command.intent.targetParentId,
+              baseFileName,
+              null,
+            );
+            candidateFileName = pickAvailableFileName(baseFileName, takenLowerNames);
+            continue;
+          }
+
+          await this.markIntentSuperseded(
+            tx,
+            command.intent.id,
+            command.intent.objectKey,
+            command.intent.s3UploadId,
+          );
+          return { kind: 'duplicate_entry_name' };
+        }
+
+        throw mappedError;
+      }
+    }
+
+    await this.markIntentSuperseded(
+      tx,
+      command.intent.id,
+      command.intent.objectKey,
+      command.intent.s3UploadId,
+    );
+    return { kind: 'duplicate_entry_name' };
   }
 
   async completeReplaceIntent(
@@ -389,12 +491,81 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     return file ?? null;
   }
 
+  private async findTakenSiblingLowerNames(
+    tx: Transaction,
+    userId: number,
+    targetParentId: number | null,
+    fileName: string,
+    includePendingAsOf: Date | null,
+  ): Promise<Set<string>> {
+    const searchPrefix = getAutoRenameSearchPrefix(fileName).toLowerCase();
+    const escapedPrefix = searchPrefix.replace(/[\\%_]/g, '\\$&');
+    const likePattern = `${escapedPrefix}%`;
+    const lowerFileName = fileName.toLowerCase();
+
+    const entryParentCondition =
+      targetParentId === null ? isNull(entries.parentId) : eq(entries.parentId, targetParentId);
+
+    const entryRows = await tx
+      .select({ name: entries.name })
+      .from(entries)
+      .where(
+        and(
+          eq(entries.ownerId, userId),
+          entryParentCondition,
+          isNull(entries.deletedAt),
+          or(
+            sql`lower(${entries.name}) = ${lowerFileName}`,
+            sql`lower(${entries.name}) LIKE ${likePattern} ESCAPE '\\'`,
+          ),
+        ),
+      );
+
+    const taken = new Set<string>();
+    for (const row of entryRows) {
+      taken.add(row.name.toLowerCase());
+    }
+
+    if (includePendingAsOf !== null) {
+      const intentParentCondition =
+        targetParentId === null
+          ? isNull(uploadIntents.targetParentId)
+          : eq(uploadIntents.targetParentId, targetParentId);
+
+      const intentRows = await tx
+        .select({ fileName: uploadIntents.fileName })
+        .from(uploadIntents)
+        .where(
+          and(
+            eq(uploadIntents.createdByUserId, userId),
+            intentParentCondition,
+            eq(uploadIntents.status, 'pending'),
+            eq(uploadIntents.operation, 'create'),
+            gt(uploadIntents.finalizeDeadline, includePendingAsOf),
+            or(
+              sql`lower(${uploadIntents.fileName}) = ${lowerFileName}`,
+              sql`lower(${uploadIntents.fileName}) LIKE ${likePattern} ESCAPE '\\'`,
+            ),
+          ),
+        );
+
+      for (const row of intentRows) {
+        if (row.fileName !== null) {
+          taken.add(row.fileName.toLowerCase());
+        }
+      }
+    }
+
+    return taken;
+  }
+
   private async createEntryForIntent(
     tx: Transaction,
     userId: number,
     intent: UploadIntent,
+    fileName: string,
   ): Promise<EntryRow | null> {
-    if (intent.operation !== 'create' || intent.fileName === null) {
+    if (intent.operation !== 'create') {
       throw new Error('Create upload intent is missing create metadata');
     }
 
@@ -404,7 +575,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
         ownerId: userId,
         parentId: intent.targetParentId,
         kind: 'file',
-        name: intent.fileName,
+        name: fileName,
       })
       .returning();
 
@@ -416,10 +587,16 @@ export class PostgresIntentRepository implements UploadIntentRepository {
     intentId: number,
     entryId: number,
     completedAt: Date,
+    resolvedFileName?: string,
   ): Promise<void> {
     await tx
       .update(uploadIntents)
-      .set({ status: 'completed', fileId: entryId, completedAt })
+      .set({
+        status: 'completed',
+        fileId: entryId,
+        completedAt,
+        ...(resolvedFileName !== undefined ? { fileName: resolvedFileName } : {}),
+      })
       .where(eq(uploadIntents.id, intentId));
   }
 
@@ -467,6 +644,7 @@ export class PostgresIntentRepository implements UploadIntentRepository {
       completedAt: row.completedAt,
       finalizeDeadline: row.finalizeDeadline,
       operation: row.operation,
+      conflictStrategy: row.conflictStrategy,
       targetFileId: row.targetFileId,
       expectedContentVersion: row.expectedContentVersion,
     };
