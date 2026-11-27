@@ -6,6 +6,9 @@ import { createApp } from '../../src/app.js';
 import { loadApiConfig } from '../../src/config.js';
 import { createDatabase } from '../../src/db/db-client.js';
 import type { RedisHandle } from '../../src/redis/redis-client.js';
+import { errorCatalog } from '../../src/shared/errors/api/error-catalog.js';
+import { createApiRateLimiters } from '../../src/shared/http/api-rate-limiters.js';
+import { createIpRateLimiter } from '../../src/shared/http/ip-rate-limiter.js';
 
 describe('upload authentication', () => {
   const apiConfig = loadApiConfig();
@@ -103,6 +106,7 @@ describe('upload authentication', () => {
         checkConnection: checkDb,
       },
       redis: fakeRedis,
+      rateLimiters: createApiRateLimiters(),
     });
 
     const okResponse = await request(readyApp).get('/ready');
@@ -117,6 +121,53 @@ describe('upload authentication', () => {
     const failedResponse = await request(readyApp).get('/ready');
     expect(failedResponse.status).toBe(503);
     expect(failedResponse.body).toStrictEqual({ status: 'unavailable' });
+  });
+
+  it('enforces the global IP rate limiter before /api/config and JWT authentication', async () => {
+    const rateLimiters = {
+      ...createApiRateLimiters(),
+      globalIpRateLimiter: createIpRateLimiter({
+        identifier: 'api-ip',
+        windowMs: 60_000,
+        limit: 2,
+      }),
+    };
+    const limitedApp = createApp({
+      config: {
+        ...apiConfig,
+        http: {
+          ...apiConfig.http,
+          trustProxy: 1,
+        },
+      },
+      database,
+      rateLimiters,
+    });
+
+    const first = await request(limitedApp)
+      .get('/api/config')
+      .set('X-Forwarded-For', '203.0.113.10');
+    const second = await request(limitedApp)
+      .post('/api/uploads/presign')
+      .set('X-Forwarded-For', '203.0.113.10');
+    const blocked = await request(limitedApp)
+      .post('/api/uploads/presign')
+      .set('X-Forwarded-For', '203.0.113.10');
+    const otherClient = await request(limitedApp)
+      .get('/api/config')
+      .set('X-Forwarded-For', '203.0.113.11');
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(401);
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers['cache-control']).toBe('no-store');
+    expect(blocked.headers['retry-after']).toBeDefined();
+    expect(blocked.body).toStrictEqual({
+      code: 'rate_limit_exceeded',
+      message: errorCatalog.rate_limit_exceeded.message,
+      requestId: blocked.headers['x-request-id'],
+    });
+    expect(otherClient.status).toBe(200);
   });
 
   it('enforces Keycloak realm security hardening invariants', () => {

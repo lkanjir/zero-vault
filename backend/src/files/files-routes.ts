@@ -15,24 +15,28 @@ import type { FileSharingService } from '../sharing/file-sharing-service.js';
 import type { ShareFileAcceptedResponse } from './dto.js';
 import { replacementUploadRequestSchema } from '../upload/validation-schemas.js';
 import type { UploadService } from '../upload/upload-service.js';
-import {
-  fileDownloadRateLimiter,
-  sharingMutationRateLimiter,
-  uploadIntentRateLimiter,
-} from '../shared/http/api-rate-limiters.js';
+import { createApiRateLimiters, type ApiRateLimiters } from '../shared/http/api-rate-limiters.js';
 
 export type FileRouterDeps = {
   downloadService: FileDownloadService;
   sharingService: FileSharingService;
   uploadService: UploadService;
+  rateLimiters?: Pick<
+    ApiRateLimiters,
+    | 'fileDownloadRateLimiter'
+    | 'sharingReadRateLimiter'
+    | 'sharingMutationRateLimiter'
+    | 'uploadIntentRateLimiter'
+  >;
 };
 
 export function createFilesRouter(deps: FileRouterDeps): Router {
   const router = express.Router();
+  const rateLimiters = deps.rateLimiters ?? createApiRateLimiters();
 
   router.post(
     '/:fileId/download-url',
-    fileDownloadRateLimiter,
+    rateLimiters.fileDownloadRateLimiter,
     validateRequest({ params: fileIdParamsSchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
 
@@ -47,7 +51,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
   router.post(
     '/:fileId/shares',
-    sharingMutationRateLimiter,
+    rateLimiters.sharingMutationRateLimiter,
     validateRequest(
       { params: fileIdParamsSchema, body: shareFileBodySchema },
       async (req, res, validated) => {
@@ -63,6 +67,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
   router.get(
     '/:fileId/shares',
+    rateLimiters.sharingReadRateLimiter,
     validateRequest(
       { params: fileIdParamsSchema, query: listFileSharesQuerySchema },
       async (req, res, validated) => {
@@ -80,7 +85,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
   router.delete(
     '/:fileId/shares/:shareId',
-    sharingMutationRateLimiter,
+    rateLimiters.sharingMutationRateLimiter,
     validateRequest({ params: fileShareParamsSchema }, async (req, res, validated) => {
       const user = requireUser(req);
 
@@ -96,7 +101,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
   router.patch(
     '/:fileId/shares/:shareId',
-    sharingMutationRateLimiter,
+    rateLimiters.sharingMutationRateLimiter,
     validateRequest(
       { params: fileShareParamsSchema, body: updateFileShareBodySchema },
       async (req, res, validated) => {
@@ -116,6 +121,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
   router.get(
     '/shared-with-me',
+    rateLimiters.sharingReadRateLimiter,
     validateRequest({ query: listSharedFilesQuerySchema }, async (req, res, validated) => {
       const user = requireUser(req);
 
@@ -130,6 +136,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
   router.get(
     '/shared-by-me',
+    rateLimiters.sharingReadRateLimiter,
     validateRequest({ query: listSharedByMeFilesQuerySchema }, async (req, res, validated) => {
       const user = requireUser(req);
 
@@ -144,7 +151,7 @@ export function createFilesRouter(deps: FileRouterDeps): Router {
 
   router.post(
     '/:fileId/replacements',
-    uploadIntentRateLimiter,
+    rateLimiters.uploadIntentRateLimiter,
     validateRequest(
       { params: fileIdParamsSchema, body: replacementUploadRequestSchema },
       async (req, res, validated) => {

@@ -363,6 +363,7 @@ describe('files routes', () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers['ratelimit-policy']).toContain('"sharing-read"');
     expect(response.body).toStrictEqual({
       items: [
         {
@@ -534,6 +535,7 @@ describe('files routes', () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers['ratelimit-policy']).toContain('"sharing-read"');
     expect(response.body).toStrictEqual({
       items: [
         {

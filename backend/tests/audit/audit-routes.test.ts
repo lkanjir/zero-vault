@@ -57,6 +57,7 @@ describe('audit routes', () => {
     const response = await request(createTestApp(auditService)).get('/audit/events');
 
     expect(response.status).toBe(200);
+    expect(response.headers['ratelimit-policy']).toContain('"audit-read"');
     expect(response.body).toStrictEqual({
       items: [],
       page: {
@@ -128,6 +129,7 @@ describe('audit routes', () => {
     const response = await request(createTestApp(auditService)).get('/audit/statistics');
 
     expect(response.status).toBe(200);
+    expect(response.headers['ratelimit-policy']).toContain('"audit-read"');
     expect(response.body).toStrictEqual({
       period: {
         from: '2026-07-10T12:00:00.000Z',

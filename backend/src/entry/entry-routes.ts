@@ -6,17 +6,21 @@ import {
   updateEntryBodySchema,
 } from './validation-schemas.js';
 import { requireUser } from '../auth/resolve-user-middleware.js';
+import { createApiRateLimiters, type ApiRateLimiters } from '../shared/http/api-rate-limiters.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
 
 export type EntryRouterDeps = {
   entryService: EntryService;
+  rateLimiters?: Pick<ApiRateLimiters, 'entryReadRateLimiter' | 'entryMutationRateLimiter'>;
 };
 
 export function createEntryRouter(deps: EntryRouterDeps): Router {
   const router = express.Router();
+  const rateLimiters = deps.rateLimiters ?? createApiRateLimiters();
 
   router.get(
     '/',
+    rateLimiters.entryReadRateLimiter,
     validateRequest({ query: listEntriesQuerySchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
 
@@ -35,6 +39,7 @@ export function createEntryRouter(deps: EntryRouterDeps): Router {
 
   router.patch(
     '/:entryId',
+    rateLimiters.entryMutationRateLimiter,
     validateRequest(
       { params: entryIdParamsSchema, body: updateEntryBodySchema },
       async (req, res, validated) => {
@@ -53,6 +58,7 @@ export function createEntryRouter(deps: EntryRouterDeps): Router {
 
   router.delete(
     '/:entryId',
+    rateLimiters.entryMutationRateLimiter,
     validateRequest({ params: entryIdParamsSchema }, async (req, res, validated) => {
       const user = requireUser(req);
 

@@ -8,22 +8,23 @@ import {
 import { requireUser } from '../auth/resolve-user-middleware.js';
 import type { UploadService } from './upload-service.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
-import {
-  uploadCompletionRateLimiter,
-  uploadIntentRateLimiter,
-  uploadPartPresignRateLimiter,
-} from '../shared/http/api-rate-limiters.js';
+import { createApiRateLimiters, type ApiRateLimiters } from '../shared/http/api-rate-limiters.js';
 
 export type UploadRouterDeps = {
   uploadService: UploadService;
+  rateLimiters?: Pick<
+    ApiRateLimiters,
+    'uploadIntentRateLimiter' | 'uploadPartPresignRateLimiter' | 'uploadCompletionRateLimiter'
+  >;
 };
 
 export function createUploadRouter(deps: UploadRouterDeps): Router {
   const router = express.Router();
+  const rateLimiters = deps.rateLimiters ?? createApiRateLimiters();
 
   router.post(
     '/presign',
-    uploadIntentRateLimiter,
+    rateLimiters.uploadIntentRateLimiter,
     express.json({ limit: '16kb' }),
     validateRequest({ body: uploadRequestSchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
@@ -35,7 +36,7 @@ export function createUploadRouter(deps: UploadRouterDeps): Router {
 
   router.post(
     '/:uploadId/parts/presign',
-    uploadPartPresignRateLimiter,
+    rateLimiters.uploadPartPresignRateLimiter,
     express.json({ limit: '16kb' }),
     validateRequest(
       { params: uploadIdParamsSchema, body: presignPartsBodySchema },
@@ -55,7 +56,7 @@ export function createUploadRouter(deps: UploadRouterDeps): Router {
 
   router.post(
     '/:uploadId/complete',
-    uploadCompletionRateLimiter,
+    rateLimiters.uploadCompletionRateLimiter,
     express.json({ limit: '2mb' }),
     validateRequest(
       { params: uploadIdParamsSchema, body: completeUploadBodySchema },
@@ -75,7 +76,7 @@ export function createUploadRouter(deps: UploadRouterDeps): Router {
 
   router.post(
     '/:uploadId/abort',
-    uploadCompletionRateLimiter,
+    rateLimiters.uploadCompletionRateLimiter,
     validateRequest({ params: uploadIdParamsSchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
 

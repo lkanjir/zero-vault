@@ -74,6 +74,7 @@ describe('entry routes', () => {
     const response = await request(createTestApp(entryService)).get('/entries');
 
     expect(response.status).toBe(200);
+    expect(response.headers['ratelimit-policy']).toContain('"entry-read"');
     expect(response.body).toStrictEqual({
       items: [],
       path: [],
@@ -146,6 +147,7 @@ describe('entry routes', () => {
       .send({ name: ' Renamed ' });
 
     expect(response.status).toBe(200);
+    expect(response.headers['ratelimit-policy']).toContain('"entry-mutation"');
     expect(response.body).toStrictEqual({
       kind: 'folder',
       id: ENTRY_ID,
@@ -243,6 +245,7 @@ describe('entry routes', () => {
     const response = await request(createTestApp(entryService)).delete(`/entries/${ENTRY_ID}`);
 
     expect(response.status).toBe(204);
+    expect(response.headers['ratelimit-policy']).toContain('"entry-mutation"');
     expect(response.text).toBe('');
     expect(entryService.deleteEntry).toHaveBeenCalledExactlyOnceWith(USER, ENTRY_ID);
   });

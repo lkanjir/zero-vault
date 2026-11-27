@@ -8,23 +8,29 @@ import {
   folderDownloadIdParamsSchema,
 } from './download/validation-schemas.js';
 import type { FolderDownloadService } from './download/folder-download-service.js';
-import {
-  folderDownloadRateLimiter,
-  folderTreeRateLimiter,
-} from '../shared/http/api-rate-limiters.js';
+import { createApiRateLimiters, type ApiRateLimiters } from '../shared/http/api-rate-limiters.js';
 
 export type FolderRouterDeps = {
   entryService: EntryService;
   folderDownloadService: FolderDownloadService;
+  rateLimiters?: Pick<
+    ApiRateLimiters,
+    | 'entryMutationRateLimiter'
+    | 'folderDownloadRateLimiter'
+    | 'folderDownloadStatusRateLimiter'
+    | 'folderTreeRateLimiter'
+  >;
 };
 
 const INITIAL_POLLING_INTERVAL_SECONDS = 2;
 
 export function createFolderRouter(deps: FolderRouterDeps): Router {
   const router = express.Router();
+  const rateLimiters = deps.rateLimiters ?? createApiRateLimiters();
 
   router.post(
     '/',
+    rateLimiters.entryMutationRateLimiter,
     express.json({ limit: '16kb' }),
     validateRequest({ body: createFolderBodySchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
@@ -37,7 +43,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
 
   router.post(
     '/tree',
-    folderTreeRateLimiter,
+    rateLimiters.folderTreeRateLimiter,
     express.json({ limit: '512kb' }),
     validateRequest({ body: ensureFolderTreeBodySchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
@@ -50,7 +56,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
 
   router.post(
     '/:folderId/downloads',
-    folderDownloadRateLimiter,
+    rateLimiters.folderDownloadRateLimiter,
     validateRequest({ params: createFolderDownloadParamsSchema }, async (req, res, validated) => {
       const user = requireUser(req);
 
@@ -67,6 +73,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
 
   router.get(
     '/downloads/:downloadId',
+    rateLimiters.folderDownloadStatusRateLimiter,
     validateRequest({ params: folderDownloadIdParamsSchema }, async (req, res, validated) => {
       const user = requireUser(req);
 

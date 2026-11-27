@@ -12,6 +12,11 @@ import { requestContext } from './shared/http/request-context.js';
 import { errorHandler } from './shared/http/error-handler.js';
 import { createHealthRouter } from './shared/http/health-routes.js';
 import { createPublicConfigRouter } from './shared/http/config-routes.js';
+import {
+  createApiRateLimiters,
+  createRedisRateLimitStoreFactory,
+  type ApiRateLimiters,
+} from './shared/http/api-rate-limiters.js';
 import { routeNotFound } from './shared/http/route-not-found.js';
 import { createAuditRouter } from './audit/audit-routes.js';
 import { createFrontendRouter } from './frontend/frontend-routes.js';
@@ -25,13 +30,19 @@ export type CreateAppOptions = {
   readonly config: ApiConfig;
   readonly database: DatabaseHandle;
   readonly redis?: RedisHandle;
+  readonly rateLimiters?: ApiRateLimiters;
 };
 
-export function createApp({ config, database, redis }: CreateAppOptions): Express {
+export function createApp({ config, database, redis, rateLimiters }: CreateAppOptions): Express {
   const app = express();
   const composition = createApiComposition(database.db, config.s3);
   const requireAuth = createRequireAuthMiddleware(createAccessTokenVerifier(config.oidc));
   const resolveUser = createResolveUserMiddleware(composition.userService);
+  const apiRateLimiters =
+    rateLimiters ??
+    createApiRateLimiters(
+      redis ? { storeFactory: createRedisRateLimitStoreFactory(redis) } : undefined,
+    );
 
   app.disable('x-powered-by');
   app.set('trust proxy', config.http.trustProxy);
@@ -59,18 +70,44 @@ export function createApp({ config, database, redis }: CreateAppOptions): Expres
     next();
   });
 
+  app.use('/api', apiRateLimiters.globalIpRateLimiter);
   app.use('/api', createPublicConfigRouter(config.oidc));
 
   // Upload and folder routes own route-specific JSON body limits (2mb on upload completion,
   // 512kb on folder tree creation, 16kb elsewhere) so auth and rate limiting run before parsing.
-  app.use('/api/uploads', requireAuth, resolveUser, createUploadRouter(composition));
-  app.use('/api/folders', requireAuth, resolveUser, createFolderRouter(composition));
+  app.use(
+    '/api/uploads',
+    requireAuth,
+    resolveUser,
+    createUploadRouter({ ...composition, rateLimiters: apiRateLimiters }),
+  );
+  app.use(
+    '/api/folders',
+    requireAuth,
+    resolveUser,
+    createFolderRouter({ ...composition, rateLimiters: apiRateLimiters }),
+  );
 
   app.use(express.json({ limit: '16kb' }));
 
-  app.use('/api/entries', requireAuth, resolveUser, createEntryRouter(composition));
-  app.use('/api/files', requireAuth, resolveUser, createFilesRouter(composition));
-  app.use('/api/audit', requireAuth, resolveUser, createAuditRouter(composition));
+  app.use(
+    '/api/entries',
+    requireAuth,
+    resolveUser,
+    createEntryRouter({ ...composition, rateLimiters: apiRateLimiters }),
+  );
+  app.use(
+    '/api/files',
+    requireAuth,
+    resolveUser,
+    createFilesRouter({ ...composition, rateLimiters: apiRateLimiters }),
+  );
+  app.use(
+    '/api/audit',
+    requireAuth,
+    resolveUser,
+    createAuditRouter({ ...composition, rateLimiters: apiRateLimiters }),
+  );
 
   app.use('/api', routeNotFound);
 

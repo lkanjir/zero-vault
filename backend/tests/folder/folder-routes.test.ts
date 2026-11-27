@@ -66,6 +66,7 @@ describe('folder routes', () => {
       .send({ name: ' Documents ' });
 
     expect(response.status).toBe(201);
+    expect(response.headers['ratelimit-policy']).toContain('"entry-mutation"');
     expect(response.body).toStrictEqual({
       kind: 'folder',
       id: FOLDER_ID,
@@ -147,6 +148,7 @@ describe('folder routes', () => {
       );
 
       expect(response.status).toBe(200);
+      expect(response.headers['ratelimit-policy']).toContain('"folder-download-status"');
       expect(response.headers['cache-control']).toBe('no-store');
       expect(response.headers['retry-after']).toBe('2');
       expect(response.body).toStrictEqual({

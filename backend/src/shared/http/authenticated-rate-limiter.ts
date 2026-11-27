@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { type Store } from 'express-rate-limit';
 import { requirePrincipal } from '../../auth/require-principal.js';
 import { AppError } from '../errors/api/app-error.js';
 
@@ -7,6 +7,7 @@ export type AuthenticatedRateLimiterOptions = {
   identifier: string;
   windowMs: number;
   limit: number;
+  store?: Store | undefined;
 };
 
 export function createAuthenticatedRateLimiter(
@@ -18,6 +19,7 @@ export function createAuthenticatedRateLimiter(
     identifier: options.identifier,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
+    ...(options.store !== undefined ? { store: options.store } : {}),
     keyGenerator: (req) => {
       const principal = requirePrincipal(req);
       return JSON.stringify([principal.issuer, principal.subject]);
