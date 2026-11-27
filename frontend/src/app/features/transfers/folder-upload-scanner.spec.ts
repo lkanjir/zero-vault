@@ -107,6 +107,46 @@ describe('folder-upload-scanner', () => {
     expect(extracted.fallbackFiles).toStrictEqual([fallbackFile]);
   });
 
+  it('preserves blank middle folder segments instead of silently moving files into an ancestor folder', () => {
+    const weirdFile = makeRelativeFile('secret.txt', 'Docs/   /secret.txt');
+
+    const batches = scanDirectoryInputFiles([weirdFile]);
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0].folderPaths).toContain('Docs/');
+    expect(batches[0].files[0].folderPath).toBe('Docs/');
+  });
+
+  it('bounds recursive directory scanning against symlink cycles', async () => {
+    const loopEntry: DropFileSystemDirectoryEntry = {
+      isFile: false,
+      isDirectory: true,
+      name: 'Loop',
+      createReader: () => {
+        let done = false;
+        return {
+          readEntries: (success) => {
+            if (done) {
+              success([]);
+              return;
+            }
+            done = true;
+            success([loopEntry]);
+          },
+        };
+      },
+    };
+
+    const scanned = await scanDroppedEntries({
+      entries: [loopEntry],
+      fallbackFiles: [],
+    });
+
+    expect(scanned.folders).toHaveLength(1);
+    expect(scanned.folders[0].folderPaths.length).toBe(65);
+    expect(scanned.folders[0].folderPaths.at(-1)?.split('/').length).toBe(65);
+  });
+
   it('falls back to dataTransfer.files when items list is absent', () => {
     const file = new File(['abc'], 'plain.txt');
     const mockDataTransfer = {

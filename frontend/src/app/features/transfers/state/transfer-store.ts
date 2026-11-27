@@ -36,6 +36,7 @@ type FailureContext = 'preparing' | 'presigning' | 'uploading' | 'finalizing';
 
 const MAX_CONCURRENT_UPLOADS = 3;
 const MAX_FOLDER_TREE_PATHS_PER_REQUEST = 1000;
+const MAX_FOLDER_TREE_NODES_PER_REQUEST = 2000;
 const TERMINAL_SERVER_ERROR_CODES = new Set([
   'upload_already_completed',
   'upload_aborted',
@@ -149,8 +150,10 @@ export class TransferStore {
         batch.folderPaths,
         targetParentId,
         controller.signal,
+        () => {
+          createdFolders = true;
+        },
       );
-      createdFolders = true;
 
       if (controller.signal.aborted) {
         throw new UploadCancelledError();
@@ -219,7 +222,7 @@ export class TransferStore {
           }
 
           const item = batch.files[currentIndex];
-          const resolvedParentId = folderMap[item.folderPath];
+          const resolvedParentId = folderMap.get(item.folderPath);
 
           if (resolvedParentId === undefined) {
             failedFiles += 1;
@@ -329,6 +332,8 @@ export class TransferStore {
 
         this.patchFolderTransfer(transferId, {
           phase: 'cancelled',
+          completedFiles,
+          failedFiles,
           bytesPerSecond: null,
           error: null,
         });
@@ -417,11 +422,12 @@ export class TransferStore {
     folderPaths: readonly string[],
     targetParentId: string | null,
     signal: AbortSignal,
-  ): Promise<Record<string, string>> {
-    const folderMap: Record<string, string> = {};
+    onChunkSucceeded: () => void,
+  ): Promise<Map<string, string>> {
+    const folderMap = new Map<string, string>();
+    const chunks = chunkFolderTreePaths(folderPaths);
 
-    for (let offset = 0; offset < folderPaths.length; offset += MAX_FOLDER_TREE_PATHS_PER_REQUEST) {
-      const chunk = folderPaths.slice(offset, offset + MAX_FOLDER_TREE_PATHS_PER_REQUEST);
+    for (const chunk of chunks) {
       const response = await abortableLastValueFrom(
         this.folderApi.ensureFolderTree({
           parentId: targetParentId,
@@ -430,7 +436,10 @@ export class TransferStore {
         signal,
       );
 
-      Object.assign(folderMap, response.folders);
+      onChunkSucceeded();
+      for (const [relativePath, folderId] of Object.entries(response.folders)) {
+        folderMap.set(relativePath, folderId);
+      }
     }
 
     return folderMap;
@@ -818,4 +827,72 @@ export class TransferStore {
   closePanel(): void {
     this._panelOpen.set(false);
   }
+}
+
+function reduceToLeafFolderPaths(folderPaths: readonly string[]): string[] {
+  const uniquePaths = Array.from(new Set(folderPaths));
+  const parentPrefixes = new Set<string>();
+
+  for (const path of uniquePaths) {
+    let slashIndex = path.lastIndexOf('/');
+    while (slashIndex > 0) {
+      const prefix = path.slice(0, slashIndex);
+      if (parentPrefixes.has(prefix)) {
+        break;
+      }
+      parentPrefixes.add(prefix);
+      slashIndex = prefix.lastIndexOf('/');
+    }
+  }
+
+  return uniquePaths.filter((path) => !parentPrefixes.has(path));
+}
+
+function expandCanonicalNodes(relativePath: string): string[] {
+  const segments = relativePath.split('/').map((segment) => segment.trim().toLowerCase());
+  const nodes: string[] = [];
+
+  for (let depth = 1; depth <= segments.length; depth += 1) {
+    nodes.push(segments.slice(0, depth).join('/'));
+  }
+
+  return nodes;
+}
+
+function chunkFolderTreePaths(folderPaths: readonly string[]): string[][] {
+  const requestPaths = reduceToLeafFolderPaths(folderPaths);
+  const chunks: string[][] = [];
+  let currentChunk: string[] = [];
+  let currentNodes = new Set<string>();
+
+  for (const path of requestPaths) {
+    const pathNodes = expandCanonicalNodes(path);
+    let additionalNodes = 0;
+    for (const node of pathNodes) {
+      if (!currentNodes.has(node)) {
+        additionalNodes += 1;
+      }
+    }
+
+    if (
+      currentChunk.length > 0 &&
+      (currentChunk.length >= MAX_FOLDER_TREE_PATHS_PER_REQUEST ||
+        currentNodes.size + additionalNodes > MAX_FOLDER_TREE_NODES_PER_REQUEST)
+    ) {
+      chunks.push(currentChunk);
+      currentChunk = [];
+      currentNodes = new Set<string>();
+    }
+
+    currentChunk.push(path);
+    for (const node of pathNodes) {
+      currentNodes.add(node);
+    }
+  }
+
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
 }

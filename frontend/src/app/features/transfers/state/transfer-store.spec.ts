@@ -351,7 +351,7 @@ describe('TransferStore', () => {
     const treeReq = await waitForRequest(httpTesting, '/api/folders/tree');
     expect(treeReq.request.body).toStrictEqual({
       parentId: 'root-target',
-      paths: ['Photos', 'Photos/2026'],
+      paths: ['Photos/2026'],
     });
     treeReq.flush({
       folders: {
@@ -625,6 +625,107 @@ describe('TransferStore', () => {
 
     store.clearFinished();
     expect(store.transfers()).toHaveLength(0);
+  });
+
+  it('handles prototype-named folders like __proto__ and constructor safely via Map lookup', async () => {
+    const file = new File(['hi'], 'note.txt', { type: 'text/plain' });
+
+    const resultPromise = store.startFolderUpload(
+      {
+        rootName: '__proto__',
+        folderPaths: ['__proto__', '__proto__/constructor'],
+        files: [
+          {
+            file,
+            folderPath: '__proto__',
+            relativePath: '__proto__/note.txt',
+          },
+        ],
+      },
+      null,
+    );
+
+    const treeReq = await waitForRequest(httpTesting, '/api/folders/tree');
+    expect(treeReq.request.body).toStrictEqual({
+      parentId: null,
+      paths: ['__proto__/constructor'],
+    });
+    const rawFolders: Record<string, string> = {};
+    Object.defineProperty(rawFolders, '__proto__', {
+      value: 'folder-proto-id',
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    rawFolders['__proto__/constructor'] = 'folder-ctor-id';
+    treeReq.flush({ folders: rawFolders });
+
+    const presignReq = await waitForRequest(httpTesting, '/api/uploads/presign');
+    expect(presignReq.request.body).toMatchObject({
+      fileName: 'note.txt',
+      parentFolderId: 'folder-proto-id',
+      conflictStrategy: 'rename',
+    });
+    presignReq.flush({
+      uploadMode: 'single',
+      uploadId: 'proto-up-1',
+      uploadUrl: 'https://storage.example.test/proto-up-1',
+      expiresInSeconds: 600,
+      requiredHeaders: {
+        'Content-Type': 'text/plain',
+        'x-amz-checksum-sha256': '47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=',
+      },
+    });
+
+    const putReq = await waitForRequest(httpTesting, 'https://storage.example.test/proto-up-1');
+    putReq.flush(null, { status: 200, statusText: 'OK' });
+
+    const completeReq = await waitForRequest(httpTesting, '/api/uploads/proto-up-1/complete');
+    completeReq.flush({ ...COMPLETED_FILE, id: 'f-proto', name: 'note.txt', sizeBytes: 2 });
+
+    await expect(resultPromise).resolves.toMatchObject({
+      ok: true,
+      createdFolders: true,
+      completedFiles: 1,
+      failedFiles: 0,
+    });
+  });
+
+  it('chunks large folder trees within the 2000-node limit and marks createdFolders=true if an earlier chunk succeeded before failure', async () => {
+    // 600 branches of depth 5 -> 1 + 600 * 4 = 2401 unique nodes (> 2000) despite only 600 leaf paths (< 1000)
+    const leafPaths = Array.from({ length: 600 }, (_, i) => `Root/b${i}/c/d/e`);
+
+    const resultPromise = store.startFolderUpload(
+      {
+        rootName: 'Root',
+        folderPaths: ['Root', ...leafPaths],
+        files: [],
+      },
+      null,
+    );
+
+    const chunk1 = await waitForRequest(httpTesting, '/api/folders/tree');
+    const chunk1Paths = (chunk1.request.body as { paths: string[] }).paths;
+    expect(chunk1Paths.length).toBe(499);
+    chunk1.flush({ folders: { Root: 'root-id' } });
+
+    const chunk2 = await waitForRequest(httpTesting, '/api/folders/tree');
+    const chunk2Paths = (chunk2.request.body as { paths: string[] }).paths;
+    expect(chunk2Paths.length).toBe(101);
+    chunk2.flush(
+      {
+        code: 'folder_path_conflict',
+        message: 'Na odabranoj putanji već postoji datoteka s istim nazivom.',
+      },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    const result = await resultPromise;
+    expect(result).toMatchObject({
+      ok: false,
+      createdFolders: true,
+      error: { code: 'folder_path_conflict' },
+    });
   });
 });
 

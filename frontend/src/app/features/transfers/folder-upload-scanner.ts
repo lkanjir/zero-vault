@@ -49,6 +49,8 @@ type MutableBatch = {
   files: FolderUploadFile[];
 };
 
+const MAX_FOLDER_SCAN_DEPTH = 65;
+
 export function scanDirectoryInputFiles(files: readonly File[]): FolderUploadBatch[] {
   const batchesByRoot = new Map<string, MutableBatch>();
 
@@ -58,12 +60,14 @@ export function scanDirectoryInputFiles(files: readonly File[]): FolderUploadBat
       continue;
     }
 
-    const segments = rawRelativePath
-      .split('/')
-      .map((segment) => segment.trim())
-      .filter((segment) => segment.length > 0);
+    const strippedPath = rawRelativePath.replace(/^\/+|\/+$/g, '');
+    if (strippedPath.length === 0) {
+      continue;
+    }
 
-    if (segments.length < 2) {
+    const segments = strippedPath.split('/').map((segment) => segment.trim());
+
+    if (segments.length < 2 || segments[0].length === 0) {
       continue;
     }
 
@@ -155,7 +159,7 @@ export async function scanDroppedEntries(
       const folderPaths = new Set<string>([rootName]);
       const files: FolderUploadFile[] = [];
 
-      await walkDirectoryEntry(entry, rootName, folderPaths, files);
+      await walkDirectoryEntry(entry, rootName, folderPaths, files, 1);
 
       folders.push({
         rootName,
@@ -173,7 +177,12 @@ async function walkDirectoryEntry(
   currentFolderPath: string,
   folderPaths: Set<string>,
   files: FolderUploadFile[],
+  depth: number,
 ): Promise<void> {
+  if (depth >= MAX_FOLDER_SCAN_DEPTH) {
+    return;
+  }
+
   const children = await readAllDirectoryEntries(directoryEntry);
 
   for (const child of children) {
@@ -192,7 +201,7 @@ async function walkDirectoryEntry(
       const childName = child.name.trim() || child.name;
       const childPath = `${currentFolderPath}/${childName}`;
       folderPaths.add(childPath);
-      await walkDirectoryEntry(child, childPath, folderPaths, files);
+      await walkDirectoryEntry(child, childPath, folderPaths, files, depth + 1);
     }
   }
 }
