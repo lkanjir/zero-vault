@@ -33,6 +33,11 @@ import { MoveEntryDialog } from './move-entry-dialog/move-entry-dialog';
 import { DeleteEntryDialog } from './delete-entry-dialog/delete-entry-dialog';
 import { ShareFileDialog } from '../shared-files/share-file-dialog/share-file-dialog';
 import { TransferStore } from '../transfers/state/transfer-store';
+import {
+  extractDropItems,
+  ExtractedDropItems,
+  scanDroppedEntries,
+} from '../transfers/folder-upload-scanner';
 import { ReplaceContentDialog } from '../transfers/replace-content-dialog/replace-content-dialog';
 import { FolderBreadcrumbs } from './folder-breadcrumbs/folder-breadcrumbs';
 
@@ -52,6 +57,13 @@ const LOAD_MORE_THRESHOLD = 10;
     FolderBreadcrumbs,
   ],
   templateUrl: './drive.html',
+  host: {
+    class: 'relative block h-full min-h-0 w-full',
+    '(dragenter)': 'onDragEnter($event)',
+    '(dragover)': 'onDragOver($event)',
+    '(dragleave)': 'onDragLeave($event)',
+    '(drop)': 'onDrop($event)',
+  },
 })
 export class Drive implements OnInit, AfterViewInit {
   readonly store = inject(DriveStore);
@@ -67,9 +79,14 @@ export class Drive implements OnInit, AfterViewInit {
   private readonly downloadAbortController = new AbortController();
   private readonly _downloadEntryIds = signal<ReadonlySet<string>>(new Set());
   private readonly _downloadError = signal<string | null>(null);
+  private readonly _isDragOver = signal(false);
+  private readonly _dropError = signal<string | null>(null);
+  private dragDepth = 0;
 
   readonly downloadEntryIds = this._downloadEntryIds.asReadonly();
   readonly downloadError = this._downloadError.asReadonly();
+  readonly isDragOver = this._isDragOver.asReadonly();
+  readonly dropError = this._dropError.asReadonly();
 
   readonly trackEntry: TrackByFunction<EntryListItem> = (_index, entry) => entry.id;
   readonly viewport = viewChild(CdkVirtualScrollViewport);
@@ -300,5 +317,99 @@ export class Drive implements OnInit, AfterViewInit {
     const commands = folderId === null ? ['/drive'] : ['/drive', folderId];
 
     this.router.navigate(commands);
+  }
+
+  onDragEnter(event: DragEvent): void {
+    if (!this.hasDraggedFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    this.dragDepth += 1;
+    this._isDragOver.set(true);
+  }
+
+  onDragOver(event: DragEvent): void {
+    if (!this.hasDraggedFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy';
+    }
+  }
+
+  onDragLeave(event: DragEvent): void {
+    if (!this._isDragOver()) {
+      return;
+    }
+
+    event.preventDefault();
+    this.dragDepth = Math.max(0, this.dragDepth - 1);
+    if (this.dragDepth === 0) {
+      this._isDragOver.set(false);
+    }
+  }
+
+  onDrop(event: DragEvent): void {
+    if (!this.hasDraggedFiles(event) && !this._isDragOver()) {
+      return;
+    }
+
+    event.preventDefault();
+    this.dragDepth = 0;
+    this._isDragOver.set(false);
+    this._dropError.set(null);
+
+    const extracted = extractDropItems(event.dataTransfer);
+    if (extracted.entries.length === 0 && extracted.fallbackFiles.length === 0) {
+      return;
+    }
+
+    const targetParentId = this.store.parentId();
+    void this.processDroppedItems(extracted, targetParentId);
+  }
+
+  private async processDroppedItems(
+    extracted: ExtractedDropItems,
+    targetParentId: string | null,
+  ): Promise<void> {
+    try {
+      const { folders, looseFiles } = await scanDroppedEntries(extracted);
+      if (folders.length === 0 && looseFiles.length === 0) {
+        return;
+      }
+
+      const tasks: Promise<boolean>[] = [];
+
+      for (const batch of folders) {
+        tasks.push(
+          this.transferStore
+            .startFolderUpload(batch, targetParentId)
+            .then((result) => result.createdFolders || result.completedFiles > 0),
+        );
+      }
+
+      if (looseFiles.length > 0) {
+        tasks.push(
+          this.transferStore
+            .startUploads(looseFiles, targetParentId)
+            .then((results) => results.some((result) => result.ok)),
+        );
+      }
+
+      const outcomes = await Promise.all(tasks);
+      if (outcomes.some(Boolean)) {
+        this.store.reloadIfCurrent(targetParentId);
+      }
+    } catch {
+      this._dropError.set('Učitavanje ispuštenih datoteka ili mapa nije uspjelo.');
+    }
+  }
+
+  private hasDraggedFiles(event: DragEvent): boolean {
+    const types = event.dataTransfer?.types;
+    return types !== undefined && Array.from(types).includes('Files');
   }
 }

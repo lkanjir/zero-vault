@@ -14,11 +14,20 @@
         [kind]="driveStore.kind()"
         (createFolderRequested)="openCreateFolderDialog()"
         (uploadFileRequested)="fileInput.click()"
+        (uploadFolderRequested)="folderInput.click()"
         (searchChanged)="onSearchChanged($event)"
         (kindChanged)="onKindChanged($event)"
       />
 
       <input type="file" #fileInput hidden (change)="onFileChanged($event)" multiple />
+      <input
+        type="file"
+        #folderInput
+        hidden
+        webkitdirectory
+        multiple
+        (change)="onFolderChanged($event)"
+      />
     </header>
 
     <main class="min-h-0 flex-1 overflow-hidden" [class.mt-3]="!isDriveRoute()">

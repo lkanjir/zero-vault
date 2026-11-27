@@ -7,6 +7,7 @@ import { CreateFolderDialog } from '../../features/drive/create-folder-dialog/cr
 import { DriveStore } from '../../features/drive/state/drive-store';
 import { TransferStore } from '../../features/transfers/state/transfer-store';
 import { TransferPanel } from '../../features/transfers/transfer-panel/transfer-panel';
+import { scanDirectoryInputFiles } from '../../features/transfers/folder-upload-scanner';
 import { AuthService } from '../../auth/auth-service';
 import { EntryKindFilter } from '../../data-access/entries/entry-models';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -47,6 +48,30 @@ export class AppShell {
     const result = await this.transferStore.startUploads(files, targetParentId);
 
     if (result.some((result) => result.ok)) {
+      this.driveStore.reloadIfCurrent(targetParentId);
+    }
+  }
+
+  async onFolderChanged(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+
+    input.value = '';
+    if (files.length === 0) {
+      return;
+    }
+
+    const batches = scanDirectoryInputFiles(files);
+    if (batches.length === 0) {
+      return;
+    }
+
+    const targetParentId = this.driveStore.parentId();
+    const results = await Promise.all(
+      batches.map((batch) => this.transferStore.startFolderUpload(batch, targetParentId)),
+    );
+
+    if (results.some((result) => result.createdFolders || result.completedFiles > 0)) {
       this.driveStore.reloadIfCurrent(targetParentId);
     }
   }

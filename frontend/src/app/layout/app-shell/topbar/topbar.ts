@@ -18,6 +18,7 @@ export class Topbar {
 
   readonly createFolderRequested = output<void>();
   readonly uploadFileRequested = output<void>();
+  readonly uploadFolderRequested = output<void>();
 
   readonly searchChanged = outputFromObservable(
     this.searchInput.pipe(
