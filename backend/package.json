@@ -48,6 +48,8 @@
     "jose": "^6.2.3",
     "node-cron": "^4.6.0",
     "pg": "^8.22.0",
+    "rate-limit-redis": "^6.0.2",
+    "redis": "^6.4.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

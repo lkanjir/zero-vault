@@ -7,6 +7,19 @@ const dbEnvSchema = z.object({
   DATABASE_URL: z.url().trim(),
 });
 
+const redisEnvSchema = z.object({
+  REDIS_URL: z
+    .url()
+    .trim()
+    .refine(
+      (value) => {
+        const protocol = new URL(value).protocol;
+        return protocol === 'redis:' || protocol === 'rediss:';
+      },
+      { message: 'REDIS_URL must use the redis:// or rediss:// protocol' },
+    ),
+});
+
 const s3EnvSchema = z.object({
   S3_ENDPOINT: z.url().trim(),
   S3_PUBLIC_ORIGIN: z
@@ -92,6 +105,10 @@ export type DbConfig = {
   readonly connectionString: string;
 };
 
+export type RedisConfig = {
+  readonly url: string;
+};
+
 export type S3Config = {
   readonly endpoint: string;
   readonly publicOrigin: string;
@@ -120,6 +137,7 @@ export type HttpConfig = {
 
 export type ApiConfig = {
   readonly db: DbConfig;
+  readonly redis: RedisConfig;
   readonly s3: S3Config;
   readonly oidc: OidcConfig;
   readonly http: HttpConfig;
@@ -148,6 +166,13 @@ export function loadDbConfig(env: NodeJS.ProcessEnv = process.env): DbConfig {
   const parsed = parseEnv(dbEnvSchema, env, 'database');
   return {
     connectionString: parsed.DATABASE_URL,
+  };
+}
+
+export function loadRedisConfig(env: NodeJS.ProcessEnv = process.env): RedisConfig {
+  const parsed = parseEnv(redisEnvSchema, env, 'Redis');
+  return {
+    url: parsed.REDIS_URL,
   };
 }
 
@@ -194,6 +219,7 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
 export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   return {
     db: loadDbConfig(env),
+    redis: loadRedisConfig(env),
     s3: loadS3Config(env),
     oidc: loadOidcConfig(env),
     http: loadHttpConfig(env),

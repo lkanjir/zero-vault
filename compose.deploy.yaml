@@ -53,6 +53,32 @@ services:
       retries: 10
       start_period: 15s
 
+  redis:
+    image: redis:8.8.3-alpine
+    restart: unless-stopped
+    command:
+      [
+        "redis-server",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+        "--maxmemory",
+        "128mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
+
+    networks:
+      - zero-vault-internal
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   migrate:
     <<: *zero-vault-runtime
     restart: "no"
@@ -72,6 +98,7 @@ services:
     environment:
       <<: [*zero-vault-db-env, *zero-vault-s3-env]
       PORT: "3000"
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       OIDC_ISSUER: ${OIDC_ISSUER:?OIDC_ISSUER is required}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:?OIDC_AUDIENCE is required}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-zero-vault-web}
@@ -83,6 +110,8 @@ services:
 
     depends_on:
       app-db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully

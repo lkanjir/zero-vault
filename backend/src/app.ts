@@ -16,6 +16,7 @@ import { routeNotFound } from './shared/http/route-not-found.js';
 import { createAuditRouter } from './audit/audit-routes.js';
 import { createFrontendRouter } from './frontend/frontend-routes.js';
 import type { DatabaseHandle } from './db/db-client.js';
+import type { RedisHandle } from './redis/redis-client.js';
 import type { ApiConfig } from './config.js';
 
 const HSTS_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
@@ -23,9 +24,10 @@ const HSTS_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 export type CreateAppOptions = {
   readonly config: ApiConfig;
   readonly database: DatabaseHandle;
+  readonly redis?: RedisHandle;
 };
 
-export function createApp({ config, database }: CreateAppOptions): Express {
+export function createApp({ config, database, redis }: CreateAppOptions): Express {
   const app = express();
   const composition = createApiComposition(database.db, config.s3);
   const requireAuth = createRequireAuthMiddleware(createAccessTokenVerifier(config.oidc));
@@ -43,7 +45,14 @@ export function createApp({ config, database }: CreateAppOptions): Express {
   );
 
   app.use(requestContext);
-  app.use(createHealthRouter(database.checkConnection));
+  app.use(
+    createHealthRouter(async () => {
+      await Promise.all([
+        database.checkConnection(),
+        redis ? redis.checkConnection() : Promise.resolve(),
+      ]);
+    }),
+  );
 
   app.use('/api', (_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');

@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { loadApiConfig } from '../../src/config.js';
 import { createDatabase } from '../../src/db/db-client.js';
+import type { RedisHandle } from '../../src/redis/redis-client.js';
 
 describe('upload authentication', () => {
   const apiConfig = loadApiConfig();
@@ -84,6 +85,38 @@ describe('upload authentication', () => {
     });
 
     expect(proxiedApp.get('trust proxy')).toBe(1);
+  });
+
+  it('checks both database and Redis in /ready when Redis is configured', async () => {
+    const checkDb = vi.fn().mockResolvedValue(undefined);
+    const checkRedis = vi.fn().mockResolvedValue(undefined);
+    const fakeRedis: RedisHandle = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      sendCommand: vi.fn(),
+      checkConnection: checkRedis,
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    const readyApp = createApp({
+      config: apiConfig,
+      database: {
+        ...database,
+        checkConnection: checkDb,
+      },
+      redis: fakeRedis,
+    });
+
+    const okResponse = await request(readyApp).get('/ready');
+    expect(okResponse.status).toBe(200);
+    expect(okResponse.body).toStrictEqual({ status: 'ok' });
+    expect(checkDb).toHaveBeenCalledOnce();
+    expect(checkRedis).toHaveBeenCalledOnce();
+
+    vi.spyOn(console, 'error').mockImplementationOnce(() => undefined);
+    checkRedis.mockRejectedValueOnce(new Error('redis unavailable'));
+
+    const failedResponse = await request(readyApp).get('/ready');
+    expect(failedResponse.status).toBe(503);
+    expect(failedResponse.body).toStrictEqual({ status: 'unavailable' });
   });
 
   it('enforces Keycloak realm security hardening invariants', () => {

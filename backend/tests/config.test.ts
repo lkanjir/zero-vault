@@ -4,6 +4,7 @@ import {
   loadDbConfig,
   loadHttpConfig,
   loadOidcConfig,
+  loadRedisConfig,
   loadS3Config,
 } from '../src/config.js';
 
@@ -24,6 +25,29 @@ describe('modular environment config loaders', () => {
     expect(dbConfig).toStrictEqual({
       connectionString: 'postgresql://user:pass@localhost:5432/zerovault',
     });
+  });
+
+  it('loads Redis config for redis:// and rediss:// URLs and rejects other protocols', () => {
+    expect(
+      loadRedisConfig({
+        REDIS_URL: '  redis://localhost:6379  ',
+      }),
+    ).toStrictEqual({
+      url: 'redis://localhost:6379',
+    });
+
+    expect(
+      loadRedisConfig({
+        REDIS_URL: 'rediss://:secret@redis.internal:6380/0',
+      }),
+    ).toStrictEqual({
+      url: 'rediss://:secret@redis.internal:6380/0',
+    });
+
+    expect(() => loadRedisConfig({ REDIS_URL: 'http://localhost:6379' })).toThrow(
+      'Invalid Redis environment configuration',
+    );
+    expect(() => loadRedisConfig({})).toThrow('Invalid Redis environment configuration');
   });
 
   it('loads S3 config and normalizes publicOrigin to its origin', () => {
@@ -121,6 +145,7 @@ describe('modular environment config loaders', () => {
       HSTS_ENABLED: 'true',
       TRUST_PROXY: '1',
       DATABASE_URL: 'postgresql://user:pass@localhost:5432/zerovault',
+      REDIS_URL: 'redis://localhost:6379',
       S3_ENDPOINT: 'http://localhost:4566',
       S3_PUBLIC_ORIGIN: 'http://localhost:4566',
       S3_REGION: 'eu-central-1',
@@ -133,6 +158,7 @@ describe('modular environment config loaders', () => {
 
     expect(apiConfig.http).toStrictEqual({ port: 4000, hstsEnabled: true, trustProxy: 1 });
     expect(apiConfig.db.connectionString).toBe('postgresql://user:pass@localhost:5432/zerovault');
+    expect(apiConfig.redis.url).toBe('redis://localhost:6379');
     expect(apiConfig.s3.forcePathStyle).toBe(false);
     expect(apiConfig.oidc.audience).toBe('zero-vault-api');
   });
