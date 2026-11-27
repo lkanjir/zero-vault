@@ -4,7 +4,7 @@
   "displayName": "Zero Vault",
   "notBefore": 0,
   "defaultSignatureAlgorithm": "RS256",
-  "revokeRefreshToken": false,
+  "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
   "accessTokenLifespan": 300,
   "accessTokenLifespanForImplicitFlow": 900,
@@ -46,7 +46,7 @@
   "waitIncrementSeconds": 60,
   "quickLoginCheckMilliSeconds": 1000,
   "maxDeltaTimeSeconds": 43200,
-  "failureFactor": 30,
+  "failureFactor": 5,
   "maxSecondaryAuthFailures": 0,
   "roles": {
     "realm": [
@@ -66,7 +66,6 @@
         "composite": true,
         "composites": {
           "realm": [
-            "offline_access",
             "uma_authorization"
           ],
           "client": {
@@ -532,8 +531,7 @@
       ],
       "optionalClientScopes": [
         "address",
-        "phone",
-        "offline_access"
+        "phone"
       ]
     },
     {

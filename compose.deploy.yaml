@@ -75,7 +75,7 @@ services:
       OIDC_ISSUER: ${OIDC_ISSUER:?OIDC_ISSUER is required}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:?OIDC_AUDIENCE is required}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-zero-vault-web}
-      HSTS_ENABLED: ${HSTS_ENABLED:-false}
+      HSTS_ENABLED: ${HSTS_ENABLED:-true}
 
     expose:
       - "3000"
