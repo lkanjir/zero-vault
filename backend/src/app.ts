@@ -32,6 +32,7 @@ export function createApp({ config, database }: CreateAppOptions): Express {
   const resolveUser = createResolveUserMiddleware(composition.userService);
 
   app.disable('x-powered-by');
+  app.set('trust proxy', config.http.trustProxy);
   app.use(
     helmet({
       contentSecurityPolicy: false,

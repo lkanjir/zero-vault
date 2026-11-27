@@ -90,13 +90,36 @@ describe('modular environment config loaders', () => {
     expect(loadHttpConfig({})).toStrictEqual({
       port: 3000,
       hstsEnabled: false,
+      trustProxy: false,
     });
+  });
+
+  it('parses TRUST_PROXY hop counts, subnets, and disables permissive "true"', () => {
+    expect(loadHttpConfig({ TRUST_PROXY: 'false' }).trustProxy).toBe(false);
+    expect(loadHttpConfig({ TRUST_PROXY: '0' }).trustProxy).toBe(false);
+    expect(loadHttpConfig({ TRUST_PROXY: '1' }).trustProxy).toBe(1);
+    expect(loadHttpConfig({ TRUST_PROXY: '2' }).trustProxy).toBe(2);
+    expect(loadHttpConfig({ TRUST_PROXY: '  loopback  ' }).trustProxy).toBe('loopback');
+    expect(loadHttpConfig({ TRUST_PROXY: '10.0.0.0/8, loopback' }).trustProxy).toBe(
+      '10.0.0.0/8, loopback',
+    );
+
+    expect(() => loadHttpConfig({ TRUST_PROXY: 'true' })).toThrow(
+      'Invalid HTTP environment configuration',
+    );
+    expect(() => loadHttpConfig({ TRUST_PROXY: '-1' })).toThrow(
+      'Invalid HTTP environment configuration',
+    );
+    expect(() => loadHttpConfig({ TRUST_PROXY: '65' })).toThrow(
+      'Invalid HTTP environment configuration',
+    );
   });
 
   it('loads full API config when all sections are valid', () => {
     const apiConfig = loadApiConfig({
       PORT: '4000',
       HSTS_ENABLED: 'true',
+      TRUST_PROXY: '1',
       DATABASE_URL: 'postgresql://user:pass@localhost:5432/zerovault',
       S3_ENDPOINT: 'http://localhost:4566',
       S3_PUBLIC_ORIGIN: 'http://localhost:4566',
@@ -108,7 +131,7 @@ describe('modular environment config loaders', () => {
       OIDC_AUDIENCE: 'zero-vault-api',
     });
 
-    expect(apiConfig.http).toStrictEqual({ port: 4000, hstsEnabled: true });
+    expect(apiConfig.http).toStrictEqual({ port: 4000, hstsEnabled: true, trustProxy: 1 });
     expect(apiConfig.db.connectionString).toBe('postgresql://user:pass@localhost:5432/zerovault');
     expect(apiConfig.s3.forcePathStyle).toBe(false);
     expect(apiConfig.oidc.audience).toBe('zero-vault-api');

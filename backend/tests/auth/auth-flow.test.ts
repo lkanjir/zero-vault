@@ -69,6 +69,23 @@ describe('upload authentication', () => {
     expect(withHsts.headers['strict-transport-security']).toBe('max-age=31536000');
   });
 
+  it('configures Express trust proxy from HTTP config', () => {
+    expect(app.get('trust proxy')).toBe(false);
+
+    const proxiedApp = createApp({
+      config: {
+        ...apiConfig,
+        http: {
+          ...apiConfig.http,
+          trustProxy: 1,
+        },
+      },
+      database,
+    });
+
+    expect(proxiedApp.get('trust proxy')).toBe(1);
+  });
+
   it('enforces Keycloak realm security hardening invariants', () => {
     const realmPath = fileURLToPath(
       new URL('../../../keycloak/realm/zero-vault-realm.json', import.meta.url),

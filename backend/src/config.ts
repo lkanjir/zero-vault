@@ -33,9 +33,59 @@ const oidcEnvSchema = z.object({
   OIDC_CLIENT_ID: requiredTrimmedString.default('zero-vault-web'),
 });
 
+const trustProxyEnvSchema = z
+  .string()
+  .optional()
+  .transform((value) => (value ?? '').trim())
+  .superRefine((value, ctx) => {
+    if (value === '' || value.toLowerCase() === 'false') {
+      return;
+    }
+
+    if (value.toLowerCase() === 'true') {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'TRUST_PROXY must not be "true"; specify a hop count (e.g. "1") or trusted proxy subnet/keyword (e.g. "loopback").',
+      });
+      return;
+    }
+
+    if (/^-\d+$/.test(value)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'TRUST_PROXY hop count must be a non-negative integer.',
+      });
+      return;
+    }
+
+    if (/^\d+$/.test(value)) {
+      const hops = Number(value);
+      if (!Number.isSafeInteger(hops) || hops > 64) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'TRUST_PROXY hop count must be an integer between 0 and 64.',
+        });
+      }
+    }
+  })
+  .transform((value): TrustProxyConfig => {
+    if (value === '' || value.toLowerCase() === 'false') {
+      return false;
+    }
+
+    if (/^\d+$/.test(value)) {
+      const hops = Number(value);
+      return hops === 0 ? false : hops;
+    }
+
+    return value;
+  });
+
 const httpEnvSchema = z.object({
   PORT: z.coerce.number().int().positive().max(65_535).default(3000),
   HSTS_ENABLED: z.stringbool().default(false),
+  TRUST_PROXY: trustProxyEnvSchema,
 });
 
 export type DbConfig = {
@@ -60,9 +110,12 @@ export type OidcConfig = {
   readonly realm: string;
 };
 
+export type TrustProxyConfig = false | number | string;
+
 export type HttpConfig = {
   readonly port: number;
   readonly hstsEnabled: boolean;
+  readonly trustProxy: TrustProxyConfig;
 };
 
 export type ApiConfig = {
@@ -134,6 +187,7 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
   return {
     port: parsed.PORT,
     hstsEnabled: parsed.HSTS_ENABLED,
+    trustProxy: parsed.TRUST_PROXY,
   };
 }
 
