@@ -10,18 +10,19 @@ const apiConfig = loadApiConfig();
 const database = createDatabase(apiConfig.db);
 const redis = createRedisClient(apiConfig.redis);
 
+let server: ReturnType<ReturnType<typeof createApp>['listen']>;
+
 try {
   await redis.connect();
+  const app = createApp({ config: apiConfig, database, redis });
+  server = app.listen(apiConfig.http.port, () => {
+    console.info(`Backend listening on http://localhost:${apiConfig.http.port}`);
+  });
 } catch (error) {
+  await redis.close().catch(() => undefined);
   await database.close().catch(() => undefined);
   throw error;
 }
-
-const app = createApp({ config: apiConfig, database, redis });
-
-const server = app.listen(apiConfig.http.port, () => {
-  console.info(`Backend listening on http://localhost:${apiConfig.http.port}`);
-});
 
 registerGracefulShutdown({
   name: 'HTTP server',

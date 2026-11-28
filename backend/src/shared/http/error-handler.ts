@@ -2,6 +2,7 @@ import type { ErrorRequestHandler } from 'express';
 import { AppError } from '../errors/api/app-error.js';
 import { getErrorDefinition } from '../errors/api/error-catalog.js';
 import type { ErrorResponse } from '../errors/api/error-response.js';
+import { RateLimitStoreUnavailableError } from '../errors/http/rate-limit-store-unavailable-error.js';
 import { StorageError } from '../errors/storage/storage-error.js';
 
 export const errorHandler: ErrorRequestHandler = (error: unknown, req, res, next) => {
@@ -62,7 +63,30 @@ function normalizeError(error: unknown): AppError {
     });
   }
 
+  const rateLimitStoreError = findRateLimitStoreUnavailableError(error);
+  if (rateLimitStoreError !== null) {
+    return new AppError('service_unavailable', {
+      cause: rateLimitStoreError.cause ?? rateLimitStoreError,
+      context: {
+        rateLimiter: rateLimitStoreError.limiterIdentifier,
+      },
+    });
+  }
+
   return new AppError('internal_server_error', { cause: error });
+}
+
+function findRateLimitStoreUnavailableError(error: unknown): RateLimitStoreUnavailableError | null {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current !== null && current !== undefined; depth += 1) {
+    if (current instanceof RateLimitStoreUnavailableError) {
+      return current;
+    }
+
+    current = current instanceof Error ? current.cause : null;
+  }
+
+  return null;
 }
 
 function isBodyParserError(error: unknown, type: string, status: number): boolean {

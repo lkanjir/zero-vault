@@ -3,6 +3,7 @@ import type { RedisReply } from 'rate-limit-redis';
 import type { RedisConfig } from '../config.js';
 
 const REDIS_CONNECT_TIMEOUT_MS = 5_000;
+const REDIS_CLOSE_TIMEOUT_MS = 2_000;
 
 export type RedisSendCommand = (...args: string[]) => Promise<RedisReply>;
 
@@ -16,6 +17,7 @@ export type RedisHandle = {
 export function createRedisClient(redisConfig: RedisConfig): RedisHandle {
   const client = createClient({
     url: redisConfig.url,
+    disableOfflineQueue: true,
     socket: {
       connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
     },
@@ -45,10 +47,31 @@ export function createRedisClient(redisConfig: RedisConfig): RedisHandle {
         return;
       }
 
+      if (!client.isReady) {
+        client.destroy();
+        return;
+      }
+
+      const closePromise = client.close();
+      closePromise.catch(() => undefined);
+
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
       try {
-        await client.close();
+        await Promise.race([
+          closePromise,
+          new Promise<never>((_resolve, reject) => {
+            timeoutHandle = setTimeout(() => {
+              reject(new Error(`Redis close timed out after ${REDIS_CLOSE_TIMEOUT_MS}ms`));
+            }, REDIS_CLOSE_TIMEOUT_MS);
+            timeoutHandle.unref();
+          }),
+        ]);
       } catch {
         client.destroy();
+      } finally {
+        if (timeoutHandle !== undefined) {
+          clearTimeout(timeoutHandle);
+        }
       }
     },
   };

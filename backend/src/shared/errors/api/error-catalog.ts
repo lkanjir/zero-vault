@@ -222,6 +222,11 @@ export const errorCatalog = {
     message: 'Spremište datoteka nije dostupno.',
   },
 
+  service_unavailable: {
+    status: 503,
+    message: 'Usluga je privremeno nedostupna. Pokušajte ponovno kasnije.',
+  },
+
   route_not_found: {
     status: 404,
     message: 'Tražena ruta ne postoji.',

@@ -10,6 +10,7 @@ import type { ErrorResponse } from '../../../src/shared/errors/api/error-respons
 import { createRedisRateLimitStoreFactory } from '../../../src/shared/http/api-rate-limiters.js';
 import { createAuthenticatedRateLimiter } from '../../../src/shared/http/authenticated-rate-limiter.js';
 import { errorHandler } from '../../../src/shared/http/error-handler.js';
+import { createHealthRouter } from '../../../src/shared/http/health-routes.js';
 import { createIpRateLimiter } from '../../../src/shared/http/ip-rate-limiter.js';
 import { requestContext } from '../../../src/shared/http/request-context.js';
 
@@ -106,6 +107,64 @@ describe('Redis-backed multi-instance rate limiting', () => {
     expect(auditBlocked.status).toBe(429);
     expect(auditBlocked.headers['ratelimit-policy']).toContain('"audit-read"');
   });
+
+  it('reloads rate-limit Lua scripts automatically after Redis SCRIPT FLUSH', async () => {
+    const namespace = `test-noscript-${randomUUID()}`;
+    const app = createIpTestApp(redisA, namespace, 2);
+
+    const beforeFlush = await request(app)
+      .get('/api/config')
+      .set('X-Forwarded-For', '198.51.100.55');
+    expect(beforeFlush.status).toBe(200);
+
+    await redisA.sendCommand('SCRIPT', 'FLUSH');
+
+    const afterFlush = await request(app)
+      .get('/api/config')
+      .set('X-Forwarded-For', '198.51.100.55');
+    const blocked = await request(app).get('/api/config').set('X-Forwarded-For', '198.51.100.55');
+
+    expect(afterFlush.status).toBe(200);
+    expect(blocked.status).toBe(429);
+  });
+
+  it('fails fast with 503 on /ready and /api/* and closes cleanly when Redis becomes unavailable', async () => {
+    const outageContainer = await new GenericContainer('redis:8.8.3-alpine')
+      .withExposedPorts(6379)
+      .withCommand(['redis-server', '--save', '', '--appendonly', 'no'])
+      .withWaitStrategy(Wait.forLogMessage(/Ready to accept connections/))
+      .start();
+
+    const outageRedis = createRedisClient({
+      url: `redis://${outageContainer.getHost()}:${outageContainer.getMappedPort(6379)}`,
+    });
+    await outageRedis.connect();
+
+    const app = createIpTestApp(outageRedis, `test-outage-${randomUUID()}`, 5);
+
+    const healthyReady = await request(app).get('/ready');
+    const healthyApi = await request(app).get('/api/config').set('X-Forwarded-For', '198.51.100.9');
+    expect(healthyReady.status).toBe(200);
+    expect(healthyApi.status).toBe(200);
+
+    await outageContainer.stop();
+
+    const startedAt = Date.now();
+    const failedReady = await request(app).get('/ready');
+    const failedApi = await request(app).get('/api/config').set('X-Forwarded-For', '198.51.100.9');
+    await outageRedis.close();
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(failedReady.status).toBe(503);
+    expect(failedReady.body).toStrictEqual({ status: 'unavailable' });
+    expect(failedApi.status).toBe(503);
+    expect(failedApi.body).toStrictEqual({
+      code: 'service_unavailable',
+      message: errorCatalog.service_unavailable.message,
+      requestId: failedApi.headers['x-request-id'],
+    });
+    expect(elapsedMs).toBeLessThan(2_000);
+  });
 });
 
 function createIpTestApp(redis: RedisHandle, namespace: string, limit: number): Express {
@@ -114,6 +173,7 @@ function createIpTestApp(redis: RedisHandle, namespace: string, limit: number): 
 
   app.set('trust proxy', 1);
   app.use(requestContext);
+  app.use(createHealthRouter(() => redis.checkConnection()));
   app.use(
     '/api',
     createIpRateLimiter({

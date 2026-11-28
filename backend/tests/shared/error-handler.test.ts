@@ -5,6 +5,7 @@ import z from 'zod';
 import { AppError } from '../../src/shared/errors/api/app-error.js';
 import { errorCatalog, type ErrorCode } from '../../src/shared/errors/api/error-catalog.js';
 import type { ErrorResponse } from '../../src/shared/errors/api/error-response.js';
+import { RateLimitStoreUnavailableError } from '../../src/shared/errors/http/rate-limit-store-unavailable-error.js';
 import { StorageUnavailableError } from '../../src/shared/errors/storage/storage-unavailable-error.js';
 import { errorHandler } from '../../src/shared/http/error-handler.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
@@ -125,6 +126,16 @@ describe('HTTP error contract', () => {
     expect(JSON.stringify(response.body)).not.toContain('Sensitive storage failure');
   });
 
+  it('maps RateLimitStoreUnavailableError (direct and wrapped) to 503 service_unavailable', async () => {
+    const direct = await request(createTestApp()).get('/rate-limit-store-unavailable');
+    expectErrorResponse(direct, 'service_unavailable');
+    expect(JSON.stringify(direct.body)).not.toContain('Sensitive redis failure');
+
+    const wrapped = await request(createTestApp()).get('/rate-limit-store-wrapped');
+    expectErrorResponse(wrapped, 'service_unavailable');
+    expect(JSON.stringify(wrapped.body)).not.toContain('Sensitive redis failure');
+  });
+
   it('returns the JSON contract for an unknown route', async () => {
     const response = await request(createTestApp()).get('/does-not-exist');
 
@@ -166,6 +177,18 @@ function createTestApp() {
       },
       { cause: new Error('Sensitive storage failure') },
     );
+  });
+  app.get('/rate-limit-store-unavailable', () => {
+    throw new RateLimitStoreUnavailableError('api-ip', {
+      cause: new Error('Sensitive redis failure'),
+    });
+  });
+  app.get('/rate-limit-store-wrapped', () => {
+    throw new Error('NOSCRIPT uploading script failed', {
+      cause: new RateLimitStoreUnavailableError('api-ip', {
+        cause: new Error('Sensitive redis failure'),
+      }),
+    });
   });
   app.use(routeNotFound);
   app.use(errorHandler);
