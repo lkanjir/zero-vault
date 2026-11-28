@@ -91,6 +91,24 @@ export class EntryService {
         tx,
       );
 
+      if (parentId !== null) {
+        const parentDepth = await this.entryRepository.getFolderDepth(
+          user.id,
+          parentId,
+          MAX_FOLDER_TREE_DEPTH,
+          tx,
+        );
+
+        if (parentDepth + 1 > MAX_FOLDER_TREE_DEPTH) {
+          throw new AppError('folder_depth_limit_exceeded', {
+            context: {
+              parentDepth,
+              limit: MAX_FOLDER_TREE_DEPTH,
+            },
+          });
+        }
+      }
+
       const folder = await this.entryRepository.createFolder(
         {
           ownerId: user.id,
@@ -255,6 +273,31 @@ export class EntryService {
 
       if (sourceEntry.kind === 'folder' && request.parentId !== undefined) {
         await this.entryRepository.assertFolderCanMove(sourceEntry.id, nextParentId, tx);
+
+        if (nextParentId !== null) {
+          const targetParentDepth = await this.entryRepository.getFolderDepth(
+            sourceEntry.ownerId,
+            nextParentId,
+            MAX_FOLDER_TREE_DEPTH,
+            tx,
+          );
+          const subtreeHeight = await this.entryRepository.getFolderSubtreeHeight(
+            sourceEntry.ownerId,
+            sourceEntry.id,
+            MAX_FOLDER_TREE_DEPTH,
+            tx,
+          );
+
+          if (targetParentDepth + subtreeHeight > MAX_FOLDER_TREE_DEPTH) {
+            throw new AppError('folder_depth_limit_exceeded', {
+              context: {
+                targetParentDepth,
+                subtreeHeight,
+                limit: MAX_FOLDER_TREE_DEPTH,
+              },
+            });
+          }
+        }
       }
 
       const updated = await this.entryRepository.updateEntry(

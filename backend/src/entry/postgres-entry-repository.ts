@@ -23,6 +23,7 @@ import type { Entry, EntryListSort } from './entry.js';
 import { mapEntryDatabaseError } from './map-entry-db-error.js';
 import { AppError } from '../shared/errors/api/app-error.js';
 import { enqueueObjectDeletionInTransaction } from '../object-deletion/object-deletion-helpers.js';
+import { MAX_FOLDER_TREE_DEPTH } from '../folder/validation-schemas.js';
 import { resolveParentContextInTransaction } from './resolve-parent-id-in-transaction.js';
 
 type QueryDbRow = {
@@ -225,6 +226,44 @@ export class PostgresEntryRepository implements EntryRepository {
     return depth;
   }
 
+  async getFolderSubtreeHeight(
+    ownerId: number,
+    folderId: number,
+    maxDepth: number,
+    tx: TransactionContext,
+  ): Promise<number> {
+    const result = await tx.execute<{ height: number | null }>(sql`
+      WITH RECURSIVE subtree AS (
+        SELECT id, 1 AS depth, ARRAY[id] AS visited_ids
+        FROM entries
+        WHERE id = ${folderId}
+          AND owner_id = ${ownerId}
+          AND kind = 'folder'
+          AND deleted_at IS NULL
+
+        UNION ALL
+
+        SELECT child.id, subtree.depth + 1, subtree.visited_ids || child.id
+        FROM entries child
+        JOIN subtree ON child.parent_id = subtree.id
+        WHERE child.owner_id = ${ownerId}
+          AND child.kind = 'folder'
+          AND child.deleted_at IS NULL
+          AND NOT (child.id = ANY(subtree.visited_ids))
+          AND subtree.depth <= ${maxDepth}
+      )
+      SELECT max(depth)::integer AS height
+      FROM subtree
+    `);
+
+    const height = result.rows[0]?.height ?? null;
+    if (height === null) {
+      throw new AppError('folder_not_found');
+    }
+
+    return height;
+  }
+
   private async findActiveSiblingForKeyShare(
     tx: Transaction,
     ownerId: number,
@@ -267,17 +306,22 @@ export class PostgresEntryRepository implements EntryRepository {
     }
 
     const result = await tx.execute<{ id: number }>(sql`
-      with recursive descendants(id) as (
-        select id
+      with recursive descendants(id, depth, visited_ids) as (
+        select id, 1, array[id]
         from entries
         where id = ${folderId}
+          and kind = 'folder'
+          and deleted_at is null
 
         union all
 
-        select child.id
+        select child.id, d.depth + 1, d.visited_ids || child.id
         from entries child
         join descendants d on child.parent_id = d.id
-        where child.deleted_at is null
+        where child.kind = 'folder'
+          and child.deleted_at is null
+          and not (child.id = any(d.visited_ids))
+          and d.depth < ${MAX_FOLDER_TREE_DEPTH}
       )
       select id
       from descendants
@@ -494,7 +538,7 @@ export class PostgresEntryRepository implements EntryRepository {
           current_folder.public_id,
           current_folder.name,
           current_folder.parent_id,
-          0 AS depth,
+          1 AS depth,
           ARRAY[current_folder.id] AS visited_ids
         FROM entries current_folder
         WHERE current_folder.public_id = ${folderId}
@@ -518,6 +562,7 @@ export class PostgresEntryRepository implements EntryRepository {
           AND parent_folder.kind = 'folder'
           AND parent_folder.deleted_at IS null
           AND NOT (parent_folder.id = ANY(folder_path.visited_ids))
+          AND folder_path.depth < ${MAX_FOLDER_TREE_DEPTH}
       )
       SELECT
         id::text AS "dbId",

@@ -241,6 +241,22 @@ describe('entry routes', () => {
     });
   });
 
+  it('returns 400 folder_depth_limit_exceeded when moving a folder exceeds max tree depth', async () => {
+    entryService.updateEntry.mockRejectedValueOnce(new AppError('folder_depth_limit_exceeded'));
+
+    const response = await request(createTestApp(entryService))
+      .patch(`/entries/${ENTRY_ID}`)
+      .send({ parentId: DESCENDANT_FOLDER_ID });
+    const body = response.body as ErrorResponse;
+
+    expect(response.status).toBe(400);
+    expect(body).toStrictEqual({
+      code: 'folder_depth_limit_exceeded',
+      message: 'Stablo direktorija prelazi maksimalnu dopuštenu dubinu.',
+      requestId: body.requestId,
+    });
+  });
+
   it('deletes an entry and returns no response body', async () => {
     const response = await request(createTestApp(entryService)).delete(`/entries/${ENTRY_ID}`);
 

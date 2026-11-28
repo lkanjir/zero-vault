@@ -15,6 +15,7 @@ import { auditEvents, entries, files, users } from '../../../src/db/schema.js';
 import { DrizzleUnitOfWork } from '../../../src/db/unit-of-work.js';
 import { EntryService } from '../../../src/entry/entry-service.js';
 import { PostgresEntryRepository } from '../../../src/entry/postgres-entry-repository.js';
+import { PostgresFolderDownloadRepository } from '../../../src/folder/download/postgres-folder-download-repository.js';
 import { MAX_FOLDER_TREE_DEPTH } from '../../../src/folder/validation-schemas.js';
 import type { User } from '../../../src/user/user.js';
 
@@ -25,6 +26,8 @@ describe('PostgresEntryRepository and EntryService.ensureFolderTree', () => {
   let database: Database;
   let closeDatabase: () => Promise<void>;
   let entryService: EntryService;
+  let folderDownloadRepository: PostgresFolderDownloadRepository;
+  let unitOfWork: DrizzleUnitOfWork;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:18-alpine')
@@ -42,11 +45,12 @@ describe('PostgresEntryRepository and EntryService.ensureFolderTree', () => {
       new PostgresAuthorizationContextResolver(database),
       authorizationPolicy,
     );
-    const unitOfWork = new DrizzleUnitOfWork(database);
+    unitOfWork = new DrizzleUnitOfWork(database);
     const entryAuthorizer = new PostgresEntryAuthorizer(authorizationService);
     const entryRepository = new PostgresEntryRepository(database);
     const auditRepository = new PostgresAuditRepository(database);
     const accessMapper = new EntryAccessMapper(authorizationPolicy);
+    folderDownloadRepository = new PostgresFolderDownloadRepository(database);
 
     entryService = new EntryService(
       unitOfWork,
@@ -254,6 +258,147 @@ describe('PostgresEntryRepository and EntryService.ensureFolderTree', () => {
     expect(roundTripped.folders['__proto__/constructor']).toBe(
       result.folders['__proto__/constructor'],
     );
+  });
+
+  it('enforces max folder depth on createFolder, updateEntry moves, resolveFolderPath, and archive manifest CTEs', async () => {
+    const user = await createUser();
+    const depth62Chain = Array.from(
+      { length: MAX_FOLDER_TREE_DEPTH - 2 },
+      (_, i) => `d${i + 1}`,
+    ).join('/');
+    const created = await entryService.ensureFolderTree(user, {
+      parentId: null,
+      paths: [depth62Chain],
+    });
+    const depth62Id = created.folders[depth62Chain]!;
+    const rootFolderId = created.folders['d1']!;
+
+    // Depth 62 + 1 = 63 via createFolder -> allowed
+    const depth63 = await entryService.createFolder(user, {
+      parentId: depth62Id,
+      name: 'd63',
+    });
+
+    // Depth 63 + 1 = 64 via createFolder -> allowed
+    const depth64 = await entryService.createFolder(user, {
+      parentId: depth63.id,
+      name: 'd64',
+    });
+
+    // Depth 64 + 1 = 65 via createFolder -> rejected
+    await expect(
+      entryService.createFolder(user, {
+        parentId: depth64.id,
+        name: 'd65',
+      }),
+    ).rejects.toMatchObject({ code: 'folder_depth_limit_exceeded' });
+
+    // Listing a depth-64 folder succeeds and returns the full 64-segment path
+    const listingAt64 = await entryService.listEntries(user, {
+      parentId: depth64.id,
+      cursor: null,
+      limit: 50,
+      search: null,
+      kind: null,
+      sort: 'name-asc',
+    });
+    expect(listingAt64.path).toHaveLength(MAX_FOLDER_TREE_DEPTH);
+
+    // Moving a 2-level subtree (height 2) under depth 63 (total 65) -> rejected
+    const movableTree = await entryService.ensureFolderTree(user, {
+      parentId: null,
+      paths: ['MoveRoot/MoveChild'],
+    });
+    const moveRootId = movableTree.folders['MoveRoot']!;
+    const moveChildId = movableTree.folders['MoveRoot/MoveChild']!;
+
+    await expect(
+      entryService.updateEntry(user, moveRootId, { parentId: depth63.id }),
+    ).rejects.toMatchObject({ code: 'folder_depth_limit_exceeded' });
+
+    // Moving a folder into its own descendant still returns move_would_create_cycle
+    await expect(
+      entryService.updateEntry(user, moveRootId, { parentId: moveChildId }),
+    ).rejects.toMatchObject({ code: 'move_would_create_cycle' });
+
+    // Moving a 2-level subtree under depth 62 (62 + 2 = 64) -> allowed
+    await expect(
+      entryService.updateEntry(user, moveRootId, { parentId: depth62Id }),
+    ).resolves.toMatchObject({ id: moveRootId, kind: 'folder' });
+
+    // Insert a file inside depth-64 folder AND a corrupt depth-65 folder directly via SQL
+    const [depth64Row] = await database
+      .select({ id: entries.id })
+      .from(entries)
+      .where(eq(entries.publicId, depth64.id));
+    const [rootRow] = await database
+      .select({ id: entries.id })
+      .from(entries)
+      .where(eq(entries.publicId, rootFolderId));
+
+    const [fileAt64] = await database
+      .insert(entries)
+      .values({
+        ownerId: user.id,
+        parentId: depth64Row!.id,
+        kind: 'file',
+        name: 'leaf.txt',
+      })
+      .returning();
+    await database.insert(files).values({
+      entryId: fileAt64!.id,
+      objectKey: `integration-tests/${randomUUID()}`,
+      contentType: 'text/plain',
+      sizeBytes: 42,
+      sha256: 'a'.repeat(64),
+    });
+
+    const [corrupt65] = await database
+      .insert(entries)
+      .values({
+        ownerId: user.id,
+        parentId: depth64Row!.id,
+        kind: 'folder',
+        name: 'corrupt-d65',
+      })
+      .returning();
+
+    // resolveFolderPath depth guard stops at 64 and rejects corrupt depth-65 folder cleanly
+    await expect(
+      entryService.listEntries(user, {
+        parentId: corrupt65!.publicId,
+        cursor: null,
+        limit: 50,
+        search: null,
+        kind: null,
+        sort: 'name-asc',
+      }),
+    ).rejects.toMatchObject({ code: 'folder_not_found' });
+
+    // getArchiveManifest and getArchiveSummary include files inside depth-64 folders
+    // while excluding corrupt depth-65 subfolders
+    const manifest = await folderDownloadRepository.getArchiveManifest({
+      ownerId: user.id,
+      rootFolderId: rootRow!.id,
+      rootFolderName: 'd1',
+    });
+    expect(
+      manifest.some((item) => item.kind === 'file' && item.pathParts.at(-1) === 'leaf.txt'),
+    ).toBe(true);
+    expect(
+      manifest.some((item) => item.kind === 'folder' && item.pathParts.at(-1) === 'corrupt-d65'),
+    ).toBe(false);
+
+    const summary = await unitOfWork.run((tx) =>
+      folderDownloadRepository.getArchiveSummary(
+        {
+          ownerId: user.id,
+          rootFolderId: rootRow!.id,
+        },
+        tx,
+      ),
+    );
+    expect(summary).toStrictEqual({ fileCount: 1, totalSizeBytes: 42 });
   });
 
   async function createUser(): Promise<User> {

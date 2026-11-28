@@ -190,6 +190,7 @@ describe('EntryService', () => {
     const parentPublicId = '20000000-0000-4000-8000-000000000009';
     const folderPublicId = '20000000-0000-4000-8000-000000000010';
     entryAuthorizer.authorizeParentForCreate.mockResolvedValue(9);
+    repository.getFolderDepth.mockResolvedValue(1);
     repository.createFolder.mockResolvedValue({
       id: 10,
       publicId: folderPublicId,
@@ -262,6 +263,8 @@ describe('EntryService', () => {
 
     entryAuthorizer.authorizeForUpdate.mockResolvedValue(makeAuthorizedEntry(sourceEntry));
     entryAuthorizer.authorizeParentForCreate.mockResolvedValue(20);
+    repository.getFolderDepth.mockResolvedValue(2);
+    repository.getFolderSubtreeHeight.mockResolvedValue(1);
     repository.updateEntry.mockResolvedValue({
       entry: updatedEntry,
       listedEntry: {
@@ -602,6 +605,47 @@ describe('EntryService', () => {
         ['__proto__/constructor', ctorFolder.publicId],
       ]),
     });
+  });
+
+  it('rejects createFolder when parent folder is already at max depth', async () => {
+    const parentPublicId = '20000000-0000-4000-8000-000000000009';
+    entryAuthorizer.authorizeParentForCreate.mockResolvedValue(9);
+    repository.getFolderDepth.mockResolvedValue(MAX_FOLDER_TREE_DEPTH);
+
+    await expect(
+      service.createFolder(USER, {
+        parentId: parentPublicId,
+        name: 'TooDeep',
+      }),
+    ).rejects.toMatchObject({ code: 'folder_depth_limit_exceeded' });
+
+    expect(repository.createFolder).not.toHaveBeenCalled();
+    expect(auditRepository.record).not.toHaveBeenCalled();
+  });
+
+  it('rejects moving a folder when target parent depth plus subtree height exceeds max depth', async () => {
+    const entryPublicId = '20000000-0000-4000-8000-000000000010';
+    const destParentPublicId = '20000000-0000-4000-8000-000000000020';
+    const sourceEntry = makeEntry({
+      id: 10,
+      publicId: entryPublicId,
+      kind: 'folder',
+      name: 'SubtreeRoot',
+      parentId: null,
+    });
+
+    entryAuthorizer.authorizeForUpdate.mockResolvedValue(makeAuthorizedEntry(sourceEntry));
+    entryAuthorizer.authorizeParentForCreate.mockResolvedValue(20);
+    repository.getFolderDepth.mockResolvedValue(MAX_FOLDER_TREE_DEPTH - 1);
+    repository.getFolderSubtreeHeight.mockResolvedValue(2);
+
+    await expect(
+      service.updateEntry(USER, entryPublicId, { parentId: destParentPublicId }),
+    ).rejects.toMatchObject({ code: 'folder_depth_limit_exceeded' });
+
+    expect(repository.assertFolderCanMove).toHaveBeenCalledExactlyOnceWith(10, 20, tx);
+    expect(repository.updateEntry).not.toHaveBeenCalled();
+    expect(auditRepository.record).not.toHaveBeenCalled();
   });
 });
 

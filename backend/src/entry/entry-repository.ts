@@ -104,6 +104,12 @@ export interface EntryRepository {
     maxDepth: number,
     tx: TransactionContext,
   ): Promise<number>;
+  getFolderSubtreeHeight(
+    ownerId: number,
+    folderId: number,
+    maxDepth: number,
+    tx: TransactionContext,
+  ): Promise<number>;
   assertFolderCanMove(
     folderId: number,
     nextParentId: number | null,

@@ -302,6 +302,7 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
         SELECT
           root.id,
           root.kind,
+          1 AS depth,
           ARRAY[${command.rootFolderName}]::text[] AS path_parts,
           ARRAY[root.id]::bigint[] AS visited_ids
         FROM entries root
@@ -315,6 +316,7 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
         SELECT
           child.id,
           child.kind,
+          parent.depth + 1,
           parent.path_parts || ARRAY[child.name]::text[],
           parent.visited_ids || ARRAY[child.id]::bigint[]
         FROM entries child
@@ -324,6 +326,10 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
         WHERE child.owner_id = ${command.ownerId}
           AND child.deleted_at IS NULL
           AND NOT (child.id = ANY(parent.visited_ids))
+          AND (
+            (child.kind = 'folder' AND parent.depth < ${MAX_FOLDER_TREE_DEPTH})
+            OR (child.kind = 'file' AND parent.depth <= ${MAX_FOLDER_TREE_DEPTH})
+          )
       )
       SELECT
         tree.kind,
