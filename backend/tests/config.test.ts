@@ -124,7 +124,7 @@ describe('modular environment config loaders', () => {
     });
   });
 
-  it('parses TRUST_PROXY hop counts, subnets, and disables permissive "true"', () => {
+  it('parses TRUST_PROXY hop counts, subnets, and rejects permissive or invalid values', () => {
     expect(loadHttpConfig({ TRUST_PROXY: 'false' }).trustProxy).toBe(false);
     expect(loadHttpConfig({ TRUST_PROXY: '0' }).trustProxy).toBe(false);
     expect(loadHttpConfig({ TRUST_PROXY: '1' }).trustProxy).toBe(1);
@@ -133,16 +133,26 @@ describe('modular environment config loaders', () => {
     expect(loadHttpConfig({ TRUST_PROXY: '10.0.0.0/8, loopback' }).trustProxy).toBe(
       '10.0.0.0/8, loopback',
     );
+    expect(loadHttpConfig({ TRUST_PROXY: '127.0.0.1, ::1/128, uniquelocal' }).trustProxy).toBe(
+      '127.0.0.1, ::1/128, uniquelocal',
+    );
 
-    expect(() => loadHttpConfig({ TRUST_PROXY: 'true' })).toThrow(
-      'Invalid HTTP environment configuration',
-    );
-    expect(() => loadHttpConfig({ TRUST_PROXY: '-1' })).toThrow(
-      'Invalid HTTP environment configuration',
-    );
-    expect(() => loadHttpConfig({ TRUST_PROXY: '65' })).toThrow(
-      'Invalid HTTP environment configuration',
-    );
+    for (const invalid of [
+      'true',
+      '-1',
+      '65',
+      '1.5',
+      'all',
+      'not-a-subnet',
+      '10.0.0.0/99',
+      '0.0.0.0/0',
+      '::/0',
+      'loopback,',
+    ]) {
+      expect(() => loadHttpConfig({ TRUST_PROXY: invalid }), `TRUST_PROXY=${invalid}`).toThrow(
+        'Invalid HTTP environment configuration',
+      );
+    }
   });
 
   it('loads full API config when all sections are valid', () => {

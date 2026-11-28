@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import dotenv from 'dotenv';
 import * as z from 'zod';
 
@@ -46,6 +47,43 @@ const oidcEnvSchema = z.object({
   OIDC_CLIENT_ID: requiredTrimmedString.default('zero-vault-web'),
 });
 
+const TRUST_PROXY_KEYWORDS = new Set(['loopback', 'linklocal', 'uniquelocal']);
+
+function isValidTrustProxyEntry(entry: string): boolean {
+  if (entry.length === 0) {
+    return false;
+  }
+
+  if (TRUST_PROXY_KEYWORDS.has(entry.toLowerCase())) {
+    return true;
+  }
+
+  const slashIndex = entry.indexOf('/');
+  if (slashIndex === -1) {
+    return isIP(entry) !== 0;
+  }
+
+  if (entry.indexOf('/', slashIndex + 1) !== -1) {
+    return false;
+  }
+
+  const address = entry.slice(0, slashIndex);
+  const prefixText = entry.slice(slashIndex + 1);
+  if (!/^\d+$/.test(prefixText)) {
+    return false;
+  }
+
+  const ipVersion = isIP(address);
+  if (ipVersion === 0) {
+    return false;
+  }
+
+  const prefix = Number(prefixText);
+  const maxPrefix = ipVersion === 4 ? 32 : 128;
+  // Reject /0 CIDRs (e.g. 0.0.0.0/0 or ::/0) because they trust all addresses like `true`.
+  return Number.isSafeInteger(prefix) && prefix >= 1 && prefix <= maxPrefix;
+}
+
 const trustProxyEnvSchema = z
   .string()
   .optional()
@@ -80,6 +118,16 @@ const trustProxyEnvSchema = z
           message: 'TRUST_PROXY hop count must be an integer between 0 and 64.',
         });
       }
+      return;
+    }
+
+    const entries = value.split(',').map((entry) => entry.trim());
+    if (entries.some((entry) => !isValidTrustProxyEntry(entry))) {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'TRUST_PROXY must be "false", a hop count (0-64), or a comma-separated list of IP addresses, non-wildcard CIDRs, or keywords (loopback, linklocal, uniquelocal).',
+      });
     }
   })
   .transform((value): TrustProxyConfig => {
