@@ -643,9 +643,36 @@ describe('EntryService', () => {
       service.updateEntry(USER, entryPublicId, { parentId: destParentPublicId }),
     ).rejects.toMatchObject({ code: 'folder_depth_limit_exceeded' });
 
+    expect(repository.lockOwnerFolderTree).toHaveBeenCalledExactlyOnceWith(USER.id, tx);
     expect(repository.assertFolderCanMove).toHaveBeenCalledExactlyOnceWith(10, 20, tx);
     expect(repository.updateEntry).not.toHaveBeenCalled();
     expect(auditRepository.record).not.toHaveBeenCalled();
+  });
+
+  it('does not lock the owner folder tree for rename-only updateEntry calls', async () => {
+    const entryPublicId = '20000000-0000-4000-8000-000000000010';
+    const sourceEntry = makeEntry({
+      id: 10,
+      publicId: entryPublicId,
+      kind: 'folder',
+      name: 'OldName',
+      parentId: null,
+    });
+
+    entryAuthorizer.authorizeForUpdate.mockResolvedValue(makeAuthorizedEntry(sourceEntry));
+    repository.updateEntry.mockResolvedValue({
+      entry: { ...sourceEntry, name: 'NewName' },
+      listedEntry: {
+        kind: 'folder',
+        id: entryPublicId,
+        name: 'NewName',
+        updatedAt: NOW,
+      },
+    });
+
+    await service.updateEntry(USER, entryPublicId, { name: 'NewName' });
+
+    expect(repository.lockOwnerFolderTree).not.toHaveBeenCalled();
   });
 });
 

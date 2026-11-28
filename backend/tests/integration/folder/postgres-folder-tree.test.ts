@@ -401,6 +401,67 @@ describe('PostgresEntryRepository and EntryService.ensureFolderTree', () => {
     expect(summary).toStrictEqual({ fileCount: 1, totalSizeBytes: 42 });
   });
 
+  it('serializes concurrent cross-branch folder moves and creates so cycles and depth-64 bypasses cannot occur', async () => {
+    const user = await createUser();
+
+    // Repeatedly race opposite-branch moves (A -> BLeaf and B -> ALeaf):
+    // exactly one must succeed and the other must fail with move_would_create_cycle.
+    for (let round = 0; round < 5; round += 1) {
+      const treeA = await entryService.ensureFolderTree(user, {
+        parentId: null,
+        paths: [`CycleA${round}/Sub1/Sub2`],
+      });
+      const treeB = await entryService.ensureFolderTree(user, {
+        parentId: null,
+        paths: [`CycleB${round}/Sub1/Sub2`],
+      });
+
+      const results = await Promise.allSettled([
+        entryService.updateEntry(user, treeA.folders[`CycleA${round}`]!, {
+          parentId: treeB.folders[`CycleB${round}/Sub1/Sub2`]!,
+        }),
+        entryService.updateEntry(user, treeB.folders[`CycleB${round}`]!, {
+          parentId: treeA.folders[`CycleA${round}/Sub1/Sub2`]!,
+        }),
+      ]);
+
+      expect(results.map((result) => result.status).sort()).toStrictEqual([
+        'fulfilled',
+        'rejected',
+      ]);
+      const rejected = results.find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected',
+      );
+      expect(rejected?.reason).toMatchObject({ code: 'move_would_create_cycle' });
+    }
+
+    // Race moving a 32-level subtree under a 32-level leaf while simultaneously creating
+    // a 33rd child under the moved subtree's leaf (which together would produce depth 65).
+    const chainA = Array.from({ length: 32 }, (_, i) => `BranchA_${i}`).join('/');
+    const chainB = Array.from({ length: 32 }, (_, i) => `BranchB_${i}`).join('/');
+    const treeA = await entryService.ensureFolderTree(user, { parentId: null, paths: [chainA] });
+    const treeB = await entryService.ensureFolderTree(user, { parentId: null, paths: [chainB] });
+
+    const depthRace = await Promise.allSettled([
+      entryService.updateEntry(user, treeA.folders['BranchA_0']!, {
+        parentId: treeB.folders[chainB]!,
+      }),
+      entryService.createFolder(user, {
+        parentId: treeA.folders[chainA]!,
+        name: 'OverflowChild',
+      }),
+    ]);
+
+    expect(depthRace.map((result) => result.status).sort()).toStrictEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    const depthRejected = depthRace.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    expect(depthRejected?.reason).toMatchObject({ code: 'folder_depth_limit_exceeded' });
+  });
+
   async function createUser(): Promise<User> {
     const [created] = await database
       .insert(users)

@@ -82,6 +82,8 @@ export class EntryService {
 
   async createFolder(user: User, request: CreateFolderRequestBody): Promise<FolderResponse> {
     const createdFolder = await this.unitOfWork.run(async (tx) => {
+      await this.entryRepository.lockOwnerFolderTree(user.id, tx);
+
       const parentId = await this.entryAuthorizer.authorizeParentForCreate(
         {
           actorUserId: user.id,
@@ -154,6 +156,8 @@ export class EntryService {
     }
 
     const folders = await this.unitOfWork.run(async (tx) => {
+      await this.entryRepository.lockOwnerFolderTree(user.id, tx);
+
       const rootParentId = await this.entryAuthorizer.authorizeParentForCreate(
         {
           actorUserId: user.id,
@@ -249,6 +253,10 @@ export class EntryService {
     }
 
     return this.unitOfWork.run(async (tx) => {
+      if (request.parentId !== undefined) {
+        await this.entryRepository.lockOwnerFolderTree(user.id, tx);
+      }
+
       const authorized = await this.entryAuthorizer.authorizeForUpdate(
         {
           actorUserId: user.id,

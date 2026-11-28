@@ -104,6 +104,12 @@ export class PostgresEntryRepository implements EntryRepository {
     };
   }
 
+  async lockOwnerFolderTree(ownerId: number, tx: TransactionContext): Promise<void> {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`zero-vault:folder-tree:${ownerId}`}::text, 0::bigint))`,
+    );
+  }
+
   async createFolder(command: CreateFolderCommand, tx: TransactionContext): Promise<Folder> {
     try {
       const [folder] = await tx

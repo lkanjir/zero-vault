@@ -93,6 +93,7 @@ export type EntryParentContext = {
 
 export interface EntryRepository {
   getEntries(query: EntriesQuery): Promise<EntryListing>;
+  lockOwnerFolderTree(ownerId: number, tx: TransactionContext): Promise<void>;
   createFolder(command: CreateFolderCommand, tx: TransactionContext): Promise<Folder>;
   findOrCreateFolder(
     command: FindOrCreateFolderCommand,
