@@ -4,6 +4,12 @@ import type { RedisConfig } from '../config.js';
 
 const REDIS_CONNECT_TIMEOUT_MS = 5_000;
 const REDIS_CLOSE_TIMEOUT_MS = 2_000;
+const REDIS_RECONNECT_MAX_DELAY_MS = 500;
+const REDIS_AUTH_ERROR_PATTERN = /^(?:NOAUTH|WRONGPASS)(?:\s|$)/;
+
+function isRedisAuthError(error: Error): boolean {
+  return REDIS_AUTH_ERROR_PATTERN.test(error.message);
+}
 
 export type RedisSendCommand = (...args: string[]) => Promise<RedisReply>;
 
@@ -20,6 +26,13 @@ export function createRedisClient(redisConfig: RedisConfig): RedisHandle {
     disableOfflineQueue: true,
     socket: {
       connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
+      reconnectStrategy(retries: number, cause: Error) {
+        if (isRedisAuthError(cause)) {
+          return cause;
+        }
+
+        return Math.min(retries * 50, REDIS_RECONNECT_MAX_DELAY_MS);
+      },
     },
   });
 

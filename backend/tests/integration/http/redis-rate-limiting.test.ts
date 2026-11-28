@@ -165,6 +165,58 @@ describe('Redis-backed multi-instance rate limiting', () => {
     });
     expect(elapsedMs).toBeLessThan(2_000);
   });
+
+  it('authenticates against password-protected Redis and rejects unauthenticated or wrong-password clients', async () => {
+    const password = `test-redis-${randomUUID()}`;
+    const authContainer = await new GenericContainer('redis:8.8.3-alpine')
+      .withExposedPorts(6379)
+      .withEnvironment({ REDIS_PASSWORD: password, REDISCLI_AUTH: password })
+      .withCommand([
+        'sh',
+        '-c',
+        'exec redis-server --save "" --appendonly no --requirepass "$REDIS_PASSWORD"',
+      ])
+      .withWaitStrategy(Wait.forLogMessage(/Ready to accept connections/))
+      .start();
+
+    const host = authContainer.getHost();
+    const port = authContainer.getMappedPort(6379);
+    const unauthenticatedClient = createRedisClient({ url: `redis://${host}:${port}` });
+    const wrongPasswordClient = createRedisClient({ url: `redis://:wrong-pass@${host}:${port}` });
+    const authenticatedClient = createRedisClient({
+      url: `redis://:${encodeURIComponent(password)}@${host}:${port}`,
+    });
+
+    try {
+      await expect(unauthenticatedClient.connect()).rejects.toThrow(/NOAUTH/i);
+
+      await expect(wrongPasswordClient.connect()).rejects.toThrow(/WRONGPASS/i);
+
+      await authenticatedClient.connect();
+      await expect(authenticatedClient.checkConnection()).resolves.toBeUndefined();
+
+      const app = createIpTestApp(authenticatedClient, `test-auth-pw-${randomUUID()}`, 1);
+      const allowed = await request(app).get('/api/config').set('X-Forwarded-For', '198.51.100.77');
+      const blocked = await request(app).get('/api/config').set('X-Forwarded-For', '198.51.100.77');
+
+      expect(allowed.status).toBe(200);
+      expect(blocked.status).toBe(429);
+
+      const healthcheckResult = await authContainer.exec([
+        'sh',
+        '-c',
+        'redis-cli ping | grep -q PONG',
+      ]);
+      expect(healthcheckResult.exitCode).toBe(0);
+    } finally {
+      await Promise.all([
+        unauthenticatedClient.close(),
+        wrongPasswordClient.close(),
+        authenticatedClient.close(),
+      ]);
+      await authContainer.stop();
+    }
+  });
 });
 
 function createIpTestApp(redis: RedisHandle, namespace: string, limit: number): Express {
