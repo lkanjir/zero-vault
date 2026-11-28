@@ -2,7 +2,11 @@ import { createApp } from './app.js';
 import { loadApiConfig, loadDotenv } from './config.js';
 import { createDatabase } from './db/db-client.js';
 import { createRedisClient } from './redis/redis-client.js';
-import { closeHttpServer, registerGracefulShutdown } from './shared/runtime/graceful-shutdown.js';
+import {
+  closeHttpServer,
+  registerGracefulShutdown,
+  runShutdownSteps,
+} from './shared/runtime/graceful-shutdown.js';
 
 loadDotenv();
 
@@ -26,15 +30,6 @@ try {
 
 registerGracefulShutdown({
   name: 'HTTP server',
-  onShutdown: async () => {
-    try {
-      await closeHttpServer(server);
-    } finally {
-      try {
-        await redis.close();
-      } finally {
-        await database.close();
-      }
-    }
-  },
+  onShutdown: () =>
+    runShutdownSteps([() => closeHttpServer(server), () => redis.close(), () => database.close()]),
 });

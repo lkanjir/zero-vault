@@ -1,6 +1,9 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { registerGracefulShutdown } from '../../src/shared/runtime/graceful-shutdown.js';
+import {
+  registerGracefulShutdown,
+  runShutdownSteps,
+} from '../../src/shared/runtime/graceful-shutdown.js';
 
 describe('registerGracefulShutdown', () => {
   beforeEach(() => {
@@ -88,5 +91,85 @@ describe('registerGracefulShutdown', () => {
     expect(console.error).toHaveBeenCalledOnce();
 
     unregister();
+  });
+});
+
+describe('runShutdownSteps', () => {
+  it('runs shutdown steps sequentially in order', async () => {
+    const order: string[] = [];
+
+    await runShutdownSteps([
+      async () => {
+        await Promise.resolve();
+        order.push('http');
+      },
+      async () => {
+        await Promise.resolve();
+        order.push('redis');
+      },
+      async () => {
+        await Promise.resolve();
+        order.push('db');
+      },
+    ]);
+
+    expect(order).toStrictEqual(['http', 'redis', 'db']);
+  });
+
+  it('continues running remaining steps when one fails and rethrows the original error', async () => {
+    const order: string[] = [];
+    const httpError = new Error('http close failed');
+
+    await expect(
+      runShutdownSteps([
+        async () => {
+          order.push('http');
+          await Promise.resolve();
+          throw httpError;
+        },
+        async () => {
+          await Promise.resolve();
+          order.push('redis');
+        },
+        async () => {
+          await Promise.resolve();
+          order.push('db');
+        },
+      ]),
+    ).rejects.toBe(httpError);
+
+    expect(order).toStrictEqual(['http', 'redis', 'db']);
+  });
+
+  it('throws an AggregateError preserving all failures when multiple steps fail', async () => {
+    const order: string[] = [];
+    const firstError = new Error('http close failed');
+    const secondError = new Error('db close failed');
+
+    let thrown: unknown;
+    try {
+      await runShutdownSteps([
+        async () => {
+          order.push('http');
+          await Promise.resolve();
+          throw firstError;
+        },
+        async () => {
+          await Promise.resolve();
+          order.push('redis');
+        },
+        async () => {
+          order.push('db');
+          await Promise.resolve();
+          throw secondError;
+        },
+      ]);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(order).toStrictEqual(['http', 'redis', 'db']);
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toStrictEqual([firstError, secondError]);
   });
 });

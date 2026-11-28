@@ -6,7 +6,7 @@ import {
   loadS3Config,
 } from '../config.js';
 import { createDatabase } from '../db/db-client.js';
-import { registerGracefulShutdown } from '../shared/runtime/graceful-shutdown.js';
+import { registerGracefulShutdown, runShutdownSteps } from '../shared/runtime/graceful-shutdown.js';
 import { startWorkerLoop } from '../shared/runtime/worker-loop.js';
 
 loadDotenv();
@@ -28,10 +28,8 @@ const folderDownloadLoop = startWorkerLoop({
 
 registerGracefulShutdown({
   name: 'Folder download worker',
-  onShutdown: async () => {
-    await folderDownloadLoop.stopAndDrain();
-    await database.close();
-  },
+  onShutdown: () =>
+    runShutdownSteps([() => folderDownloadLoop.stopAndDrain(), () => database.close()]),
 });
 
 console.info('Folder download worker started');

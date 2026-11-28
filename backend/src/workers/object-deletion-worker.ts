@@ -1,7 +1,7 @@
 import { createObjectDeletionWorkerComposition } from '../composition-root.js';
 import { loadDbConfig, loadDotenv, loadS3Config } from '../config.js';
 import { createDatabase } from '../db/db-client.js';
-import { registerGracefulShutdown } from '../shared/runtime/graceful-shutdown.js';
+import { registerGracefulShutdown, runShutdownSteps } from '../shared/runtime/graceful-shutdown.js';
 import { startWorkerLoop } from '../shared/runtime/worker-loop.js';
 
 loadDotenv();
@@ -21,10 +21,8 @@ const objectDeletionLoop = startWorkerLoop({
 
 registerGracefulShutdown({
   name: 'Object deletion worker',
-  onShutdown: async () => {
-    await objectDeletionLoop.stopAndDrain();
-    await database.close();
-  },
+  onShutdown: () =>
+    runShutdownSteps([() => objectDeletionLoop.stopAndDrain(), () => database.close()]),
 });
 
 console.info('Object deletion worker started');

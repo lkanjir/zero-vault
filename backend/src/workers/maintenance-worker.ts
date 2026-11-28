@@ -3,6 +3,7 @@ import { loadDbConfig, loadDotenv } from '../config.js';
 import { createDatabase } from '../db/db-client.js';
 import {
   registerGracefulShutdown,
+  runShutdownSteps,
   scheduleManagedCronTask,
 } from '../shared/runtime/graceful-shutdown.js';
 
@@ -66,14 +67,17 @@ const fileGrantMaintenanceTask = scheduleManagedCronTask({
 
 registerGracefulShutdown({
   name: 'Maintenance worker',
-  onShutdown: async () => {
-    await Promise.all([
-      uploadCleanupTask.stopAndDrain(),
-      folderDownloadCleanupTask.stopAndDrain(),
-      fileGrantMaintenanceTask.stopAndDrain(),
-    ]);
-    await database.close();
-  },
+  onShutdown: () =>
+    runShutdownSteps([
+      async () => {
+        await Promise.all([
+          uploadCleanupTask.stopAndDrain(),
+          folderDownloadCleanupTask.stopAndDrain(),
+          fileGrantMaintenanceTask.stopAndDrain(),
+        ]);
+      },
+      () => database.close(),
+    ]),
 });
 
 console.info('Maintenance worker started');
