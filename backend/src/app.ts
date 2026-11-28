@@ -29,7 +29,7 @@ const HSTS_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 export type CreateAppOptions = {
   readonly config: ApiConfig;
   readonly database: DatabaseHandle;
-  readonly redis?: RedisHandle;
+  readonly redis: RedisHandle;
   readonly rateLimiters?: ApiRateLimiters;
 };
 
@@ -43,9 +43,9 @@ export function createApp({ config, database, redis, rateLimiters }: CreateAppOp
   const resolveUser = createResolveUserMiddleware(composition.userService);
   const apiRateLimiters =
     rateLimiters ??
-    createApiRateLimiters(
-      redis ? { storeFactory: createRedisRateLimitStoreFactory(redis) } : undefined,
-    );
+    createApiRateLimiters({
+      storeFactory: createRedisRateLimitStoreFactory(redis),
+    });
 
   app.disable('x-powered-by');
   app.set('trust proxy', config.http.trustProxy);
@@ -61,10 +61,7 @@ export function createApp({ config, database, redis, rateLimiters }: CreateAppOp
   app.use(requestContext);
   app.use(
     createHealthRouter(async () => {
-      await Promise.all([
-        database.checkConnection(),
-        redis ? redis.checkConnection() : Promise.resolve(),
-      ]);
+      await Promise.all([database.checkConnection(), redis.checkConnection()]);
     }),
   );
 

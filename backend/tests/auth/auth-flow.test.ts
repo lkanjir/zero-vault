@@ -10,10 +10,25 @@ import { errorCatalog } from '../../src/shared/errors/api/error-catalog.js';
 import { createApiRateLimiters } from '../../src/shared/http/api-rate-limiters.js';
 import { createIpRateLimiter } from '../../src/shared/http/ip-rate-limiter.js';
 
+function createFakeRedis(overrides: Partial<RedisHandle> = {}): RedisHandle {
+  return {
+    connect: vi.fn().mockResolvedValue(undefined),
+    sendCommand: vi.fn(),
+    checkConnection: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
 describe('upload authentication', () => {
   const apiConfig = loadApiConfig();
   const database = createDatabase(apiConfig.db);
-  const app = createApp({ config: apiConfig, database });
+  const app = createApp({
+    config: apiConfig,
+    database,
+    redis: createFakeRedis(),
+    rateLimiters: createApiRateLimiters(),
+  });
 
   afterAll(async () => {
     await database.close();
@@ -67,6 +82,8 @@ describe('upload authentication', () => {
         },
       },
       database,
+      redis: createFakeRedis(),
+      rateLimiters: createApiRateLimiters(),
     });
 
     const withHsts = await request(hstsApp).get('/health');
@@ -85,20 +102,17 @@ describe('upload authentication', () => {
         },
       },
       database,
+      redis: createFakeRedis(),
+      rateLimiters: createApiRateLimiters(),
     });
 
     expect(proxiedApp.get('trust proxy')).toBe(1);
   });
 
-  it('checks both database and Redis in /ready when Redis is configured', async () => {
+  it('checks both database and Redis in /ready', async () => {
     const checkDb = vi.fn().mockResolvedValue(undefined);
     const checkRedis = vi.fn().mockResolvedValue(undefined);
-    const fakeRedis: RedisHandle = {
-      connect: vi.fn().mockResolvedValue(undefined),
-      sendCommand: vi.fn(),
-      checkConnection: checkRedis,
-      close: vi.fn().mockResolvedValue(undefined),
-    };
+    const fakeRedis = createFakeRedis({ checkConnection: checkRedis });
     const readyApp = createApp({
       config: apiConfig,
       database: {
@@ -123,6 +137,32 @@ describe('upload authentication', () => {
     expect(failedResponse.body).toStrictEqual({ status: 'unavailable' });
   });
 
+  it('wires Redis-backed rate limiters by default when custom rateLimiters are not provided', async () => {
+    const sendCommand = vi.fn((command: string) => {
+      if (command === 'SCRIPT') {
+        return Promise.resolve('fake-script-sha');
+      }
+
+      return Promise.resolve([1, 60_000]);
+    });
+    const redisBackedApp = createApp({
+      config: apiConfig,
+      database,
+      redis: createFakeRedis({ sendCommand }),
+    });
+
+    const response = await request(redisBackedApp).get('/api/config');
+
+    expect(response.status).toBe(200);
+    expect(sendCommand).toHaveBeenCalledWith(
+      'EVALSHA',
+      'fake-script-sha',
+      '1',
+      expect.stringMatching(/^zv:rl:api-ip:/),
+      '60000',
+    );
+  });
+
   it('enforces the global IP rate limiter before /api/config and JWT authentication', async () => {
     const rateLimiters = {
       ...createApiRateLimiters(),
@@ -141,6 +181,7 @@ describe('upload authentication', () => {
         },
       },
       database,
+      redis: createFakeRedis(),
       rateLimiters,
     });
 
