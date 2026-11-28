@@ -189,12 +189,26 @@ export class EntryDownloadService {
                 return { done: true, result: { ok: true, value: status.downloadUrl } };
               }
 
-              if (status.status === 'failed' || status.status === 'expired') {
+              if (status.status === 'failed') {
                 return {
                   done: true,
                   result: {
                     ok: false,
-                    error: { status: -1, code: `folder_download_${status.status}` },
+                    error: {
+                      status: -1,
+                      code: status.failureCode ?? 'folder_download_failed',
+                      ...(status.message ? { message: status.message } : {}),
+                    },
+                  },
+                };
+              }
+
+              if (status.status === 'expired') {
+                return {
+                  done: true,
+                  result: {
+                    ok: false,
+                    error: { status: -1, code: 'folder_download_expired' },
                   },
                 };
               }

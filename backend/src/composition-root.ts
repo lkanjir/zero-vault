@@ -25,7 +25,7 @@ import { FileSharingService } from './sharing/file-sharing-service.js';
 import { FileGrantMaintenanceService } from './sharing/file-grant-maintenance-service.js';
 import { PostgresAuditRepository } from './audit/postgres-audit-repository.js';
 import { AuditService } from './audit/audit-service.js';
-import type { S3Config, UploadLimitsConfig } from './config.js';
+import type { FolderDownloadLimitsConfig, S3Config, UploadLimitsConfig } from './config.js';
 import type { Database } from './db/db-client.js';
 import { DrizzleUnitOfWork } from './db/unit-of-work.js';
 
@@ -49,7 +49,10 @@ function createAuthorizationPrimitives(db: Database) {
 export function createApiComposition(
   db: Database,
   s3Config: S3Config,
-  options: { readonly uploadLimits?: UploadLimitsConfig } = {},
+  options: {
+    readonly uploadLimits?: UploadLimitsConfig;
+    readonly folderDownloadLimits?: FolderDownloadLimitsConfig;
+  } = {},
 ) {
   const unitOfWork = new DrizzleUnitOfWork(db);
   const { authorizationService, authzMapper, authorizer } = createAuthorizationPrimitives(db);
@@ -96,6 +99,7 @@ export function createApiComposition(
     folderDownloadRepository,
     auditRepository,
     storage,
+    options.folderDownloadLimits,
   );
 
   const grantRepository = new PostgresFileGrantRepository(db);
@@ -119,13 +123,18 @@ export function createApiComposition(
   };
 }
 
-export function createFolderDownloadWorkerComposition(db: Database, s3Config: S3Config) {
+export function createFolderDownloadWorkerComposition(
+  db: Database,
+  s3Config: S3Config,
+  options: { readonly folderDownloadLimits?: FolderDownloadLimitsConfig } = {},
+) {
   const storage = new S3ObjectStorage(s3Config);
   const folderDownloadRepository = new PostgresFolderDownloadRepository(db);
   const folderArchiver = new StreamingFolderArchiver(storage);
   const folderDownloadProcessor = new FolderDownloadProcessor(
     folderDownloadRepository,
     folderArchiver,
+    options.folderDownloadLimits,
   );
 
   return {

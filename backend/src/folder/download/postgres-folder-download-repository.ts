@@ -7,12 +7,15 @@ import type {
   CompleteFolderDownloadAttemptCommand,
   CreateFolderDownloadCommand,
   ExpireReadyFolderDownloadsCommand,
+  FolderArchiveSummary,
   FolderDownloadRepository,
   GetFolderArchiveManifestCommand,
+  GetFolderArchiveSummaryCommand,
   MarkFolderDownloadFailedCommand,
   RenewFolderDownloadLeaseCommand,
 } from './folder-download-repository.js';
 import type { FolderArchiveEntry, FolderDownload } from './folder-download.js';
+import { MAX_FOLDER_TREE_DEPTH } from '../validation-schemas.js';
 import {
   enqueueObjectDeletionInTransaction,
   enqueueObjectDeletionsInTransaction,
@@ -230,6 +233,65 @@ export class PostgresFolderDownloadRepository implements FolderDownloadRepositor
       .returning({ id: folderDownloads.id });
 
     return updated !== undefined;
+  }
+
+  async getArchiveSummary(
+    command: GetFolderArchiveSummaryCommand,
+    tx: TransactionContext,
+  ): Promise<FolderArchiveSummary> {
+    const result = await tx.execute<{ fileCount: number; totalSizeBytes: string }>(sql`
+      WITH RECURSIVE folder_tree AS (
+        SELECT
+          root.id,
+          root.kind,
+          1 AS depth,
+          ARRAY[root.id]::bigint[] AS visited_ids
+        FROM entries root
+        WHERE root.id = ${command.rootFolderId}
+          AND root.owner_id = ${command.ownerId}
+          AND root.kind = 'folder'
+          AND root.deleted_at IS NULL
+
+        UNION ALL
+
+        SELECT
+          child.id,
+          child.kind,
+          parent.depth + 1,
+          parent.visited_ids || ARRAY[child.id]::bigint[]
+        FROM entries child
+        JOIN folder_tree parent
+          ON child.parent_id = parent.id
+          AND parent.kind = 'folder'
+        WHERE child.owner_id = ${command.ownerId}
+          AND child.deleted_at IS NULL
+          AND NOT (child.id = ANY(parent.visited_ids))
+          AND (
+            (child.kind = 'folder' AND parent.depth < ${MAX_FOLDER_TREE_DEPTH})
+            OR (child.kind = 'file' AND parent.depth <= ${MAX_FOLDER_TREE_DEPTH})
+          )
+      )
+      SELECT
+        COUNT(file.entry_id)::integer AS "fileCount",
+        COALESCE(SUM(file.size_bytes), 0)::text AS "totalSizeBytes"
+      FROM folder_tree tree
+      JOIN files file
+        ON file.entry_id = tree.id
+      WHERE tree.kind = 'file'
+    `);
+
+    const row = result.rows[0];
+    const fileCount = row?.fileCount ?? 0;
+    const totalSizeBytes = Number(row?.totalSizeBytes ?? '0');
+
+    if (!Number.isSafeInteger(totalSizeBytes) || totalSizeBytes < 0) {
+      throw new Error('Archive summary has invalid total size');
+    }
+
+    return {
+      fileCount,
+      totalSizeBytes,
+    };
   }
 
   async getArchiveManifest(

@@ -44,6 +44,16 @@ export type GetFolderArchiveManifestCommand = {
   rootFolderName: string;
 };
 
+export type GetFolderArchiveSummaryCommand = {
+  ownerId: number;
+  rootFolderId: number;
+};
+
+export type FolderArchiveSummary = {
+  fileCount: number;
+  totalSizeBytes: number;
+};
+
 export type ExpireReadyFolderDownloadsCommand = {
   expiredAt: Date;
   limit: number;
@@ -56,6 +66,10 @@ export interface FolderDownloadRepository {
   renewLease(command: RenewFolderDownloadLeaseCommand): Promise<boolean>;
   completeArchiveAttempt(command: CompleteFolderDownloadAttemptCommand): Promise<'ready' | 'stale'>;
   markFailed(command: MarkFolderDownloadFailedCommand): Promise<boolean>;
+  getArchiveSummary(
+    command: GetFolderArchiveSummaryCommand,
+    tx: TransactionContext,
+  ): Promise<FolderArchiveSummary>;
   getArchiveManifest(command: GetFolderArchiveManifestCommand): Promise<FolderArchiveEntry[]>;
   expireReadyFolderDownloads(command: ExpireReadyFolderDownloadsCommand): Promise<number>;
 }

@@ -318,6 +318,60 @@ describe('FolderDownloadProcessor', () => {
 
     expect(repository.markFailed).not.toHaveBeenCalled();
   });
+
+  it('re-enforces max archive file count before streaming and marks the job failed', async () => {
+    const boundedProcessor = new FolderDownloadProcessor(repository, archiver, {
+      maxFiles: 1,
+      maxTotalBytes: 1_000,
+    });
+    const download = makeDownload();
+    repository.claimNext.mockResolvedValue(download);
+    repository.getArchiveManifest.mockResolvedValue([
+      { kind: 'folder', pathParts: ['Documents'] },
+      { kind: 'file', pathParts: ['Documents', 'a.txt'], objectKey: 'k1', sizeBytes: 10 },
+      { kind: 'file', pathParts: ['Documents', 'b.txt'], objectKey: 'k2', sizeBytes: 10 },
+    ]);
+    repository.markFailed.mockResolvedValue(true);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(boundedProcessor.processNext()).resolves.toBe(true);
+
+    expect(archiver.create).not.toHaveBeenCalled();
+    expect(repository.completeArchiveAttempt).not.toHaveBeenCalled();
+    expect(repository.markFailed).toHaveBeenCalledExactlyOnceWith({
+      id: download.id,
+      attemptCount: download.attemptCount,
+      failureCode: 'folder_download_too_many_files',
+      finishedAt: NOW,
+    });
+  });
+
+  it('re-enforces max total archive size before streaming and marks the job failed', async () => {
+    const boundedProcessor = new FolderDownloadProcessor(repository, archiver, {
+      maxFiles: 10,
+      maxTotalBytes: 100,
+    });
+    const download = makeDownload();
+    repository.claimNext.mockResolvedValue(download);
+    repository.getArchiveManifest.mockResolvedValue([
+      { kind: 'folder', pathParts: ['Documents'] },
+      { kind: 'file', pathParts: ['Documents', 'a.txt'], objectKey: 'k1', sizeBytes: 60 },
+      { kind: 'file', pathParts: ['Documents', 'b.txt'], objectKey: 'k2', sizeBytes: 41 },
+    ]);
+    repository.markFailed.mockResolvedValue(true);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(boundedProcessor.processNext()).resolves.toBe(true);
+
+    expect(archiver.create).not.toHaveBeenCalled();
+    expect(repository.completeArchiveAttempt).not.toHaveBeenCalled();
+    expect(repository.markFailed).toHaveBeenCalledExactlyOnceWith({
+      id: download.id,
+      attemptCount: download.attemptCount,
+      failureCode: 'folder_download_too_large',
+      finishedAt: NOW,
+    });
+  });
 });
 
 function makeDownload(overrides: Partial<FolderDownload> = {}): FolderDownload {

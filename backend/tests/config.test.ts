@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  DEFAULT_FOLDER_DOWNLOAD_MAX_FILES,
+  DEFAULT_FOLDER_DOWNLOAD_MAX_TOTAL_BYTES,
   DEFAULT_MAX_PENDING_UPLOAD_INTENTS_PER_USER,
   DEFAULT_USER_STORAGE_QUOTA_BYTES,
   loadApiConfig,
   loadDbConfig,
+  loadFolderDownloadLimitsConfig,
   loadHttpConfig,
   loadOidcConfig,
   loadRedisConfig,
@@ -166,8 +169,36 @@ describe('modular environment config loaders', () => {
       userStorageQuotaBytes: DEFAULT_USER_STORAGE_QUOTA_BYTES,
       maxPendingUploadIntentsPerUser: DEFAULT_MAX_PENDING_UPLOAD_INTENTS_PER_USER,
     });
+    expect(apiConfig.folderDownloadLimits).toStrictEqual({
+      maxFiles: DEFAULT_FOLDER_DOWNLOAD_MAX_FILES,
+      maxTotalBytes: DEFAULT_FOLDER_DOWNLOAD_MAX_TOTAL_BYTES,
+    });
     expect(apiConfig.s3.forcePathStyle).toBe(false);
     expect(apiConfig.oidc.audience).toBe('zero-vault-api');
+  });
+
+  it('loads folder download limit defaults and custom values and rejects non-positive limits', () => {
+    expect(loadFolderDownloadLimitsConfig({})).toStrictEqual({
+      maxFiles: DEFAULT_FOLDER_DOWNLOAD_MAX_FILES,
+      maxTotalBytes: DEFAULT_FOLDER_DOWNLOAD_MAX_TOTAL_BYTES,
+    });
+
+    expect(
+      loadFolderDownloadLimitsConfig({
+        FOLDER_DOWNLOAD_MAX_FILES: '250',
+        FOLDER_DOWNLOAD_MAX_TOTAL_BYTES: '104857600',
+      }),
+    ).toStrictEqual({
+      maxFiles: 250,
+      maxTotalBytes: 104_857_600,
+    });
+
+    expect(() => loadFolderDownloadLimitsConfig({ FOLDER_DOWNLOAD_MAX_FILES: '0' })).toThrow(
+      'Invalid folder download limits environment configuration',
+    );
+    expect(() => loadFolderDownloadLimitsConfig({ FOLDER_DOWNLOAD_MAX_TOTAL_BYTES: '-5' })).toThrow(
+      'Invalid folder download limits environment configuration',
+    );
   });
 
   it('loads upload limit defaults and custom values and rejects non-positive limits', () => {

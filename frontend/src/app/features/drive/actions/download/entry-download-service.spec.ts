@@ -187,6 +187,32 @@ describe('EntryDownloadService', () => {
     });
   });
 
+  it('forwards specific failureCode and message when a folder download fails with a user-facing reason', async () => {
+    const promise = service.prepareDownload(FOLDER_ENTRY);
+
+    const createReq = httpTesting.expectOne('/api/folders/folder-1/downloads');
+    createReq.flush({ downloadId: 'dl-5', fileName: 'Projects.zip', status: 'queued' });
+    await Promise.resolve();
+
+    const poll1 = httpTesting.expectOne('/api/folders/downloads/dl-5');
+    poll1.flush({
+      downloadId: 'dl-5',
+      fileName: 'Projects.zip',
+      status: 'failed',
+      failureCode: 'folder_download_too_large',
+      message: 'Ukupna veličina datoteka u direktoriju prelazi dopuštenu veličinu ZIP arhive.',
+    });
+
+    await expect(promise).resolves.toStrictEqual({
+      ok: false,
+      error: {
+        status: -1,
+        code: 'folder_download_too_large',
+        message: 'Ukupna veličina datoteka u direktoriju prelazi dopuštenu veličinu ZIP arhive.',
+      },
+    });
+  });
+
   it('preserves HTTP API error payloads when download preparation fails', async () => {
     const promise = service.prepareDownload(FILE_ENTRY);
 

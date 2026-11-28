@@ -48,6 +48,7 @@ describe('FolderDownloadService', () => {
     auditRepository = mock<AuditRepository>();
     storage = mock<ObjectStorage>();
     entryAuthorizer.authorizeForRead.mockResolvedValue(makeAuthorizedFolder());
+    repository.getArchiveSummary.mockResolvedValue({ fileCount: 1, totalSizeBytes: 12 });
     service = new FolderDownloadService(
       unitOfWork,
       entryAuthorizer,
@@ -127,6 +128,58 @@ describe('FolderDownloadService', () => {
 
     expect(repository.create).not.toHaveBeenCalled();
     expect(auditRepository.record).not.toHaveBeenCalled();
+  });
+
+  it('rejects createDownload upfront when folder exceeds max file count or max total archive size', async () => {
+    const limitedService = new FolderDownloadService(
+      unitOfWork,
+      entryAuthorizer,
+      repository,
+      auditRepository,
+      storage,
+      { maxFiles: 5, maxTotalBytes: 1_000 },
+    );
+
+    repository.getArchiveSummary.mockResolvedValueOnce({ fileCount: 6, totalSizeBytes: 500 });
+    await expect(limitedService.createDownload(USER, FOLDER_PUBLIC_ID)).rejects.toMatchObject({
+      code: 'folder_download_too_many_files',
+    });
+
+    repository.getArchiveSummary.mockResolvedValueOnce({ fileCount: 5, totalSizeBytes: 1_001 });
+    await expect(limitedService.createDownload(USER, FOLDER_PUBLIC_ID)).rejects.toMatchObject({
+      code: 'folder_download_too_large',
+    });
+
+    expect(repository.create).not.toHaveBeenCalled();
+    expect(auditRepository.record).not.toHaveBeenCalled();
+  });
+
+  it('exposes Croatian failure details for user-facing archive limit failures and hides internal failure codes', async () => {
+    const limitFailed = makeDownload({
+      status: 'failed',
+      failureCode: 'folder_download_too_large',
+    });
+    repository.findByOwnerAndDownloadId.mockResolvedValueOnce(limitFailed);
+
+    await expect(service.getStatus(USER, limitFailed.downloadId)).resolves.toStrictEqual({
+      downloadId: limitFailed.downloadId,
+      fileName: 'Documents.zip',
+      status: 'failed',
+      failureCode: 'folder_download_too_large',
+      message: 'Ukupna veličina datoteka u direktoriju prelazi dopuštenu veličinu ZIP arhive.',
+    });
+
+    const internalFailed = makeDownload({
+      status: 'failed',
+      failureCode: 'archive_creation_failed',
+    });
+    repository.findByOwnerAndDownloadId.mockResolvedValueOnce(internalFailed);
+
+    await expect(service.getStatus(USER, internalFailed.downloadId)).resolves.toStrictEqual({
+      downloadId: internalFailed.downloadId,
+      fileName: 'Documents.zip',
+      status: 'failed',
+    });
   });
 
   it.each(['queued', 'processing'] as const)(

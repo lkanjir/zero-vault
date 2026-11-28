@@ -1289,6 +1289,63 @@ describe('PostgreSQL storage lifecycle', () => {
         'file.share_revoked',
       ]);
     });
+
+    it('rejects folder download creation upfront when nested active files exceed file-count or total-size limits', async () => {
+      const owner = await createUser();
+      const root = await createFolder(owner.id, 'ArchiveRoot');
+      const sub = await createFolder(owner.id, 'Nested', root.id);
+
+      await createFile(owner.id, root.id, 'one.txt', `integration-tests/${randomUUID()}`);
+      await createFile(owner.id, sub.id, 'two.txt', `integration-tests/${randomUUID()}`);
+      const deleted = await createFile(
+        owner.id,
+        sub.id,
+        'deleted.txt',
+        `integration-tests/${randomUUID()}`,
+      );
+      await database
+        .update(entries)
+        .set({ deletedAt: new Date() })
+        .where(eq(entries.id, deleted.id));
+
+      // Each active file is 12 bytes -> 2 active files, 24 total bytes (deleted ignored)
+      const countLimitedService = new FolderDownloadService(
+        unitOfWork,
+        entryAuthorizer,
+        folderRepository,
+        auditRepository,
+        createStubStorage(),
+        { maxFiles: 1, maxTotalBytes: 1_000 },
+      );
+      await expect(
+        countLimitedService.createDownload(toDomainUser(owner), root.publicId),
+      ).rejects.toMatchObject({ code: 'folder_download_too_many_files' });
+
+      const sizeLimitedService = new FolderDownloadService(
+        unitOfWork,
+        entryAuthorizer,
+        folderRepository,
+        auditRepository,
+        createStubStorage(),
+        { maxFiles: 10, maxTotalBytes: 23 },
+      );
+      await expect(
+        sizeLimitedService.createDownload(toDomainUser(owner), root.publicId),
+      ).rejects.toMatchObject({ code: 'folder_download_too_large' });
+
+      // Exact boundary (2 files, 24 bytes) succeeds
+      const exactBoundaryService = new FolderDownloadService(
+        unitOfWork,
+        entryAuthorizer,
+        folderRepository,
+        auditRepository,
+        createStubStorage(),
+        { maxFiles: 2, maxTotalBytes: 24 },
+      );
+      await expect(
+        exactBoundaryService.createDownload(toDomainUser(owner), root.publicId),
+      ).resolves.toMatchObject({ status: 'queued', fileName: 'ArchiveRoot.zip' });
+    });
   });
 
   async function createUser() {

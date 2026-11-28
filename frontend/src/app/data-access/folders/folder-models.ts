@@ -35,5 +35,10 @@ export type FolderDownloadStatusResponse =
       expiresInSeconds: number;
     })
   | (FolderDownloadStatusBase & {
-      status: 'failed' | 'expired';
+      status: 'failed';
+      failureCode?: string;
+      message?: string;
+    })
+  | (FolderDownloadStatusBase & {
+      status: 'expired';
     });

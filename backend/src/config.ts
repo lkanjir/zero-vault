@@ -97,6 +97,8 @@ const trustProxyEnvSchema = z
 
 export const DEFAULT_USER_STORAGE_QUOTA_BYTES = 10 * 1024 * 1024 * 1024; // 10 GiB
 export const DEFAULT_MAX_PENDING_UPLOAD_INTENTS_PER_USER = 20;
+export const DEFAULT_FOLDER_DOWNLOAD_MAX_FILES = 10_000;
+export const DEFAULT_FOLDER_DOWNLOAD_MAX_TOTAL_BYTES = 5 * 1024 * 1024 * 1024; // 5 GiB
 
 const uploadLimitsEnvSchema = z.object({
   USER_STORAGE_QUOTA_BYTES: z.coerce
@@ -111,6 +113,21 @@ const uploadLimitsEnvSchema = z.object({
     .positive()
     .max(10_000)
     .default(DEFAULT_MAX_PENDING_UPLOAD_INTENTS_PER_USER),
+});
+
+const folderDownloadLimitsEnvSchema = z.object({
+  FOLDER_DOWNLOAD_MAX_FILES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(1_000_000)
+    .default(DEFAULT_FOLDER_DOWNLOAD_MAX_FILES),
+  FOLDER_DOWNLOAD_MAX_TOTAL_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER)
+    .default(DEFAULT_FOLDER_DOWNLOAD_MAX_TOTAL_BYTES),
 });
 
 const httpEnvSchema = z.object({
@@ -158,6 +175,11 @@ export type UploadLimitsConfig = {
   readonly maxPendingUploadIntentsPerUser: number;
 };
 
+export type FolderDownloadLimitsConfig = {
+  readonly maxFiles: number;
+  readonly maxTotalBytes: number;
+};
+
 export type ApiConfig = {
   readonly db: DbConfig;
   readonly redis: RedisConfig;
@@ -165,6 +187,7 @@ export type ApiConfig = {
   readonly oidc: OidcConfig;
   readonly http: HttpConfig;
   readonly uploadLimits: UploadLimitsConfig;
+  readonly folderDownloadLimits: FolderDownloadLimitsConfig;
 };
 
 export function loadDotenv(): void {
@@ -248,6 +271,16 @@ export function loadUploadLimitsConfig(env: NodeJS.ProcessEnv = process.env): Up
   };
 }
 
+export function loadFolderDownloadLimitsConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): FolderDownloadLimitsConfig {
+  const parsed = parseEnv(folderDownloadLimitsEnvSchema, env, 'folder download limits');
+  return {
+    maxFiles: parsed.FOLDER_DOWNLOAD_MAX_FILES,
+    maxTotalBytes: parsed.FOLDER_DOWNLOAD_MAX_TOTAL_BYTES,
+  };
+}
+
 export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   return {
     db: loadDbConfig(env),
@@ -256,5 +289,6 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     oidc: loadOidcConfig(env),
     http: loadHttpConfig(env),
     uploadLimits: loadUploadLimitsConfig(env),
+    folderDownloadLimits: loadFolderDownloadLimitsConfig(env),
   };
 }

@@ -37,6 +37,7 @@ export function createApp({ config, database, redis, rateLimiters }: CreateAppOp
   const app = express();
   const composition = createApiComposition(database.db, config.s3, {
     uploadLimits: config.uploadLimits,
+    folderDownloadLimits: config.folderDownloadLimits,
   });
   const requireAuth = createRequireAuthMiddleware(createAccessTokenVerifier(config.oidc));
   const resolveUser = createResolveUserMiddleware(composition.userService);

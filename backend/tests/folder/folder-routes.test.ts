@@ -314,6 +314,22 @@ describe('folder routes', () => {
     expect(depthRes.status).toBe(400);
     expect((depthRes.body as ErrorResponse).code).toBe('folder_depth_limit_exceeded');
   });
+
+  it.each(['folder_download_too_many_files', 'folder_download_too_large'] as const)(
+    'maps %s on folder download creation to 413 with a Croatian message',
+    async (code) => {
+      folderDownloadService.createDownload.mockRejectedValueOnce(new AppError(code));
+
+      const response = await request(createTestApp(entryService, folderDownloadService)).post(
+        `/folders/${FOLDER_ID}/downloads`,
+      );
+      const body = response.body as ErrorResponse;
+
+      expect(response.status).toBe(413);
+      expect(body.code).toBe(code);
+      expect(body.message.length).toBeGreaterThan(0);
+    },
+  );
 });
 
 function createTestApp(

@@ -1,3 +1,8 @@
+import {
+  DEFAULT_FOLDER_DOWNLOAD_MAX_FILES,
+  DEFAULT_FOLDER_DOWNLOAD_MAX_TOTAL_BYTES,
+  type FolderDownloadLimitsConfig,
+} from '../../config.js';
 import type { CreateFolderArchiveResult, FolderArchiver } from './folder-archiver.js';
 import type { FolderDownloadRepository } from './folder-download-repository.js';
 import type { FolderDownload } from './folder-download.js';
@@ -8,11 +13,18 @@ const ARCHIVE_RETENTION_MS = 60 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 const ARCHIVE_FAILURE_CODE = 'archive_creation_failed';
 const FOLDER_UNAVAILABLE_FAILURE_CODE = 'folder_unavailable';
+const TOO_MANY_FILES_FAILURE_CODE = 'folder_download_too_many_files';
+const ARCHIVE_TOO_LARGE_FAILURE_CODE = 'folder_download_too_large';
+const DEFAULT_FOLDER_DOWNLOAD_LIMITS: FolderDownloadLimitsConfig = {
+  maxFiles: DEFAULT_FOLDER_DOWNLOAD_MAX_FILES,
+  maxTotalBytes: DEFAULT_FOLDER_DOWNLOAD_MAX_TOTAL_BYTES,
+};
 
 export class FolderDownloadProcessor {
   constructor(
     private readonly repository: FolderDownloadRepository,
     private readonly archiver: FolderArchiver,
+    private readonly limits: FolderDownloadLimitsConfig = DEFAULT_FOLDER_DOWNLOAD_LIMITS,
   ) {}
 
   async processNext(signal?: AbortSignal): Promise<boolean> {
@@ -124,6 +136,27 @@ export class FolderDownloadProcessor {
       if (entries.length === 0) {
         stopLeaseRenewal();
         await this.markFailed(download, FOLDER_UNAVAILABLE_FAILURE_CODE);
+        return;
+      }
+
+      let fileCount = 0;
+      let totalSizeBytes = 0;
+      for (const entry of entries) {
+        if (entry.kind === 'file') {
+          fileCount += 1;
+          totalSizeBytes += entry.sizeBytes;
+        }
+      }
+
+      if (fileCount > this.limits.maxFiles) {
+        stopLeaseRenewal();
+        await this.markFailed(download, TOO_MANY_FILES_FAILURE_CODE);
+        return;
+      }
+
+      if (totalSizeBytes > this.limits.maxTotalBytes) {
+        stopLeaseRenewal();
+        await this.markFailed(download, ARCHIVE_TOO_LARGE_FAILURE_CODE);
         return;
       }
 

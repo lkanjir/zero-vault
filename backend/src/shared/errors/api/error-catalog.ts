@@ -111,6 +111,16 @@ export const errorCatalog = {
     message: 'Za dani direktorij nije traženo preuzimanje.',
   },
 
+  folder_download_too_many_files: {
+    status: 413,
+    message: 'Direktorij sadrži previše datoteka za preuzimanje u jednoj ZIP arhivi.',
+  },
+
+  folder_download_too_large: {
+    status: 413,
+    message: 'Ukupna veličina datoteka u direktoriju prelazi dopuštenu veličinu ZIP arhive.',
+  },
+
   file_not_found: {
     status: 404,
     message: 'Datoteka nije pronađena.',
