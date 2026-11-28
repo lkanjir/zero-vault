@@ -1,4 +1,4 @@
-import express, { type Router } from 'express';
+import express, { type RequestHandler, type Router } from 'express';
 import type { EntryService } from './entry-service.js';
 import {
   entryIdParamsSchema,
@@ -6,21 +6,41 @@ import {
   updateEntryBodySchema,
 } from './validation-schemas.js';
 import { requireUser } from '../auth/resolve-user-middleware.js';
-import { createApiRateLimiters, type ApiRateLimiters } from '../shared/http/api-rate-limiters.js';
+import { createAuthenticatedRateLimiter } from '../shared/http/rate-limit/authenticated-rate-limiter.js';
+import type { RateLimitStoreFactory } from '../shared/http/rate-limit/rate-limit-store.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
+
+const ONE_MINUTE_MS = 60_000;
+
+export function createEntryMutationRateLimiter(
+  storeFactory: RateLimitStoreFactory,
+): RequestHandler {
+  return createAuthenticatedRateLimiter({
+    identifier: 'entry-mutation',
+    windowMs: ONE_MINUTE_MS,
+    limit: 120,
+    store: storeFactory('entry-mutation'),
+  });
+}
 
 export type EntryRouterDeps = {
   entryService: EntryService;
-  rateLimiters?: Pick<ApiRateLimiters, 'entryReadRateLimiter' | 'entryMutationRateLimiter'>;
+  rateLimitStoreFactory: RateLimitStoreFactory;
 };
 
 export function createEntryRouter(deps: EntryRouterDeps): Router {
   const router = express.Router();
-  const rateLimiters = deps.rateLimiters ?? createApiRateLimiters();
+  const entryReadRateLimiter = createAuthenticatedRateLimiter({
+    identifier: 'entry-read',
+    windowMs: ONE_MINUTE_MS,
+    limit: 180,
+    store: deps.rateLimitStoreFactory('entry-read'),
+  });
+  const entryMutationRateLimiter = createEntryMutationRateLimiter(deps.rateLimitStoreFactory);
 
   router.get(
     '/',
-    rateLimiters.entryReadRateLimiter,
+    entryReadRateLimiter,
     validateRequest({ query: listEntriesQuerySchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
 
@@ -39,7 +59,7 @@ export function createEntryRouter(deps: EntryRouterDeps): Router {
 
   router.patch(
     '/:entryId',
-    rateLimiters.entryMutationRateLimiter,
+    entryMutationRateLimiter,
     validateRequest(
       { params: entryIdParamsSchema, body: updateEntryBodySchema },
       async (req, res, validated) => {
@@ -58,7 +78,7 @@ export function createEntryRouter(deps: EntryRouterDeps): Router {
 
   router.delete(
     '/:entryId',
-    rateLimiters.entryMutationRateLimiter,
+    entryMutationRateLimiter,
     validateRequest({ params: entryIdParamsSchema }, async (req, res, validated) => {
       const user = requireUser(req);
 

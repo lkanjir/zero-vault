@@ -16,6 +16,7 @@ import type { ErrorResponse } from '../../src/shared/errors/api/error-response.j
 import { errorHandler } from '../../src/shared/http/error-handler.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
 import type { User } from '../../src/user/user.js';
+import { createMemoryRateLimitStoreFactory } from '../helpers/memory-rate-limit-store.js';
 
 const FOLDER_ID = '20000000-0000-4000-8000-000000000001';
 const DOWNLOAD_ID = '30000000-0000-4000-8000-000000000001';
@@ -345,7 +346,14 @@ function createTestApp(
     req.user = USER;
     next();
   });
-  app.use('/folders', createFolderRouter({ entryService, folderDownloadService }));
+  app.use(
+    '/folders',
+    createFolderRouter({
+      entryService,
+      folderDownloadService,
+      rateLimitStoreFactory: createMemoryRateLimitStoreFactory(),
+    }),
+  );
   app.use(errorHandler);
 
   return app;

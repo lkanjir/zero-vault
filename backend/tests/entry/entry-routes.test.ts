@@ -10,6 +10,7 @@ import type { ErrorResponse } from '../../src/shared/errors/api/error-response.j
 import { errorHandler } from '../../src/shared/http/error-handler.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
 import type { User } from '../../src/user/user.js';
+import { createMemoryRateLimitStoreFactory } from '../helpers/memory-rate-limit-store.js';
 
 const ENTRY_ID = '20000000-0000-4000-8000-000000000001';
 const DESCENDANT_FOLDER_ID = '20000000-0000-4000-8000-000000000002';
@@ -299,7 +300,13 @@ function createTestApp(entryService: EntryService) {
     req.user = USER;
     next();
   });
-  app.use('/entries', createEntryRouter({ entryService }));
+  app.use(
+    '/entries',
+    createEntryRouter({
+      entryService,
+      rateLimitStoreFactory: createMemoryRateLimitStoreFactory(),
+    }),
+  );
   app.use(errorHandler);
 
   return app;

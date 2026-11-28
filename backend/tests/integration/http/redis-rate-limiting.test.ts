@@ -7,11 +7,11 @@ import type { AuthenticatedPrincipal } from '../../../src/auth/authenticated-pri
 import { createRedisClient, type RedisHandle } from '../../../src/redis/redis-client.js';
 import { errorCatalog } from '../../../src/shared/errors/api/error-catalog.js';
 import type { ErrorResponse } from '../../../src/shared/errors/api/error-response.js';
-import { createRedisRateLimitStoreFactory } from '../../../src/shared/http/api-rate-limiters.js';
-import { createAuthenticatedRateLimiter } from '../../../src/shared/http/authenticated-rate-limiter.js';
+import { createAuthenticatedRateLimiter } from '../../../src/shared/http/rate-limit/authenticated-rate-limiter.js';
 import { errorHandler } from '../../../src/shared/http/error-handler.js';
 import { createHealthRouter } from '../../../src/shared/http/health-routes.js';
-import { createIpRateLimiter } from '../../../src/shared/http/ip-rate-limiter.js';
+import { createIpRateLimiter } from '../../../src/shared/http/rate-limit/ip-rate-limiter.js';
+import { createRedisRateLimitStoreFactory } from '../../../src/shared/http/rate-limit/redis-rate-limit-store.js';
 import { requestContext } from '../../../src/shared/http/request-context.js';
 
 const ISSUER = 'https://identity.example.test/realms/zero-vault';

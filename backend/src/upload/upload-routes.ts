@@ -1,4 +1,4 @@
-import express, { type Router } from 'express';
+import express, { type RequestHandler, type Router } from 'express';
 import {
   completeUploadBodySchema,
   presignPartsBodySchema,
@@ -8,23 +8,44 @@ import {
 import { requireUser } from '../auth/resolve-user-middleware.js';
 import type { UploadService } from './upload-service.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
-import { createApiRateLimiters, type ApiRateLimiters } from '../shared/http/api-rate-limiters.js';
+import { createAuthenticatedRateLimiter } from '../shared/http/rate-limit/authenticated-rate-limiter.js';
+import type { RateLimitStoreFactory } from '../shared/http/rate-limit/rate-limit-store.js';
+
+const ONE_MINUTE_MS = 60_000;
+
+export function createUploadIntentRateLimiter(storeFactory: RateLimitStoreFactory): RequestHandler {
+  return createAuthenticatedRateLimiter({
+    identifier: 'upload-intent',
+    windowMs: ONE_MINUTE_MS,
+    limit: 120,
+    store: storeFactory('upload-intent'),
+  });
+}
 
 export type UploadRouterDeps = {
   uploadService: UploadService;
-  rateLimiters?: Pick<
-    ApiRateLimiters,
-    'uploadIntentRateLimiter' | 'uploadPartPresignRateLimiter' | 'uploadCompletionRateLimiter'
-  >;
+  rateLimitStoreFactory: RateLimitStoreFactory;
 };
 
 export function createUploadRouter(deps: UploadRouterDeps): Router {
   const router = express.Router();
-  const rateLimiters = deps.rateLimiters ?? createApiRateLimiters();
+  const uploadIntentRateLimiter = createUploadIntentRateLimiter(deps.rateLimitStoreFactory);
+  const uploadPartPresignRateLimiter = createAuthenticatedRateLimiter({
+    identifier: 'upload-part-presign',
+    windowMs: ONE_MINUTE_MS,
+    limit: 600,
+    store: deps.rateLimitStoreFactory('upload-part-presign'),
+  });
+  const uploadCompletionRateLimiter = createAuthenticatedRateLimiter({
+    identifier: 'upload-completion',
+    windowMs: ONE_MINUTE_MS,
+    limit: 120,
+    store: deps.rateLimitStoreFactory('upload-completion'),
+  });
 
   router.post(
     '/presign',
-    rateLimiters.uploadIntentRateLimiter,
+    uploadIntentRateLimiter,
     express.json({ limit: '16kb' }),
     validateRequest({ body: uploadRequestSchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
@@ -36,7 +57,7 @@ export function createUploadRouter(deps: UploadRouterDeps): Router {
 
   router.post(
     '/:uploadId/parts/presign',
-    rateLimiters.uploadPartPresignRateLimiter,
+    uploadPartPresignRateLimiter,
     express.json({ limit: '16kb' }),
     validateRequest(
       { params: uploadIdParamsSchema, body: presignPartsBodySchema },
@@ -56,7 +77,7 @@ export function createUploadRouter(deps: UploadRouterDeps): Router {
 
   router.post(
     '/:uploadId/complete',
-    rateLimiters.uploadCompletionRateLimiter,
+    uploadCompletionRateLimiter,
     express.json({ limit: '2mb' }),
     validateRequest(
       { params: uploadIdParamsSchema, body: completeUploadBodySchema },
@@ -76,7 +97,7 @@ export function createUploadRouter(deps: UploadRouterDeps): Router {
 
   router.post(
     '/:uploadId/abort',
-    rateLimiters.uploadCompletionRateLimiter,
+    uploadCompletionRateLimiter,
     validateRequest({ params: uploadIdParamsSchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
 

@@ -4,20 +4,28 @@ import type { AuditService } from './audit-service.js';
 import { validateRequest } from '../shared/validation/validate-request.js';
 import { listAuditEventsQuerySchema } from './validation-schemas.js';
 import { requireUser } from '../auth/resolve-user-middleware.js';
-import { createApiRateLimiters, type ApiRateLimiters } from '../shared/http/api-rate-limiters.js';
+import { createAuthenticatedRateLimiter } from '../shared/http/rate-limit/authenticated-rate-limiter.js';
+import type { RateLimitStoreFactory } from '../shared/http/rate-limit/rate-limit-store.js';
+
+const ONE_MINUTE_MS = 60_000;
 
 export type AuditRouterDeps = {
   auditService: AuditService;
-  rateLimiters?: Pick<ApiRateLimiters, 'auditReadRateLimiter'>;
+  rateLimitStoreFactory: RateLimitStoreFactory;
 };
 
 export function createAuditRouter(deps: AuditRouterDeps): Router {
   const router = express.Router();
-  const rateLimiters = deps.rateLimiters ?? createApiRateLimiters();
+  const auditReadRateLimiter = createAuthenticatedRateLimiter({
+    identifier: 'audit-read',
+    windowMs: ONE_MINUTE_MS,
+    limit: 60,
+    store: deps.rateLimitStoreFactory('audit-read'),
+  });
 
   router.get(
     '/events',
-    rateLimiters.auditReadRateLimiter,
+    auditReadRateLimiter,
     validateRequest({ query: listAuditEventsQuerySchema }, async (req, res, validated) => {
       const user = requireUser(req);
 
@@ -29,7 +37,7 @@ export function createAuditRouter(deps: AuditRouterDeps): Router {
 
   router.get(
     '/statistics',
-    rateLimiters.auditReadRateLimiter,
+    auditReadRateLimiter,
     validateRequest({}, async (req, res) => {
       const user = requireUser(req);
 

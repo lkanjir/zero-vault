@@ -13,6 +13,7 @@ import type { FileSharingService } from '../../src/sharing/file-sharing-service.
 import { AppError } from '../../src/shared/errors/api/app-error.js';
 import type { UploadService } from '../../src/upload/upload-service.js';
 import { MAX_UPLOAD_SIZE_BYTES, SINGLE_PART_MAX_BYTES } from '../../src/upload/upload-sizing.js';
+import { createMemoryRateLimitStoreFactory } from '../helpers/memory-rate-limit-store.js';
 
 const FILE_ID = '20000000-0000-4000-8000-000000000001';
 const SHARE_ID = '30000000-0000-4000-8000-000000000001';
@@ -614,7 +615,15 @@ function createTestApp(
     req.user = USER;
     next();
   });
-  app.use('/files', createFilesRouter({ downloadService, sharingService, uploadService }));
+  app.use(
+    '/files',
+    createFilesRouter({
+      downloadService,
+      sharingService,
+      uploadService,
+      rateLimitStoreFactory: createMemoryRateLimitStoreFactory(),
+    }),
+  );
   app.use(errorHandler);
 
   return app;

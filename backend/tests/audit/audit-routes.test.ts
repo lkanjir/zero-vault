@@ -10,6 +10,7 @@ import type { ErrorResponse } from '../../src/shared/errors/api/error-response.j
 import { errorHandler } from '../../src/shared/http/error-handler.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
 import type { User } from '../../src/user/user.js';
+import { createMemoryRateLimitStoreFactory } from '../helpers/memory-rate-limit-store.js';
 
 const PRINCIPAL: AuthenticatedPrincipal = {
   issuer: process.env['OIDC_ISSUER']!,
@@ -153,7 +154,13 @@ function createTestApp(auditService: AuditService) {
     req.user = USER;
     next();
   });
-  app.use('/audit', createAuditRouter({ auditService }));
+  app.use(
+    '/audit',
+    createAuditRouter({
+      auditService,
+      rateLimitStoreFactory: createMemoryRateLimitStoreFactory(),
+    }),
+  );
   app.use(errorHandler);
 
   return app;

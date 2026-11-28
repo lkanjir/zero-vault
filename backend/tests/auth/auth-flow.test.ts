@@ -6,9 +6,10 @@ import { createApp } from '../../src/app.js';
 import { loadApiConfig } from '../../src/config.js';
 import { createDatabase } from '../../src/db/db-client.js';
 import type { RedisHandle } from '../../src/redis/redis-client.js';
+import { MemoryStore } from 'express-rate-limit';
 import { errorCatalog } from '../../src/shared/errors/api/error-catalog.js';
-import { createApiRateLimiters } from '../../src/shared/http/api-rate-limiters.js';
-import { createIpRateLimiter } from '../../src/shared/http/ip-rate-limiter.js';
+import { createIpRateLimiter } from '../../src/shared/http/rate-limit/ip-rate-limiter.js';
+import { createMemoryRateLimitStoreFactory } from '../helpers/memory-rate-limit-store.js';
 
 function createFakeRedis(overrides: Partial<RedisHandle> = {}): RedisHandle {
   return {
@@ -27,7 +28,7 @@ describe('upload authentication', () => {
     config: apiConfig,
     database,
     redis: createFakeRedis(),
-    rateLimiters: createApiRateLimiters(),
+    rateLimitStoreFactory: createMemoryRateLimitStoreFactory(),
   });
 
   afterAll(async () => {
@@ -83,7 +84,7 @@ describe('upload authentication', () => {
       },
       database,
       redis: createFakeRedis(),
-      rateLimiters: createApiRateLimiters(),
+      rateLimitStoreFactory: createMemoryRateLimitStoreFactory(),
     });
 
     const withHsts = await request(hstsApp).get('/health');
@@ -103,7 +104,7 @@ describe('upload authentication', () => {
       },
       database,
       redis: createFakeRedis(),
-      rateLimiters: createApiRateLimiters(),
+      rateLimitStoreFactory: createMemoryRateLimitStoreFactory(),
     });
 
     expect(proxiedApp.get('trust proxy')).toBe(1);
@@ -120,7 +121,7 @@ describe('upload authentication', () => {
         checkConnection: checkDb,
       },
       redis: fakeRedis,
-      rateLimiters: createApiRateLimiters(),
+      rateLimitStoreFactory: createMemoryRateLimitStoreFactory(),
     });
 
     const okResponse = await request(readyApp).get('/ready');
@@ -164,14 +165,6 @@ describe('upload authentication', () => {
   });
 
   it('enforces the global IP rate limiter before /api/config and JWT authentication', async () => {
-    const rateLimiters = {
-      ...createApiRateLimiters(),
-      globalIpRateLimiter: createIpRateLimiter({
-        identifier: 'api-ip',
-        windowMs: 60_000,
-        limit: 2,
-      }),
-    };
     const limitedApp = createApp({
       config: {
         ...apiConfig,
@@ -182,7 +175,13 @@ describe('upload authentication', () => {
       },
       database,
       redis: createFakeRedis(),
-      rateLimiters,
+      rateLimitStoreFactory: createMemoryRateLimitStoreFactory(),
+      globalIpRateLimiter: createIpRateLimiter({
+        identifier: 'api-ip',
+        windowMs: 60_000,
+        limit: 2,
+        store: new MemoryStore(),
+      }),
     });
 
     const first = await request(limitedApp)

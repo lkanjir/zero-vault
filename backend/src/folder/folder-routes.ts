@@ -8,29 +8,46 @@ import {
   folderDownloadIdParamsSchema,
 } from './download/validation-schemas.js';
 import type { FolderDownloadService } from './download/folder-download-service.js';
-import { createApiRateLimiters, type ApiRateLimiters } from '../shared/http/api-rate-limiters.js';
+import { createEntryMutationRateLimiter } from '../entry/entry-routes.js';
+import { createAuthenticatedRateLimiter } from '../shared/http/rate-limit/authenticated-rate-limiter.js';
+import type { RateLimitStoreFactory } from '../shared/http/rate-limit/rate-limit-store.js';
+
+const ONE_MINUTE_MS = 60_000;
+const TEN_MINUTES_MS = 10 * ONE_MINUTE_MS;
 
 export type FolderRouterDeps = {
   entryService: EntryService;
   folderDownloadService: FolderDownloadService;
-  rateLimiters?: Pick<
-    ApiRateLimiters,
-    | 'entryMutationRateLimiter'
-    | 'folderDownloadRateLimiter'
-    | 'folderDownloadStatusRateLimiter'
-    | 'folderTreeRateLimiter'
-  >;
+  rateLimitStoreFactory: RateLimitStoreFactory;
 };
 
 const INITIAL_POLLING_INTERVAL_SECONDS = 2;
 
 export function createFolderRouter(deps: FolderRouterDeps): Router {
   const router = express.Router();
-  const rateLimiters = deps.rateLimiters ?? createApiRateLimiters();
+  const entryMutationRateLimiter = createEntryMutationRateLimiter(deps.rateLimitStoreFactory);
+  const folderTreeRateLimiter = createAuthenticatedRateLimiter({
+    identifier: 'folder-tree',
+    windowMs: ONE_MINUTE_MS,
+    limit: 60,
+    store: deps.rateLimitStoreFactory('folder-tree'),
+  });
+  const folderDownloadRateLimiter = createAuthenticatedRateLimiter({
+    identifier: 'folder-download',
+    windowMs: TEN_MINUTES_MS,
+    limit: 10,
+    store: deps.rateLimitStoreFactory('folder-download'),
+  });
+  const folderDownloadStatusRateLimiter = createAuthenticatedRateLimiter({
+    identifier: 'folder-download-status',
+    windowMs: ONE_MINUTE_MS,
+    limit: 120,
+    store: deps.rateLimitStoreFactory('folder-download-status'),
+  });
 
   router.post(
     '/',
-    rateLimiters.entryMutationRateLimiter,
+    entryMutationRateLimiter,
     express.json({ limit: '16kb' }),
     validateRequest({ body: createFolderBodySchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
@@ -43,7 +60,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
 
   router.post(
     '/tree',
-    rateLimiters.folderTreeRateLimiter,
+    folderTreeRateLimiter,
     express.json({ limit: '512kb' }),
     validateRequest({ body: ensureFolderTreeBodySchema }, async (req, res, validated) => {
       const authenticatedUser = requireUser(req);
@@ -56,7 +73,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
 
   router.post(
     '/:folderId/downloads',
-    rateLimiters.folderDownloadRateLimiter,
+    folderDownloadRateLimiter,
     validateRequest({ params: createFolderDownloadParamsSchema }, async (req, res, validated) => {
       const user = requireUser(req);
 
@@ -73,7 +90,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
 
   router.get(
     '/downloads/:downloadId',
-    rateLimiters.folderDownloadStatusRateLimiter,
+    folderDownloadStatusRateLimiter,
     validateRequest({ params: folderDownloadIdParamsSchema }, async (req, res, validated) => {
       const user = requireUser(req);
 

@@ -13,6 +13,7 @@ import type { User } from '../../src/user/user.js';
 import { createUploadRouter } from '../../src/upload/upload-routes.js';
 import type { UploadService } from '../../src/upload/upload-service.js';
 import { MAX_UPLOAD_SIZE_BYTES, SINGLE_PART_MAX_BYTES } from '../../src/upload/upload-sizing.js';
+import { createMemoryRateLimitStoreFactory } from '../helpers/memory-rate-limit-store.js';
 
 const UPLOAD_ID = '00000000-0000-4000-8000-000000000001';
 const EXPECTED_SHA256 = 'a'.repeat(64);
@@ -468,6 +469,7 @@ function createTestApp(uploadService: UploadService) {
     '/uploads',
     createUploadRouter({
       uploadService,
+      rateLimitStoreFactory: createMemoryRateLimitStoreFactory(),
     }),
   );
   app.use(errorHandler);

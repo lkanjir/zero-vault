@@ -1,10 +1,11 @@
 import express, { type Express, type RequestHandler } from 'express';
+import { MemoryStore } from 'express-rate-limit';
 import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 import type { AuthenticatedPrincipal } from '../../src/auth/authenticated-principal.js';
 import { errorCatalog } from '../../src/shared/errors/api/error-catalog.js';
 import type { ErrorResponse } from '../../src/shared/errors/api/error-response.js';
-import { createAuthenticatedRateLimiter } from '../../src/shared/http/authenticated-rate-limiter.js';
+import { createAuthenticatedRateLimiter } from '../../src/shared/http/rate-limit/authenticated-rate-limiter.js';
 import { errorHandler } from '../../src/shared/http/error-handler.js';
 import { requestContext } from '../../src/shared/http/request-context.js';
 
@@ -73,6 +74,7 @@ function createTestApp(options: { limit: number; handler: RequestHandler }): Exp
     identifier: 'test-policy',
     windowMs: 60_000,
     limit: options.limit,
+    store: new MemoryStore(),
   });
 
   app.use(requestContext);

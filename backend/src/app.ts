@@ -1,4 +1,4 @@
-import express, { type Express } from 'express';
+import express, { type Express, type RequestHandler } from 'express';
 import helmet from 'helmet';
 import { createAccessTokenVerifier } from './auth/access-token-verifier.js';
 import { createRequireAuthMiddleware } from './auth/auth-middleware.js';
@@ -12,11 +12,9 @@ import { requestContext } from './shared/http/request-context.js';
 import { errorHandler } from './shared/http/error-handler.js';
 import { createHealthRouter } from './shared/http/health-routes.js';
 import { createPublicConfigRouter } from './shared/http/config-routes.js';
-import {
-  createApiRateLimiters,
-  createRedisRateLimitStoreFactory,
-  type ApiRateLimiters,
-} from './shared/http/api-rate-limiters.js';
+import { createIpRateLimiter } from './shared/http/rate-limit/ip-rate-limiter.js';
+import type { RateLimitStoreFactory } from './shared/http/rate-limit/rate-limit-store.js';
+import { createRedisRateLimitStoreFactory } from './shared/http/rate-limit/redis-rate-limit-store.js';
 import { routeNotFound } from './shared/http/route-not-found.js';
 import { createAuditRouter } from './audit/audit-routes.js';
 import { createFrontendRouter } from './frontend/frontend-routes.js';
@@ -25,15 +23,24 @@ import type { RedisHandle } from './redis/redis-client.js';
 import type { ApiConfig } from './config.js';
 
 const HSTS_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
+const GLOBAL_IP_RATE_LIMIT_WINDOW_MS = 60_000;
+const GLOBAL_IP_RATE_LIMIT_MAX_REQUESTS = 1_000;
 
 export type CreateAppOptions = {
   readonly config: ApiConfig;
   readonly database: DatabaseHandle;
   readonly redis: RedisHandle;
-  readonly rateLimiters?: ApiRateLimiters;
+  readonly rateLimitStoreFactory?: RateLimitStoreFactory;
+  readonly globalIpRateLimiter?: RequestHandler;
 };
 
-export function createApp({ config, database, redis, rateLimiters }: CreateAppOptions): Express {
+export function createApp({
+  config,
+  database,
+  redis,
+  rateLimitStoreFactory: customRateLimitStoreFactory,
+  globalIpRateLimiter: customGlobalIpRateLimiter,
+}: CreateAppOptions): Express {
   const app = express();
   const composition = createApiComposition(database.db, config.s3, {
     uploadLimits: config.uploadLimits,
@@ -41,10 +48,15 @@ export function createApp({ config, database, redis, rateLimiters }: CreateAppOp
   });
   const requireAuth = createRequireAuthMiddleware(createAccessTokenVerifier(config.oidc));
   const resolveUser = createResolveUserMiddleware(composition.userService);
-  const apiRateLimiters =
-    rateLimiters ??
-    createApiRateLimiters({
-      storeFactory: createRedisRateLimitStoreFactory(redis),
+  const rateLimitStoreFactory =
+    customRateLimitStoreFactory ?? createRedisRateLimitStoreFactory(redis);
+  const globalIpRateLimiter =
+    customGlobalIpRateLimiter ??
+    createIpRateLimiter({
+      identifier: 'api-ip',
+      windowMs: GLOBAL_IP_RATE_LIMIT_WINDOW_MS,
+      limit: GLOBAL_IP_RATE_LIMIT_MAX_REQUESTS,
+      store: rateLimitStoreFactory('api-ip'),
     });
 
   app.disable('x-powered-by');
@@ -70,7 +82,7 @@ export function createApp({ config, database, redis, rateLimiters }: CreateAppOp
     next();
   });
 
-  app.use('/api', apiRateLimiters.globalIpRateLimiter);
+  app.use('/api', globalIpRateLimiter);
   app.use('/api', createPublicConfigRouter(config.oidc));
 
   // Upload and folder routes own route-specific JSON body limits (2mb on upload completion,
@@ -79,13 +91,13 @@ export function createApp({ config, database, redis, rateLimiters }: CreateAppOp
     '/api/uploads',
     requireAuth,
     resolveUser,
-    createUploadRouter({ ...composition, rateLimiters: apiRateLimiters }),
+    createUploadRouter({ ...composition, rateLimitStoreFactory }),
   );
   app.use(
     '/api/folders',
     requireAuth,
     resolveUser,
-    createFolderRouter({ ...composition, rateLimiters: apiRateLimiters }),
+    createFolderRouter({ ...composition, rateLimitStoreFactory }),
   );
 
   app.use(express.json({ limit: '16kb' }));
@@ -94,19 +106,19 @@ export function createApp({ config, database, redis, rateLimiters }: CreateAppOp
     '/api/entries',
     requireAuth,
     resolveUser,
-    createEntryRouter({ ...composition, rateLimiters: apiRateLimiters }),
+    createEntryRouter({ ...composition, rateLimitStoreFactory }),
   );
   app.use(
     '/api/files',
     requireAuth,
     resolveUser,
-    createFilesRouter({ ...composition, rateLimiters: apiRateLimiters }),
+    createFilesRouter({ ...composition, rateLimitStoreFactory }),
   );
   app.use(
     '/api/audit',
     requireAuth,
     resolveUser,
-    createAuditRouter({ ...composition, rateLimiters: apiRateLimiters }),
+    createAuditRouter({ ...composition, rateLimitStoreFactory }),
   );
 
   app.use('/api', routeNotFound);
